@@ -23,6 +23,8 @@ const chartTitleInput   = document.getElementById("chartTitle");
 const xAxisLabelInput   = document.getElementById("xAxisLabel");
 const yAxisLabelInput   = document.getElementById("yAxisLabel");
 const targetInput       = document.getElementById("targetValue");
+const targetDirectionInput = document.getElementById("targetDirection");
+const capabilityDiv     = document.getElementById("capability");
 
 const generateButton    = document.getElementById("generateButton");
 const errorMessage      = document.getElementById("errorMessage");
@@ -41,6 +43,7 @@ fileInput.addEventListener("change", () => {
 
   errorMessage.textContent = "";
   if (summaryDiv) summaryDiv.innerHTML = "";
+  if (capabilityDiv) capabilityDiv.innerHTML = "";
 
   Papa.parse(file, {
     header: true,
@@ -315,6 +318,14 @@ function updateXmRSummary(result, totalPoints) {
     signals.push("a trend of 6 or more points all increasing or all decreasing");
   }
 
+  const target = getTargetValue();
+  const direction = targetDirectionInput ? targetDirectionInput.value : "above";
+
+  let capability = null;
+  if (target !== null && sigma > 0) {
+    capability = computeTargetCapability(mean, sigma, target, direction);
+  }
+
   let html = `<h3>Summary (XmR chart)</h3>`;
   html += `<ul>`;
   html += `<li>Number of points: <strong>${n}</strong></li>`;
@@ -327,6 +338,19 @@ function updateXmRSummary(result, totalPoints) {
   html += `<li>Estimated σ (from MR): <strong>${sigma.toFixed(3)}</strong> (avg MR = ${avgMR.toFixed(3)})</li>`;
   html += `<li>Control limits: <strong>LCL = ${lcl.toFixed(3)}</strong>, <strong>UCL = ${ucl.toFixed(3)}</strong></li>`;
 
+if (target !== null) {
+  html += `<li>Target: <strong>${target}</strong> (${direction === "above" ? "at or above is better" : "at or below is better"})</li>`;
+  if (capability && signals.length === 0) {
+    html += `<li>Estimated process capability (assuming a stable process and approximate normality): about <strong>${(capability.prob * 100).toFixed(1)}%</strong> of future points are expected to meet the target.</li>`;
+  } else if (capability && signals.length > 0) {
+    html += `<li>Capability: a target has been set, but special-cause signals are present. Any capability estimate would be unreliable until the process is stable.</li>`;
+  } else {
+    html += `<li>Capability: cannot be estimated (insufficient variation to estimate σ).</li>`;
+  }
+} else {
+  html += `<li>Target: not specified – capability not calculated.</li>`;
+}
+
   if (signals.length === 0) {
     html += `<li><strong>Special cause:</strong> No rule breaches detected (points within limits, no long runs or clear trend). Pattern is consistent with common-cause variation, but always interpret in context.</li>`;
   } else {
@@ -336,6 +360,74 @@ function updateXmRSummary(result, totalPoints) {
   html += `</ul>`;
 
   summaryDiv.innerHTML = html;
+
+if (capabilityDiv) {
+  if (target !== null && capability && signals.length === 0) {
+    capabilityDiv.innerHTML = `
+      <div style="
+        display:inline-block;
+        padding:0.6rem 1.2rem;
+        background:#fff59d;
+        border:1px solid #ccc;
+        border-radius:0.25rem;
+      ">
+        <div style="font-weight:bold; text-align:center;">PROCESS CAPABILITY</div>
+        <div style="font-size:1.4rem; font-weight:bold; text-align:center; margin-top:0.2rem;">
+          ${(capability.prob * 100).toFixed(1)}%
+        </div>
+        <div style="font-size:0.8rem; margin-top:0.2rem;">
+          (Estimated probability of meeting the target, assuming no special-cause variation.)
+        </div>
+      </div>
+    `;
+  } else if (target !== null && signals.length > 0) {
+    capabilityDiv.innerHTML = `
+      <div style="
+        display:inline-block;
+        padding:0.6rem 1.2rem;
+        background:#ffe0b2;
+        border:1px solid #ccc;
+        border-radius:0.25rem;
+        max-width:32rem;
+      ">
+        <strong>Process not stable:</strong> special-cause signals are present.
+        Focus on understanding and addressing these causes before relying on capability estimates.
+      </div>
+    `;
+  } else {
+    capabilityDiv.innerHTML = "";
+  }
+}
+
+// Approximate standard normal CDF Φ(z)
+function normalCdf(z) {
+  // Abramowitz & Stegun approximation
+  const t = 1 / (1 + 0.2316419 * Math.abs(z));
+  const d = 0.3989423 * Math.exp(-0.5 * z * z);
+  let prob = d * t * (0.3193815 +
+    t * (-0.3565638 +
+    t * (1.781478 +
+    t * (-1.821256 +
+    t * 1.330274))));
+  if (z > 0) prob = 1 - prob;
+  return prob;
+}
+
+// mean, sigma from XmR; target number; direction "above"/"below"
+function computeTargetCapability(mean, sigma, target, direction) {
+  if (!isFinite(mean) || !isFinite(sigma) || sigma <= 0 || !isFinite(target)) {
+    return null;
+  }
+  const z = (target - mean) / sigma;
+  let p;
+  if (direction === "above") {
+    // P(X >= target)
+    p = 1 - normalCdf(z);
+  } else {
+    // P(X <= target)
+    p = normalCdf(z);
+  }
+  return { prob: p, z };
 }
 
 // ---- Generate chart button ----
@@ -343,6 +435,7 @@ function updateXmRSummary(result, totalPoints) {
 generateButton.addEventListener("click", () => {
   errorMessage.textContent = "";
   if (summaryDiv) summaryDiv.innerHTML = "";
+  if (capabilityDiv) capabilityDiv.innerHTML = "";
 
   if (!rawRows || rawRows.length === 0) {
     errorMessage.textContent = "Please upload a CSV file first.";
