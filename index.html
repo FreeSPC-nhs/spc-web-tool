@@ -169,14 +169,14 @@ canvas {
 }
 
 /* When collapsed, slide the sidebar off to the left and let main fill space */
-.layout.sidebar-collapsed .sidebar {
+body.sidebar-collapsed .sidebar {
   transform: translateX(-110%);
   opacity: 0;
   pointer-events: none;
   position: absolute;
 }
 
-.layout.sidebar-collapsed .main {
+body.sidebar-collapsed .main {
   flex: 1 1 100%;
 }
 
@@ -353,33 +353,37 @@ canvas {
 
 <!-- MAIN AREA: charts + analysis -->
     <main class="main">
+      <div id="reportContent">  
 
-	<div id="reportContent">  
-	<div class="panel">
-  	<strong>Chart:</strong>
-  	<div class="chart-container">
-    	<canvas id="spcChart"></canvas>
-  	</div>
+        <div class="panel">
+          <strong>Chart:</strong>
+          <div class="chart-container">
+            <canvas id="spcChart"></canvas>
+          </div>
 
-	<button id="downloadPngButton" style="margin-top: 0.5rem;">
-  	Download chart as PNG
-	</button>
+          <button id="downloadPngButton" style="margin-top: 0.5rem;">
+            Download chart as PNG
+          </button>
 
-	<button id="downloadPdfButton" style="margin-top: 0.5rem; margin-left: 0.5rem;">
-  	Download PDF report
-	</button>
-	
-	<div id="summary" style="margin-top: 1rem; font-size: 0.9rem;"></div>
-	<div id="capability" style="margin-top: 1rem; font-size: 0.9rem;"></div>
+          <button id="downloadPdfButton" style="margin-top: 0.5rem; margin-left: 0.5rem;">
+            Download PDF report
+          </button>
+          
+          <div id="summary" style="margin-top: 1rem; font-size: 0.9rem;"></div>
+          <div id="capability" style="margin-top: 1rem; font-size: 0.9rem;"></div>
+        </div>
 
-  <div class="panel" id="mrPanel" style="display: none;">
-  <strong>Moving Range chart:</strong>
-  <div class="chart-container">
-    <canvas id="mrChartCanvas"></canvas>
-  </div>
-  </div>
-</main>
-</div>
-   <script src="spc.js"></script>
+        <div class="panel" id="mrPanel" style="display: none;">
+          <strong>Moving Range chart:</strong>
+          <div class="chart-container">
+            <canvas id="mrChartCanvas"></canvas>
+          </div>
+        </div>
+
+      </div> <!-- end #reportContent -->
+    </main>
+  </div> <!-- end .layout -->
+
+  <script src="spc.js"></script>
 </body>
 </html>

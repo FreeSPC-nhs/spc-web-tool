@@ -83,10 +83,7 @@ if (clearAnnotationsBtn) {
 // ---- Toggle sidebar button ----
 if (toggleSidebarButton) {
   toggleSidebarButton.addEventListener("click", () => {
-    const layout = document.querySelector(".layout");
-    if (!layout) return;
-
-    const collapsed = layout.classList.toggle("sidebar-collapsed");
+    const collapsed = document.body.classList.toggle("sidebar-collapsed");
     toggleSidebarButton.textContent = collapsed ? "Show controls" : "Hide controls";
   });
 }
