@@ -544,6 +544,12 @@ function drawXmRChart(points, baselineCount) {
           display: true
         }
       },
+  elements: {
+      point: {
+        radius: 0,
+        hoverRadius: 0
+      }
+    },
       scales: {
         x: {
           grid: { display: false },
