@@ -840,6 +840,29 @@ function drawRunChart(points, baselineCount, labels) {
   updateRunSummary(points, median, runFlags, baselineCountUsed);
 }
 
+function computeLastSegment(points, baselineCount) {
+  const n = points.length;
+  if (n < 2) return null;
+
+  let effectiveSplits = Array.isArray(splits) ? splits.slice() : [];
+  effectiveSplits = effectiveSplits
+    .filter(i => Number.isInteger(i) && i >= 0 && i < n - 1)
+    .sort((a, b) => a - b);
+
+  // Determine start index of the last segment
+  const lastSplitIndex = effectiveSplits.length > 0
+    ? effectiveSplits[effectiveSplits.length - 1] + 1
+    : 0;
+
+  const segPoints = points.slice(lastSplitIndex);
+
+  // Baseline for the last segment: use all its points
+  return {
+    result: computeXmR(segPoints, null),
+    count: segPoints.length
+  };
+}
+
 function drawXmRChart(points, baselineCount, labels) {
   if (!chartCanvas) return;
 
@@ -1043,9 +1066,21 @@ function drawXmRChart(points, baselineCount, labels) {
     }
   });
 
-  // Summary & MR chart still use the global (unsplit) result for now
-  updateXmRSummary(globalResult, points.length);
-  drawMRChart(globalResult, labels);
+  // If splits exist: use only the last segment for summary & capability
+let summaryResult;
+let summaryCount;
+
+if (splits.length > 0) {
+  const seg = computeLastSegment(points, baselineCount);
+  summaryResult = seg.result;
+  summaryCount = seg.count;
+} else {
+  summaryResult = globalResult;
+  summaryCount = points.length;
+}
+
+updateXmRSummary(summaryResult, summaryCount);
+drawMRChart(summaryResult, labels);
 }
 
 
