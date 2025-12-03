@@ -67,13 +67,66 @@
       color: #b00020;
       font-size: 0.9rem;
     }
+
+.layout {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+/* Sidebar with controls */
+.sidebar {
+  width: 320px;
+  flex-shrink: 0;
+  position: sticky;
+  top: 1rem;
+}
+
+/* Main area with charts/summary */
+.main {
+  flex: 1;
+}
+
+/* Collapsible section styling */
+.sidebar details {
+  margin-bottom: 0.75rem;
+}
+.sidebar summary {
+  font-weight: 600;
+  cursor: pointer;
+  margin-bottom: 0.25rem;
+}
+.sidebar summary::-webkit-details-marker {
+  margin-right: 0.25rem;
+}
+
+/* Responsive: stack sidebar on top for narrow screens */
+@media (max-width: 900px) {
+  .layout {
+    flex-direction: column;
+  }
+  .sidebar {
+    position: static;
+    width: 100%;
+  }
+}
+
   </style>
 </head>
+
 <body>
   <h1>Simple SPC Web Tool</h1>
-  <p class="sub">Upload a CSV, pick your columns, and draw a Run chart or XmR chart in the browser.</p>
+  <p class="sub">Upload a CSV and create SPC charts in your browser.</p>
 
-  <div class="panel">
+<div class="layout">
+    <!-- SIDEBAR: all controls -->
+    <aside class="sidebar">
+
+<!-- Section 1: Data upload & columns -->
+      <details open>
+        <summary>1. Data & columns</summary>
+	<div class="panel">
+
     <div>
       <label for="fileInput"><strong>1. Upload CSV file:</strong></label><br />
       <input type="file" id="fileInput" accept=".csv" />
@@ -84,7 +137,7 @@
 
     <div id="columnSelectors" style="display: none;">
       <hr />
-      <strong>2. Choose columns:</strong><br />
+      <strong>Choose columns:</strong><br />
 
       <label>Date column:
         <select id="dateColumn"></select>
@@ -95,7 +148,7 @@
       </label>
 
       <br />
-      <strong>3. Chart type:</strong><br />
+      <strong>Chart type:</strong><br />
       <label>
         <input type="radio" name="chartType" value="run" checked />
         Run chart (median only)
@@ -105,9 +158,15 @@
         XmR chart (mean + control limits)
       </label>
 
-      <br /><br />
+      	<br />
+	</div>
+      	</details>
 
-	<strong>4. Titles / labels (optional):</strong><br />
+
+	<!-- Section 2: Titles & labels -->
+        <details open>
+        <summary>2. Titles & labels</summary>
+        <div class="panel">
 	<div>
   	<label>
     	Chart title:
@@ -126,6 +185,13 @@
     	<input type="text" id="yAxisLabel" placeholder="Example metric" style="width: 16rem;" />
  	 </label>
 	</div>
+	</div>
+      </details>
+
+	<!-- Section 3: Target & capability -->
+      <details open>
+        <summary>3. Target & capability</summary>
+        <div class="panel">
 	<div>
 	  <label>
 	    Target / goal value:
@@ -144,32 +210,39 @@
 	    </select>
 	  </label>
 	</div>
+ 	</div>
+      </details>
 
-<br />
-<strong>5. Annotations (optional):</strong><br />
-<div>
-  <label>
-    Annotation date:
-    <input type="date" id="annotationDate" />
-  </label>
-</div>
-<div>
-  <label>
-    Annotation label:
-    <input type="text" id="annotationLabel" placeholder="e.g. New pathway introduced" style="width: 24rem;" />
-  </label>
-</div>
-<button id="addAnnotationButton" type="button">Add annotation</button>
-<button id="clearAnnotationsButton" type="button" style="margin-left: 0.5rem;">
-  Clear all annotations
-</button>
-<div class="hint">
-  Annotations will appear as vertical dashed lines with labels on the chart.
-</div>
+	<!-- Section 4: Annotations -->
+      	<details>
+        <summary>4. Annotations</summary>
+        <div class="panel">
+	<div>
+  	<label>
+   	 Annotation date:
+   	 <input type="date" id="annotationDate" />
+ 	 </label>
+	</div>
+	<div>
+ 	 <label>
+   	 Annotation label:
+  	  <input type="text" id="annotationLabel" placeholder="e.g. New pathway introduced" style="width: 24rem;" />
+ 	 </label>
+	</div>
+	<button id="addAnnotationButton" type="button">Add annotation</button>
+	<button id="clearAnnotationsButton" type="button" style="margin-left: 0.5rem;">
+	 Clear all annotations
+	</button>
+	<div class="hint">
+  	Annotations will appear as vertical dashed lines with labels on the chart.
+	</div>
+	 </div>
+      </details>
 
-	<br />
-
-      <strong>6. Baseline (optional):</strong><br />
+      <!-- Section 5: Baseline & generate -->
+      <details open>
+        <summary>5. Baseline & generate</summary>
+        <div class="panel">
       <label>
       Use first
       <input type="number" id="baselinePoints" min="2" step="1" style="width: 4rem;" />
@@ -179,19 +252,36 @@
       Leave blank to use <em>all</em> points to calculate the median/mean and limits.
      </div>
 
-  <br />	
+  	<br />	
       <button id="generateButton">Generate chart</button>
       <span class="hint">Data never leaves your browser.</span>
       <div id="errorMessage" class="error"></div>
-    </div>
-  </div>
+    
+   	</div>
+      </details>
 
-<div id="reportContent">  
-<div class="panel">
-  <strong>7. Chart:</strong>
-  <div class="chart-container">
-    <canvas id="spcChart"></canvas>
-  </div>
+    </aside>
+
+<!-- MAIN AREA: charts + analysis -->
+    <main class="main">
+
+	<div id="reportContent">  
+	<div class="panel">
+  	<strong>Chart:</strong>
+  	<div class="chart-container">
+    	<canvas id="spcChart"></canvas>
+  	</div>
+
+	<button id="downloadPngButton" style="margin-top: 0.5rem;">
+  	Download chart as PNG
+	</button>
+
+	<button id="downloadPdfButton" style="margin-top: 0.5rem; margin-left: 0.5rem;">
+  	Download PDF report
+	</button>
+	
+	<div id="summary" style="margin-top: 1rem; font-size: 0.9rem;"></div>
+	<div id="capability" style="margin-top: 1rem; font-size: 0.9rem;"></div>
 
   <div class="panel" id="mrPanel" style="display: none;">
   <strong>Moving Range chart:</strong>
@@ -199,19 +289,7 @@
     <canvas id="mrChartCanvas"></canvas>
   </div>
   </div>
-
-  <button id="downloadPngButton" style="margin-top: 0.5rem;">
-  Download chart as PNG
-</button>
-
-<button id="downloadPdfButton" style="margin-top: 0.5rem; margin-left: 0.5rem;">
-  Download PDF report
-</button>
-
-  <div id="summary" style="margin-top: 1rem; font-size: 0.9rem;"></div>
-
-  <div id="capability" style="margin-top: 1rem; font-size: 0.9rem;"></div>
-</div>
+</main>
 </div>
    <script src="spc.js"></script>
 </body>
