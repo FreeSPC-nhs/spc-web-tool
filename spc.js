@@ -263,12 +263,10 @@ function computeXmR(points, baselineCount) {
   const ucl = mean + 3 * sigma;
   const lcl = mean - 3 * sigma;
 
-  // MR values for full series (for MR chart)
+ // MR values for full series (for MR chart)
   const mrValues = [];
-  const mrLabels = [];
   for (let i = 1; i < pts.length; i++) {
     mrValues.push(Math.abs(pts[i].y - pts[i - 1].y));
-    mrLabels.push(pts[i].x.toISOString().slice(0, 10));
   }
 
   const flagged = pts.map(p => ({
@@ -284,8 +282,7 @@ function computeXmR(points, baselineCount) {
     sigma,
     avgMR,
     baselineCountUsed,
-    mrValues,
-    mrLabels
+    mrValues
   };
 }
 

@@ -112,6 +112,22 @@ button:disabled {
   margin-bottom: 0.6rem;
 }
 
+.radio-group {
+  margin: 0.25rem 0 0.6rem 0;
+}
+
+.radio-inline {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 1rem;
+  font-size: 0.9rem;
+}
+
+.radio-inline input[type="radio"] {
+  margin-right: 0.35rem;
+}
+
+
 /* Main area with charts/summary */
 .main {
   flex: 1;
@@ -135,6 +151,10 @@ button:disabled {
 .sidebar label {
   display: block;
   margin-bottom: 0.25rem;
+}
+
+.sidebar .radio-inline {
+  display: inline-flex; /* override the block behaviour */
 }
 
 .sidebar input[type="text"],
@@ -232,36 +252,37 @@ body.sidebar-collapsed .main {
         <select id="dateColumn"></select>
       </label>
 
-      <label>Value column:
+      <label>Value / Y-axis column:
         <select id="valueColumn"></select>
       </label>
 
-	<strong>X-axis type:</strong><br />
-	<label style="display:block; margin-bottom:0.25rem;">
-	  <input type="radio" name="axisType" value="date" checked />
-	  Date / time series (sort by date)
-	</label>
-	<label style="display:block; margin-bottom:0.5rem;">
-	  <input type="radio" name="axisType" value="sequence" />
-	  Sequence / category (use row order)
-	</label>
+	<strong>X-axis type:</strong>
+	<div class="radio-group">
+  	<label class="radio-inline">
+    	<input type="radio" name="axisType" value="date" checked />
+    	Date / time series (sort by date)
+  	</label>
+  	<label class="radio-inline">
+    	<input type="radio" name="axisType" value="sequence" />
+    	Sequence / category (use row order)
+  	</label>
+	</div>
 	<div class="hint" style="margin-bottom:0.75rem;">
-	  Use <em>Date / time</em> for time-series SPC (e.g. daily averages), or
-	  <em>Sequence / category</em> to plot each row in the order it appears (e.g. individual patients).
+  	Use <em>Date / time</em> for time-series SPC (e.g. daily averages),
+  	or <em>Sequence / category</em> to plot each row in the order it appears
+  	(e.g. individual patients).
 	</div>
 
-      <br />
-      <strong>Chart type:</strong><br />
-      <label>
-        <input type="radio" name="chartType" value="run" style="font-size: 0.8rem" checked />
-        Run chart (median only)
-      </label>
-      <label>
-        <input type="radio" name="chartType" value="xmr" style="font-size: 0.8rem" />
-        XmR chart (mean + control limits)
-      </label>
-
-      	<br />
+      	<strong>Chart type:</strong>
+	<div class="radio-group">
+  	<label class="radio-inline">
+    	<input type="radio" name="chartType" value="run" checked />
+    	Run chart (median only)
+  	</label>
+  	<label class="radio-inline">
+    	<input type="radio" name="chartType" value="xmr" />
+    	XmR chart (mean + control limits)
+  	</label>
 	</div>
       	</details>
 
