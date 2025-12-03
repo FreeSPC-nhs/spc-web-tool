@@ -327,7 +327,12 @@ function buildAnnotationConfig(labels) {
         backgroundColor: "rgba(255,255,255,0.8)",
         borderColor: "#000000",
         borderWidth: 0.5,
-        position: "start"
+        font: {
+          size: 10,
+          weight: "bold"
+        },
+	yAdjust: -6 
+        position: "end"
       }
     };
   });
