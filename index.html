@@ -228,7 +228,7 @@ body.sidebar-collapsed .main {
       <hr />
       <strong>Choose columns:</strong><br />
 
-      <label>Date column:
+      <label>Date / X-axis column:
         <select id="dateColumn"></select>
       </label>
 
@@ -236,14 +236,28 @@ body.sidebar-collapsed .main {
         <select id="valueColumn"></select>
       </label>
 
+	<strong>X-axis type:</strong><br />
+	<label style="display:block; margin-bottom:0.25rem;">
+	  <input type="radio" name="axisType" value="date" checked />
+	  Date / time series (sort by date)
+	</label>
+	<label style="display:block; margin-bottom:0.5rem;">
+	  <input type="radio" name="axisType" value="sequence" />
+	  Sequence / category (use row order)
+	</label>
+	<div class="hint" style="margin-bottom:0.75rem;">
+	  Use <em>Date / time</em> for time-series SPC (e.g. daily averages), or
+	  <em>Sequence / category</em> to plot each row in the order it appears (e.g. individual patients).
+	</div>
+
       <br />
       <strong>Chart type:</strong><br />
       <label>
-        <input type="radio" name="chartType" value="run" checked />
+        <input type="radio" name="chartType" value="run" style="font-size: 0.8rem" checked />
         Run chart (median only)
       </label>
       <label>
-        <input type="radio" name="chartType" value="xmr" />
+        <input type="radio" name="chartType" value="xmr" style="font-size: 0.8rem" />
         XmR chart (mean + control limits)
       </label>
 
@@ -321,7 +335,7 @@ body.sidebar-collapsed .main {
  	 </label>
 	</div>
 	<button id="addAnnotationButton" type="button">Add annotation</button>
-	<button id="clearAnnotationsButton" type="button" style="margin-left: 0.5rem;">
+	<button id="clearAnnotationsButton" type="button">
 	 Clear all annotations
 	</button>
 	<div class="hint">
@@ -345,6 +359,7 @@ body.sidebar-collapsed .main {
 
   	<br />	
       <button id="generateButton">Generate chart</button>
+	<br />
       <span class="hint">Data never leaves your browser.</span>
       <div id="errorMessage" class="error"></div>
     

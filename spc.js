@@ -338,6 +338,14 @@ function getTargetValue() {
   return isFinite(num) ? num : null;
 }
 
+function getAxisType() {
+  const radios = document.querySelectorAll("input[name='axisType']");
+  for (const r of radios) {
+    if (r.checked) return r.value;
+  }
+  return "date"; // sensible default
+}
+
 function buildAnnotationConfig(labels) {
   if (!annotations || annotations.length === 0) {
     return {};
@@ -577,26 +585,68 @@ generateButton.addEventListener("click", () => {
     return;
   }
 
-  const parsedPoints = rawRows
-    .map((row) => {
-      const dateRaw  = row[dateCol];
-      const valueRaw = row[valueCol];
+  const axisType = getAxisType();
 
-      const d = new Date(dateRaw);
-      const y = Number(valueRaw);
+let parsedPoints;
+
+// --- 1. Build points depending on axis type ---
+
+if (axisType === "date") {
+  // Time series: parse dates, sort later
+  parsedPoints = rawRows
+    .map((row) => {
+      const xRaw  = row[dateCol];
+      const yRaw  = row[valueCol];
+
+      const d = new Date(xRaw);
+      const y = Number(yRaw);
 
       if (!isFinite(d.getTime()) || !isFinite(y)) return null;
       return { x: d, y };
     })
     .filter(p => p !== null);
+} else {
+  // Sequence / category: keep row order, use label text
+  parsedPoints = rawRows
+    .map((row, idx) => {
+      const labelRaw = row[dateCol];   // may be patient ID / category / blank
+      const yRaw     = row[valueCol];
 
-  if (parsedPoints.length < 5) {
-    errorMessage.textContent = "Not enough valid data points after parsing. Check your column choices.";
-    return;
-  }
+      const y = Number(yRaw);
+      if (!isFinite(y)) return null;
 
-  // sort by date once here
-  const points = [...parsedPoints].sort((a, b) => a.x - b.x);
+      const labelText = (labelRaw !== undefined && labelRaw !== null && String(labelRaw).trim() !== "")
+        ? String(labelRaw)
+        : `Point ${idx + 1}`;  // fallback if X column is empty
+
+      return {
+        x: idx,        // numeric index just for ordering
+        y,
+        label: labelText
+      };
+    })
+    .filter(p => p !== null);
+}
+
+if (parsedPoints.length < 5) {
+  errorMessage.textContent = "Not enough valid data points after parsing. Check your column choices.";
+  return;
+}
+
+// --- 2. Create points + labels for the chart ---
+
+let points;
+let labels;
+
+if (axisType === "date") {
+  // sort by time
+  points = [...parsedPoints].sort((a, b) => a.x - b.x);
+  labels = points.map(p => p.x.toISOString().slice(0, 10));
+} else {
+  // keep sequence order
+  points = parsedPoints;
+  labels = points.map(p => p.label);
+}
 
   // baseline interpretation
   let baselineCount = null;
@@ -623,10 +673,10 @@ generateButton.addEventListener("click", () => {
   }
 
   if (chartType === "run") {
-    drawRunChart(points, baselineCount);
-  } else {
-    drawXmRChart(points, baselineCount);
-  }
+  drawRunChart(points, baselineCount, labels);
+} else {
+  drawXmRChart(points, baselineCount, labels);
+}
 });
 
 // ---- Chart drawing ----
@@ -643,7 +693,7 @@ function drawRunChart(points, baselineCount) {
 
   const baselineValues = points.slice(0, baselineCountUsed).map(p => p.y);
 
-  const labels = points.map(p => p.x.toISOString().slice(0, 10));
+  
   const values = points.map(p => p.y);
   const median = computeMedian(baselineValues);
   
@@ -760,7 +810,7 @@ function drawXmRChart(points, baselineCount) {
   const result = computeXmR(points, baselineCount);
   const pts = result.points;
 
-  const labels = pts.map(p => p.x.toISOString().slice(0, 10));
+  
   const values = pts.map(p => p.y);
   const pointColours = pts.map(p => (p.beyondLimits ? "#d73027" : "#003f87")); // red for breaches, dark blue otherwise
 
