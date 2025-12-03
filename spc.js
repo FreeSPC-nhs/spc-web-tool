@@ -670,6 +670,7 @@ function drawRunChart(points, baselineCount) {
     },
     options: {
       responsive: true,
+ 	maintainAspectRatio: false,
       plugins: {
         title: {
           display: true,
@@ -854,6 +855,7 @@ function drawXmRChart(points, baselineCount) {
     },
     options: {
       responsive: true,
+	maintainAspectRatio: false,
       plugins: {
         title: {
           display: true,
@@ -968,6 +970,7 @@ function drawMRChart(result) {
     },
     options: {
       responsive: true,
+	maintainAspectRatio: false,
       plugins: {
         title: {
           display: true,

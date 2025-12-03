@@ -18,21 +18,24 @@
     body {
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       margin: 1.5rem;
-      max-width: 900px;
+      background-color: #f0f4f5; /* light NHS-style background */
+      max-width: 100%;
     }
     h1 {
       margin-bottom: 0.25rem;
+	color: #005eb8; /* NHS blue */
     }
     .sub {
       margin-top: 0;
       color: #555;
       font-size: 0.9rem;
     }
-    .panel {
+  .panel {
   padding: 1rem;
   border-radius: 0.5rem;
-  border: 1px solid #ddd;
-  background: #fff;
+  border: 1px solid #d8dde0;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
   margin-bottom: 1.5rem;
 }
     label {
@@ -44,22 +47,37 @@
       margin-top: 0.25rem;
       margin-bottom: 0.5rem;
     }
-    button {
-      padding: 0.4rem 0.8rem;
-      border-radius: 0.4rem;
-      border: 1px solid #0078d4;
-      background: #0078d4;
-      color: white;
-      cursor: pointer;
-    }
-    button:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
-    }
-    .chart-container {
-      margin-top: 1rem;
-      height: 400px;
-    }
+    /* Buttons */
+button {
+  padding: 0.45rem 0.9rem;
+  border-radius: 9999px;
+  border: 1px solid #005eb8;
+  background: #005eb8;
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+button:hover:not(:disabled) {
+  background: #003f87;
+  border-color: #003f87;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+    /* Make the main I/XmR chart tall and prominent */
+.chart-container {
+  width: 100%;
+  height: 480px;          /* bigger, clearer */
+  overflow: hidden;
+}
+
+/* MR chart a bit shorter */
+#mrPanel .chart-container {
+  height: 300px;
+}
     .hint {
       font-size: 0.8rem;
       color: #666;
@@ -75,7 +93,7 @@
   align-items: flex-start;
   max-width: 1400px;
   margin: 0 auto;
-  padding: 1rem;
+  padding: 0.5rem 0;
 }
 
 /* Sidebar with controls */
@@ -91,6 +109,7 @@
 .sidebar textarea {
   width: 100%;
   box-sizing: border-box;
+  margin-bottom: 0.6rem;
 }
 
 /* Main area with charts/summary */
@@ -107,7 +126,7 @@
   font-weight: 600;
   cursor: pointer;
   padding: 0.25rem 0;
-  color: #333;
+  color: #003087;
 }
 .sidebar summary::-webkit-details-marker {
   margin-right: 0.25rem;
@@ -115,7 +134,7 @@
 
 .sidebar label {
   display: block;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.25rem;
 }
 
 .sidebar input[type="text"],
@@ -125,15 +144,10 @@
   margin-bottom: 0.75rem;
 }
 
-/* Legend & chart spacing */
-.chart-container {
-  width: 100%;
-  overflow-x: auto;
-}
-
 canvas {
   display: block;
   max-width: 100%;
+  max-height: 100%;
 }
 
 /* Responsive: stack sidebar on top for narrow screens */
@@ -206,7 +220,7 @@ canvas {
 	<div>
   	<label>
     	Chart title:
-    	<input type="text" id="chartTitle" placeholder="e.g. I-MR Chart – Demonstration data" style="width: 24rem;" />
+    	<input type="text" id="chartTitle" placeholder="e.g. I-MR Chart – Demonstration data" style="width: 16rem;" />
   	</label>
 	</div>
 	<div>
@@ -262,7 +276,7 @@ canvas {
 	<div>
  	 <label>
    	 Annotation label:
-  	  <input type="text" id="annotationLabel" placeholder="e.g. New pathway introduced" style="width: 24rem;" />
+  	  <input type="text" id="annotationLabel" placeholder="e.g. New pathway introduced" style="width: 16rem;" />
  	 </label>
 	</div>
 	<button id="addAnnotationButton" type="button">Add annotation</button>
