@@ -681,7 +681,7 @@ if (axisType === "date") {
 
 // ---- Chart drawing ----
 
-function drawRunChart(points, baselineCount) {
+function drawRunChart(points, baselineCount, labels) {
   const n = points.length;
 
   let baselineCountUsed;
@@ -806,7 +806,7 @@ function drawRunChart(points, baselineCount) {
   updateRunSummary(points, median, runFlags, baselineCountUsed);
 }
 
-function drawXmRChart(points, baselineCount) {
+function drawXmRChart(points, baselineCount, labels) {
   const result = computeXmR(points, baselineCount);
   const pts = result.points;
 
@@ -992,15 +992,15 @@ function drawXmRChart(points, baselineCount) {
   });
 
   updateXmRSummary(result, points.length);
-  drawMRChart(result);
+  drawMRChart(result, labels);
 }
 
 // MR chart: average MR as centre, UCL = 3.268 * avgMR, LCL = 0
-function drawMRChart(result) {
+function drawMRChart(result, labels) {
   if (!mrPanel || !mrChartCanvas) return;
 
   const mrValues = result.mrValues;
-  const mrLabels = result.mrLabels;
+  const mrLabels = labels.slice(1);
 
   if (!mrValues || mrValues.length === 0) {
     mrPanel.style.display = "none";
