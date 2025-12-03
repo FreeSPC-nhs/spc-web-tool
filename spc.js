@@ -707,9 +707,9 @@ if (axisType === "date") {
   }
 
   if (chartType === "run") {
-    drawRunChart(points, baselineCountUsed, labels);
+    drawRunChart(points, baselineCount, labels);
 } else {
-    drawXmRChart(points, baselineCountUsed, labels);
+    drawXmRChart(points, baselineCount, labels);
 }
 });
 
