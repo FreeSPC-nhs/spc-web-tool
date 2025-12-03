@@ -60,6 +60,9 @@ if (addAnnotationBtn) {
     // Dates from <input type="date"> are already 'YYYY-MM-DD'
     annotations.push({ date: dateVal, label: labelVal });
 
+	// Clear just the label field, keep the date selection
+	annotationLabelInput.value = "";
+
     // Re-generate the chart with the new annotation
     generateButton.click();
   });
@@ -301,6 +304,30 @@ function getChartLabels(defaultTitle, defaultX, defaultY) {
     : defaultY;
 
   return { title, xLabel, yLabel };
+}
+
+function populateAnnotationDateOptions(labels) {
+  if (!annotationDateInput) return;
+
+  // Clear existing options
+  annotationDateInput.innerHTML = "";
+
+  // Placeholder option
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = "Select date…";
+  annotationDateInput.appendChild(placeholder);
+
+  // Add one option per label (these are your x-axis dates like "2024-06-01")
+  labels.forEach((lbl) => {
+    const opt = document.createElement("option");
+    opt.value = lbl;
+    opt.textContent = lbl;
+    annotationDateInput.appendChild(opt);
+  });
+
+  // Reset selection
+  annotationDateInput.value = "";
 }
 
 function getTargetValue() {
@@ -619,6 +646,9 @@ function drawRunChart(points, baselineCount) {
   const labels = points.map(p => p.x.toISOString().slice(0, 10));
   const values = points.map(p => p.y);
   const median = computeMedian(baselineValues);
+  
+  // Keep annotation date dropdown in sync with the current chart dates
+  populateAnnotationDateOptions(labels);
 
   // Detect runs of >= 8 points on same side of median
   const runFlags = detectLongRuns(values, median, 8);
@@ -733,6 +763,9 @@ function drawXmRChart(points, baselineCount) {
   const labels = pts.map(p => p.x.toISOString().slice(0, 10));
   const values = pts.map(p => p.y);
   const pointColours = pts.map(p => (p.beyondLimits ? "#d73027" : "#003f87")); // red for breaches, dark blue otherwise
+
+// Keep annotation date dropdown in sync with the current chart dates
+  populateAnnotationDateOptions(labels);
 
   const { mean, sigma, ucl, lcl } = result;
 
