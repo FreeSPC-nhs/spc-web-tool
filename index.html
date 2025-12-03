@@ -102,6 +102,7 @@ button:disabled {
   flex-shrink: 0;
   position: sticky;
   top: 1rem;
+  font-size: 0.85rem;
 }
 
 .sidebar input,
@@ -110,6 +111,13 @@ button:disabled {
   width: 100%;
   box-sizing: border-box;
   margin-bottom: 0.6rem;
+}
+
+/* Keep headings readable */
+.sidebar .field-label {
+  display: block;
+  font-size: 0.9rem;
+  margin: 0.4rem 0 0.2rem;
 }
 
 .radio-group {
@@ -127,6 +135,45 @@ button:disabled {
   margin-right: 0.35rem;
 }
 
+/* Compact radio group layout */
+.radio-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.4rem;
+}
+
+/* Each option is a little pill */
+.radio-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.5rem;
+  border-radius: 9999px;
+  border: 1px solid #d0d7de;
+  background: #f6f8fa;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.radio-pill input[type="radio"] {
+  margin-right: 0.3rem;
+}
+
+/* When the radio is checked, emphasise the pill */
+.radio-pill input[type="radio"]:checked + span,
+.radio-pill input[type="radio"]:checked {
+  font-weight: 600;
+}
+
+.radio-pill input[type="radio"]:checked ~ * {
+  color: #005eb8;
+}
+
+/* Tiny hint text under each group */
+.small-hint {
+  font-size: 0.75rem;
+  color: #666;
+}
 
 /* Main area with charts/summary */
 .main {
@@ -256,34 +303,38 @@ body.sidebar-collapsed .main {
         <select id="valueColumn"></select>
       </label>
 
-	<strong>X-axis type:</strong>
-	<div class="radio-group">
-  	<label class="radio-inline">
-    	<input type="radio" name="axisType" value="date" checked />
-    	Date / time series (sort by date)
-  	</label>
-  	<label class="radio-inline">
+	<strong class="field-label">X-axis type:</strong>
+	<div class="radio-row">
+ 	 <label class="radio-pill">
+  	  <input type="radio" name="axisType" value="date" checked />
+   	 Date / time (sort by date)
+ 	 </label>
+  	<label class="radio-pill">
     	<input type="radio" name="axisType" value="sequence" />
-    	Sequence / category (use row order)
+    	Sequence / category (row order)
   	</label>
 	</div>
-	<div class="hint" style="margin-bottom:0.75rem;">
+	<div class="hint small-hint">
   	Use <em>Date / time</em> for time-series SPC (e.g. daily averages),
   	or <em>Sequence / category</em> to plot each row in the order it appears
   	(e.g. individual patients).
 	</div>
 
-      	<strong>Chart type:</strong>
-	<div class="radio-group">
-  	<label class="radio-inline">
+      	<strong class="field-label">Chart type:</strong>
+	<div class="radio-row">
+  	<label class="radio-pill">
     	<input type="radio" name="chartType" value="run" checked />
-    	Run chart (median only)
+    	Run chart
   	</label>
-  	<label class="radio-inline">
+  	<label class="radio-pill">
     	<input type="radio" name="chartType" value="xmr" />
-    	XmR chart (mean + control limits)
+    	XmR chart
   	</label>
 	</div>
+	<div class="hint small-hint">
+  	Run chart uses the median only. XmR chart adds mean, control limits and sigma lines.
+	</div>
+
       	</details>
 
 
