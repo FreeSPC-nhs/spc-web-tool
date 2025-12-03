@@ -29,6 +29,7 @@ const capabilityDiv     = document.getElementById("capability");
 const annotationDateInput  = document.getElementById("annotationDate");
 const annotationLabelInput = document.getElementById("annotationLabel");
 const addAnnotationBtn     = document.getElementById("addAnnotationButton");
+const clearAnnotationsBtn  = document.getElementById("clearAnnotationsButton");
 
 const generateButton    = document.getElementById("generateButton");
 const errorMessage      = document.getElementById("errorMessage");
@@ -39,6 +40,9 @@ const downloadPdfBtn    = document.getElementById("downloadPdfButton");
 
 const mrPanel           = document.getElementById("mrPanel");
 const mrChartCanvas     = document.getElementById("mrChartCanvas");
+
+
+//---- Add annotations button
 
 if (addAnnotationBtn) {
   addAnnotationBtn.addEventListener("click", () => {
@@ -57,6 +61,21 @@ if (addAnnotationBtn) {
 
     // Re-generate the chart with the new annotation
     generateButton.click();
+  });
+}
+
+//---- Clear annotations button
+if (clearAnnotationsBtn) {
+  clearAnnotationsBtn.addEventListener("click", () => {
+    annotations = [];
+
+    if (annotationDateInput) annotationDateInput.value = "";
+    if (annotationLabelInput) annotationLabelInput.value = "";
+
+    // If a chart already exists, re-generate it to remove the lines
+    if (currentChart) {
+      generateButton.click();
+    }
   });
 }
 
