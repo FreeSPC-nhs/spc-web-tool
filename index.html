@@ -123,6 +123,15 @@
     	<input type="text" id="yAxisLabel" placeholder="Example metric" style="width: 16rem;" />
  	 </label>
 	</div>
+	<div>
+	  <label>
+	    Target / goal value:
+	    <input type="number" id="targetValue" step="any" placeholder="e.g. 30" style="width: 10rem;" />
+	  </label>
+	  <div class="hint">
+	    If set, a dashed orange target line will be drawn across the chart.
+	  </div>
+	</div>
 
 	<br />
 
@@ -149,6 +158,12 @@
     <canvas id="spcChart"></canvas>
   </div>
 
+  <div class="panel" id="mrPanel" style="display: none;">
+  <strong>Moving Range chart:</strong>
+  <div class="chart-container">
+    <canvas id="mrChartCanvas"></canvas>
+  </div>
+  </div>
 
   <button id="downloadPngButton" style="margin-top: 0.5rem;">
     Download chart as PNG

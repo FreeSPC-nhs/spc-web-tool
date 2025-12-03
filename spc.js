@@ -1,28 +1,37 @@
-// Simple SPC logic + wiring for Run chart and XmR chart
+// Simple SPC logic + wiring for Run chart and XmR chart + MR chart
 // Features:
 //  - CSV upload + column selection
 //  - Run chart with run rule (>=8 points on one side of median)
-//  - XmR chart with mean, UCL, LCL
+//  - XmR chart with mean, UCL, LCL, +/-1σ, +/-2σ
+//  - MR chart paired with XmR
 //  - Baseline: use first N points for centre line & limits (optional)
-//  - Summary panel
-//  - Download chart as PNG
+//  - Target line (goal value) optional
+//  - Summary panel with basic NHS-style interpretation
+//  - Download main chart as PNG
+//  - Custom chart title and axis labels
 
 let rawRows = [];
-let currentChart = null;
+let currentChart = null;   // main I / run chart
+let mrChart = null;        // moving range chart
 
-const fileInput       = document.getElementById("fileInput");
-const columnSelectors = document.getElementById("columnSelectors");
-const dateSelect      = document.getElementById("dateColumn");
-const valueSelect     = document.getElementById("valueColumn");
-const baselineInput   = document.getElementById("baselinePoints");
-const generateButton  = document.getElementById("generateButton");
-const errorMessage    = document.getElementById("errorMessage");
-const chartCanvas     = document.getElementById("spcChart");
-const summaryDiv      = document.getElementById("summary");
-const downloadBtn     = document.getElementById("downloadPngButton");
+const fileInput         = document.getElementById("fileInput");
+const columnSelectors   = document.getElementById("columnSelectors");
+const dateSelect        = document.getElementById("dateColumn");
+const valueSelect       = document.getElementById("valueColumn");
+const baselineInput     = document.getElementById("baselinePoints");
 const chartTitleInput   = document.getElementById("chartTitle");
 const xAxisLabelInput   = document.getElementById("xAxisLabel");
 const yAxisLabelInput   = document.getElementById("yAxisLabel");
+const targetInput       = document.getElementById("targetValue");
+
+const generateButton    = document.getElementById("generateButton");
+const errorMessage      = document.getElementById("errorMessage");
+const chartCanvas       = document.getElementById("spcChart");
+const summaryDiv        = document.getElementById("summary");
+const downloadBtn       = document.getElementById("downloadPngButton");
+
+const mrPanel           = document.getElementById("mrPanel");
+const mrChartCanvas     = document.getElementById("mrChartCanvas");
 
 // ---- CSV upload & column selection ----
 
@@ -82,23 +91,6 @@ function getSelectedChartType() {
   return "run";
 }
 
-function getChartLabels(defaultTitle, defaultX, defaultY) {
-  const title = chartTitleInput && chartTitleInput.value.trim()
-    ? chartTitleInput.value.trim()
-    : defaultTitle;
-
-  const xLabel = xAxisLabelInput && xAxisLabelInput.value.trim()
-    ? xAxisLabelInput.value.trim()
-    : defaultX;
-
-  const yLabel = yAxisLabelInput && yAxisLabelInput.value.trim()
-    ? yAxisLabelInput.value.trim()
-    : defaultY;
-
-  return { title, xLabel, yLabel };
-}
-
-
 function computeMedian(values) {
   const sorted = [...values].sort((a, b) => a - b);
   const n = sorted.length;
@@ -109,9 +101,6 @@ function computeMedian(values) {
 
 /**
  * Detect runs of >= runLength points on the same side of the centre line.
- * values: array of numbers
- * centre: median/mean
- * returns: array of booleans, true if that point is part of a violating run
  */
 function detectLongRuns(values, centre, runLength = 8) {
   const flags = new Array(values.length).fill(false);
@@ -149,9 +138,35 @@ function detectLongRuns(values, centre, runLength = 8) {
 }
 
 /**
- * points: array of {x: Date, y: number} sorted by x
- * baselineCount: optional number of points to use for baseline stats (>=2), else use all
- * returns: { points: [{x,y,beyondLimits}], mean, ucl, lcl, sigma, avgMR, baselineCountUsed }
+ * Detect simple trend: >= length points all increasing or all decreasing
+ */
+function detectTrend(values, length = 6) {
+  if (values.length < length) return false;
+
+  let incRun = 1;
+  let decRun = 1;
+
+  for (let i = 1; i < values.length; i++) {
+    if (values[i] > values[i - 1]) {
+      incRun++;
+      decRun = 1;
+    } else if (values[i] < values[i - 1]) {
+      decRun++;
+      incRun = 1;
+    } else {
+      incRun = 1;
+      decRun = 1;
+    }
+
+    if (incRun >= length || decRun >= length) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Compute XmR statistics and MR values.
  */
 function computeXmR(points, baselineCount) {
   const pts = [...points].sort((a, b) => a.x - b.x);
@@ -168,19 +183,28 @@ function computeXmR(points, baselineCount) {
   const mean =
     baseline.reduce((sum, p) => sum + p.y, 0) / baseline.length;
 
-  const mrs = [];
+  // moving ranges for baseline (for sigma estimate)
+  const baselineMRs = [];
   for (let i = 1; i < baseline.length; i++) {
-    mrs.push(Math.abs(baseline[i].y - baseline[i - 1].y));
+    baselineMRs.push(Math.abs(baseline[i].y - baseline[i - 1].y));
   }
   const avgMR =
-    mrs.length > 0
-      ? mrs.reduce((sum, v) => sum + v, 0) / mrs.length
+    baselineMRs.length > 0
+      ? baselineMRs.reduce((sum, v) => sum + v, 0) / baselineMRs.length
       : 0;
 
   const sigma = avgMR === 0 ? 0 : avgMR / 1.128; // d2 for n=2
 
   const ucl = mean + 3 * sigma;
   const lcl = mean - 3 * sigma;
+
+  // MR values for full series (for MR chart)
+  const mrValues = [];
+  const mrLabels = [];
+  for (let i = 1; i < pts.length; i++) {
+    mrValues.push(Math.abs(pts[i].y - pts[i - 1].y));
+    mrLabels.push(pts[i].x.toISOString().slice(0, 10));
+  }
 
   const flagged = pts.map(p => ({
     ...p,
@@ -194,8 +218,35 @@ function computeXmR(points, baselineCount) {
     lcl,
     sigma,
     avgMR,
-    baselineCountUsed
+    baselineCountUsed,
+    mrValues,
+    mrLabels
   };
+}
+
+// Get title / axis labels with fallbacks
+function getChartLabels(defaultTitle, defaultX, defaultY) {
+  const title = chartTitleInput && chartTitleInput.value.trim()
+    ? chartTitleInput.value.trim()
+    : defaultTitle;
+
+  const xLabel = xAxisLabelInput && xAxisLabelInput.value.trim()
+    ? xAxisLabelInput.value.trim()
+    : defaultX;
+
+  const yLabel = yAxisLabelInput && yAxisLabelInput.value.trim()
+    ? yAxisLabelInput.value.trim()
+    : defaultY;
+
+  return { title, xLabel, yLabel };
+}
+
+function getTargetValue() {
+  if (!targetInput) return null;
+  const v = targetInput.value.trim();
+  if (v === "") return null;
+  const num = Number(v);
+  return isFinite(num) ? num : null;
 }
 
 // ---- Summary helpers ----
@@ -207,6 +258,9 @@ function updateRunSummary(points, median, runFlags, baselineCountUsed) {
   const nRunPoints = runFlags.filter(Boolean).length;
   const hasRunViolation = nRunPoints > 0;
 
+  const values = points.map(p => p.y);
+  const hasTrend = detectTrend(values, 6);
+
   let html = `<h3>Summary (Run chart)</h3>`;
   html += `<ul>`;
   html += `<li>Number of points: <strong>${n}</strong></li>`;
@@ -216,11 +270,21 @@ function updateRunSummary(points, median, runFlags, baselineCountUsed) {
     html += `<li>Baseline: all points used to calculate median.</li>`;
   }
   html += `<li>Median: <strong>${median.toFixed(3)}</strong></li>`;
+
+  const signals = [];
   if (hasRunViolation) {
-    html += `<li><strong>Special cause:</strong> Run rule triggered (≥8 consecutive points on one side of median). Points in long runs are highlighted in orange.</li>`;
-  } else {
-    html += `<li><strong>Special cause:</strong> No long runs (≥8 points) on one side of the median detected.</li>`;
+    signals.push("a run of 8 or more points on one side of the median");
   }
+  if (hasTrend) {
+    signals.push("a trend of 6 or more points all increasing or all decreasing");
+  }
+
+  if (signals.length === 0) {
+    html += `<li><strong>Special cause:</strong> No rule breaches detected (based on long runs or trends). Variation appears consistent with common-cause only, but always interpret in clinical context.</li>`;
+  } else {
+    html += `<li><strong>Special cause:</strong> Signals suggesting special-cause variation based on: ${signals.join("; ")}.</li>`;
+  }
+
   html += `</ul>`;
 
   summaryDiv.innerHTML = html;
@@ -232,7 +296,24 @@ function updateXmRSummary(result, totalPoints) {
   const n = totalPoints;
   const { mean, ucl, lcl, sigma, avgMR, baselineCountUsed } = result;
   const nBeyond = result.points.filter(p => p.beyondLimits).length;
-  const hasSpecialCause = nBeyond > 0;
+  const values = result.points.map(p => p.y);
+
+  // additional rules for NHS-style interpretation
+  const runFlags = detectLongRuns(values, mean, 8);
+  const nRunPoints = runFlags.filter(Boolean).length;
+  const hasRunViolation = nRunPoints > 0;
+  const hasTrend = detectTrend(values, 6);
+
+  const signals = [];
+  if (nBeyond > 0) {
+    signals.push("one or more points beyond the control limits");
+  }
+  if (hasRunViolation) {
+    signals.push("a run of 8 or more points on one side of the mean");
+  }
+  if (hasTrend) {
+    signals.push("a trend of 6 or more points all increasing or all decreasing");
+  }
 
   let html = `<h3>Summary (XmR chart)</h3>`;
   html += `<ul>`;
@@ -245,11 +326,13 @@ function updateXmRSummary(result, totalPoints) {
   html += `<li>Mean: <strong>${mean.toFixed(3)}</strong></li>`;
   html += `<li>Estimated σ (from MR): <strong>${sigma.toFixed(3)}</strong> (avg MR = ${avgMR.toFixed(3)})</li>`;
   html += `<li>Control limits: <strong>LCL = ${lcl.toFixed(3)}</strong>, <strong>UCL = ${ucl.toFixed(3)}</strong></li>`;
-  if (hasSpecialCause) {
-    html += `<li><strong>Special cause:</strong> ${nBeyond} point(s) beyond control limits (shown in red).</li>`;
+
+  if (signals.length === 0) {
+    html += `<li><strong>Special cause:</strong> No rule breaches detected (points within limits, no long runs or clear trend). Pattern is consistent with common-cause variation, but always interpret in context.</li>`;
   } else {
-    html += `<li><strong>Special cause:</strong> No points beyond control limits.</li>`;
+    html += `<li><strong>Special cause:</strong> Signals suggesting special-cause variation based on: ${signals.join("; ")}.</li>`;
   }
+
   html += `</ul>`;
 
   summaryDiv.innerHTML = html;
@@ -306,9 +389,17 @@ generateButton.addEventListener("click", () => {
 
   const chartType = getSelectedChartType();
 
+  // clear existing charts
   if (currentChart) {
     currentChart.destroy();
     currentChart = null;
+  }
+  if (mrChart) {
+    mrChart.destroy();
+    mrChart = null;
+  }
+  if (mrPanel) {
+    mrPanel.style.display = "none";
   }
 
   if (chartType === "run") {
@@ -348,31 +439,50 @@ function drawRunChart(points, baselineCount) {
     "Value"
   );
 
+  const target = getTargetValue();
+
+  const datasets = [
+    {
+      // DATA LINE
+      label: "Value",
+      data: values,
+      pointRadius: 4,
+      pointBackgroundColor: pointColours,
+      borderColor: "#003f87", // dark blue
+      borderWidth: 2,
+      fill: false
+    },
+    {
+      // MEDIAN
+      label: "Median",
+      data: values.map(() => median),
+      borderDash: [6, 4],
+      borderWidth: 2,
+      borderColor: "#e41a1c", // red-ish
+      pointRadius: 0,
+      pointHoverRadius: 0,
+      fill: false
+    }
+  ];
+
+  if (target !== null) {
+    datasets.push({
+      label: "Target",
+      data: values.map(() => target),
+      borderDash: [4, 2],
+      borderWidth: 2,
+      borderColor: "#fdae61", // orange-ish
+      pointRadius: 0,
+      pointHoverRadius: 0,
+      fill: false
+    });
+  }
+
   currentChart = new Chart(chartCanvas, {
     type: "line",
     data: {
       labels: labels,
-      datasets: [
-        {
-          label: "Value",
-          data: values,
-          pointRadius: 4,
-          pointBackgroundColor: pointColours,
-          borderColor: "#003f87", // dark blue
-          borderWidth: 2,
-          fill: false
-        },
-        {
-          label: "Median",
-          data: values.map(() => median),
-          borderDash: [6, 4],
-          borderWidth: 2,
-          borderColor: "#e41a1c", // red-ish
-	  pointRadius: 0,
-  	  pointHoverRadius: 0,
-          fill: false
-        }
-      ]
+      datasets: datasets
     },
     options: {
       responsive: true,
@@ -386,7 +496,15 @@ function drawRunChart(points, baselineCount) {
           }
         },
         legend: {
-          display: true
+          display: true,
+          position: "bottom",
+          align: "center"
+        }
+      },
+      elements: {
+        point: {
+          radius: 0,
+          hoverRadius: 0
         }
       },
       scales: {
@@ -427,6 +545,8 @@ function drawXmRChart(points, baselineCount) {
     "Value"
   );
 
+  const target = getTargetValue();
+
   // 1σ and 2σ lines if sigma > 0
   const oneSigmaUp   = sigma > 0 ? mean + 1 * sigma : null;
   const oneSigmaDown = sigma > 0 ? mean - 1 * sigma : null;
@@ -437,6 +557,7 @@ function drawXmRChart(points, baselineCount) {
 
   const datasets = [
     {
+      // DATA LINE
       label: "Value",
       data: values,
       pointRadius: 4,
@@ -446,38 +567,40 @@ function drawXmRChart(points, baselineCount) {
       fill: false
     },
     {
+      // MEAN
       label: "Mean",
       data: values.map(() => mean),
       borderDash: [6, 4],
       borderWidth: 2,
       borderColor: "#e41a1c", // red
-  pointRadius: 0,
-  pointHoverRadius: 0,
+      pointRadius: 0,
+      pointHoverRadius: 0,
       fill: false
     },
     {
+      // UCL
       label: "UCL (3σ)",
       data: values.map(() => ucl),
       borderDash: [4, 4],
       borderWidth: 2,
       borderColor: "#1a9850", // green
-  pointRadius: 0,
-  pointHoverRadius: 0,
+      pointRadius: 0,
+      pointHoverRadius: 0,
       fill: false
     },
     {
+      // LCL
       label: "LCL (3σ)",
       data: values.map(() => lcl),
       borderDash: [4, 4],
       borderWidth: 2,
       borderColor: "#1a9850", // green
-  pointRadius: 0,
-  pointHoverRadius: 0,
+      pointRadius: 0,
+      pointHoverRadius: 0,
       fill: false
     }
   ];
 
-  // Add 1σ & 2σ lines on both sides if sigma is valid
   if (sigma > 0) {
     datasets.push(
       {
@@ -486,8 +609,8 @@ function drawXmRChart(points, baselineCount) {
         borderDash: [2, 2],
         borderWidth: 1,
         borderColor: sigmaLineColor,
-   pointRadius: 0,
-   pointHoverRadius: 0,
+        pointRadius: 0,
+        pointHoverRadius: 0,
         fill: false
       },
       {
@@ -496,8 +619,8 @@ function drawXmRChart(points, baselineCount) {
         borderDash: [2, 2],
         borderWidth: 1,
         borderColor: sigmaLineColor,
-   pointRadius: 0,
-   pointHoverRadius: 0,
+        pointRadius: 0,
+        pointHoverRadius: 0,
         fill: false
       },
       {
@@ -506,8 +629,8 @@ function drawXmRChart(points, baselineCount) {
         borderDash: [2, 2],
         borderWidth: 1,
         borderColor: sigmaLineColor,
-   pointRadius: 0,
-   pointHoverRadius: 0,
+        pointRadius: 0,
+        pointHoverRadius: 0,
         fill: false
       },
       {
@@ -516,11 +639,24 @@ function drawXmRChart(points, baselineCount) {
         borderDash: [2, 2],
         borderWidth: 1,
         borderColor: sigmaLineColor,
-   pointRadius: 0,
-   pointHoverRadius: 0,
+        pointRadius: 0,
+        pointHoverRadius: 0,
         fill: false
       }
     );
+  }
+
+  if (target !== null) {
+    datasets.push({
+      label: "Target",
+      data: values.map(() => target),
+      borderDash: [4, 2],
+      borderWidth: 2,
+      borderColor: "#fdae61", // orange-ish
+      pointRadius: 0,
+      pointHoverRadius: 0,
+      fill: false
+    });
   }
 
   currentChart = new Chart(chartCanvas, {
@@ -541,15 +677,17 @@ function drawXmRChart(points, baselineCount) {
           }
         },
         legend: {
-          display: true
+          display: true,
+          position: "bottom",
+          align: "center"
         }
       },
-  elements: {
-      point: {
-        radius: 0,
-        hoverRadius: 0
-      }
-    },
+      elements: {
+        point: {
+          radius: 0,
+          hoverRadius: 0
+        }
+      },
       scales: {
         x: {
           grid: { display: false },
@@ -570,6 +708,115 @@ function drawXmRChart(points, baselineCount) {
   });
 
   updateXmRSummary(result, points.length);
+  drawMRChart(result);
+}
+
+// MR chart: average MR as centre, UCL = 3.268 * avgMR, LCL = 0
+function drawMRChart(result) {
+  if (!mrPanel || !mrChartCanvas) return;
+
+  const mrValues = result.mrValues;
+  const mrLabels = result.mrLabels;
+
+  if (!mrValues || mrValues.length === 0) {
+    mrPanel.style.display = "none";
+    return;
+  }
+
+  const avgMR = result.avgMR;
+  const centre = avgMR;
+  const uclMR = avgMR * 3.268; // D4 for n=2
+  const lclMR = 0;
+
+  mrPanel.style.display = "block";
+
+  mrChart = new Chart(mrChartCanvas, {
+    type: "line",
+    data: {
+      labels: mrLabels,
+      datasets: [
+        {
+          label: "Moving range",
+          data: mrValues,
+          pointRadius: 4,
+          pointBackgroundColor: "#003f87",
+          borderColor: "#003f87",
+          borderWidth: 2,
+          fill: false
+        },
+        {
+          label: "Average MR",
+          data: mrValues.map(() => centre),
+          borderDash: [6, 4],
+          borderWidth: 2,
+          borderColor: "#e41a1c",
+          pointRadius: 0,
+          pointHoverRadius: 0,
+          fill: false
+        },
+        {
+          label: "UCL (MR)",
+          data: mrValues.map(() => uclMR),
+          borderDash: [4, 4],
+          borderWidth: 2,
+          borderColor: "#1a9850",
+          pointRadius: 0,
+          pointHoverRadius: 0,
+          fill: false
+        },
+        {
+          label: "LCL (MR)",
+          data: mrValues.map(() => lclMR),
+          borderDash: [4, 4],
+          borderWidth: 2,
+          borderColor: "#1a9850",
+          pointRadius: 0,
+          pointHoverRadius: 0,
+          fill: false
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        title: {
+          display: true,
+          text: "Moving Range chart",
+          font: {
+            size: 14,
+            weight: "bold"
+          }
+        },
+        legend: {
+          display: true,
+          position: "bottom",
+          align: "center"
+        }
+      },
+      elements: {
+        point: {
+          radius: 0,
+          hoverRadius: 0
+        }
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          title: {
+            display: true,
+            text: "Date (second and subsequent points)"
+          }
+        },
+        y: {
+          grid: { display: false },
+          title: {
+            display: true,
+            text: "Moving range"
+          }
+        }
+      }
+    }
+  });
 }
 
 // ---- Download chart as PNG ----
