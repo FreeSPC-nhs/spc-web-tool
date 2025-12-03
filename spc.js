@@ -1003,18 +1003,7 @@ function drawXmRChart(points, baselineCount, labels) {
     );
   }
 
-// --- Target line dataset (if provided) ---
-if (target !== null) {
-  datasets.push({
-    label: "Target",
-    data: new Array(n).fill(target),
-    borderColor: "orange",
-    borderWidth: 2,
-    borderDash: [6, 4],
-    pointRadius: 0,
-    tension: 0
-  });
-}
+
 
   // Update annotation and split dropdowns
   populateAnnotationDateOptions(labels);
