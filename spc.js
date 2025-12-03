@@ -398,6 +398,7 @@ if (capabilityDiv) {
     capabilityDiv.innerHTML = "";
   }
 }
+}
 
 // Approximate standard normal CDF Φ(z)
 function normalCdf(z) {
