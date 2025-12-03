@@ -368,6 +368,8 @@ function drawRunChart(points, baselineCount) {
           borderDash: [6, 4],
           borderWidth: 2,
           borderColor: "#e41a1c", // red-ish
+	  pointRadius: 0,
+  	  pointHoverRadius: 0,
           fill: false
         }
       ]
@@ -449,6 +451,8 @@ function drawXmRChart(points, baselineCount) {
       borderDash: [6, 4],
       borderWidth: 2,
       borderColor: "#e41a1c", // red
+pointRadius: 0,
+pointHoverRadius: 0,
       fill: false
     },
     {
@@ -457,6 +461,8 @@ function drawXmRChart(points, baselineCount) {
       borderDash: [4, 4],
       borderWidth: 2,
       borderColor: "#1a9850", // green
+pointRadius: 0,
+pointHoverRadius: 0,
       fill: false
     },
     {
@@ -465,6 +471,8 @@ function drawXmRChart(points, baselineCount) {
       borderDash: [4, 4],
       borderWidth: 2,
       borderColor: "#1a9850", // green
+pointRadius: 0,
+pointHoverRadius: 0,
       fill: false
     }
   ];
@@ -478,6 +486,8 @@ function drawXmRChart(points, baselineCount) {
         borderDash: [2, 2],
         borderWidth: 1,
         borderColor: sigmaLineColor,
+pointRadius: 0,
+pointHoverRadius: 0,
         fill: false
       },
       {
@@ -486,6 +496,8 @@ function drawXmRChart(points, baselineCount) {
         borderDash: [2, 2],
         borderWidth: 1,
         borderColor: sigmaLineColor,
+pointRadius: 0,
+pointHoverRadius: 0,
         fill: false
       },
       {
@@ -494,6 +506,8 @@ function drawXmRChart(points, baselineCount) {
         borderDash: [2, 2],
         borderWidth: 1,
         borderColor: sigmaLineColor,
+pointRadius: 0,
+pointHoverRadius: 0,
         fill: false
       },
       {
@@ -502,6 +516,8 @@ function drawXmRChart(points, baselineCount) {
         borderDash: [2, 2],
         borderWidth: 1,
         borderColor: sigmaLineColor,
+pointRadius: 0,
+pointHoverRadius: 0,
         fill: false
       }
     );
