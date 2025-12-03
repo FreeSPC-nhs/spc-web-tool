@@ -29,11 +29,12 @@
       font-size: 0.9rem;
     }
     .panel {
-      padding: 1rem;
-      border-radius: 0.5rem;
-      border: 1px solid #ddd;
-      margin-bottom: 1rem;
-    }
+  padding: 1rem;
+  border-radius: 0.5rem;
+  border: 1px solid #ddd;
+  background: #fff;
+  margin-bottom: 1.5rem;
+}
     label {
       display: inline-block;
       margin-right: 0.5rem;
@@ -70,8 +71,11 @@
 
 .layout {
   display: flex;
-  gap: 1rem;
+  gap: 2rem;
   align-items: flex-start;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 1rem;
 }
 
 /* Sidebar with controls */
@@ -82,26 +86,58 @@
   top: 1rem;
 }
 
+.sidebar input,
+.sidebar select,
+.sidebar textarea {
+  width: 100%;
+  box-sizing: border-box;
+}
+
 /* Main area with charts/summary */
 .main {
   flex: 1;
+  min-width: 0; /* prevents overflow */
 }
 
 /* Collapsible section styling */
 .sidebar details {
-  margin-bottom: 0.75rem;
+  margin-bottom: 1rem;
 }
 .sidebar summary {
   font-weight: 600;
   cursor: pointer;
-  margin-bottom: 0.25rem;
+  padding: 0.25rem 0;
+  color: #333;
 }
 .sidebar summary::-webkit-details-marker {
   margin-right: 0.25rem;
 }
 
+.sidebar label {
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
+.sidebar input[type="text"],
+.sidebar input[type="date"],
+.sidebar input[type="number"],
+.sidebar select {
+  margin-bottom: 0.75rem;
+}
+
+/* Legend & chart spacing */
+.chart-container {
+  width: 100%;
+  overflow-x: auto;
+}
+
+canvas {
+  display: block;
+  max-width: 100%;
+}
+
 /* Responsive: stack sidebar on top for narrow screens */
-@media (max-width: 900px) {
+@media (max-width: 1000px) {
   .layout {
     flex-direction: column;
   }
