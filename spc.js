@@ -20,6 +20,9 @@ const errorMessage    = document.getElementById("errorMessage");
 const chartCanvas     = document.getElementById("spcChart");
 const summaryDiv      = document.getElementById("summary");
 const downloadBtn     = document.getElementById("downloadPngButton");
+const chartTitleInput   = document.getElementById("chartTitle");
+const xAxisLabelInput   = document.getElementById("xAxisLabel");
+const yAxisLabelInput   = document.getElementById("yAxisLabel");
 
 // ---- CSV upload & column selection ----
 
@@ -78,6 +81,23 @@ function getSelectedChartType() {
   }
   return "run";
 }
+
+function getChartLabels(defaultTitle, defaultX, defaultY) {
+  const title = chartTitleInput && chartTitleInput.value.trim()
+    ? chartTitleInput.value.trim()
+    : defaultTitle;
+
+  const xLabel = xAxisLabelInput && xAxisLabelInput.value.trim()
+    ? xAxisLabelInput.value.trim()
+    : defaultX;
+
+  const yLabel = yAxisLabelInput && yAxisLabelInput.value.trim()
+    ? yAxisLabelInput.value.trim()
+    : defaultY;
+
+  return { title, xLabel, yLabel };
+}
+
 
 function computeMedian(values) {
   const sorted = [...values].sort((a, b) => a - b);
@@ -319,8 +339,14 @@ function drawRunChart(points, baselineCount) {
   // Detect runs of >= 8 points on same side of median
   const runFlags = detectLongRuns(values, median, 8);
 
-  // Colour points: orange if part of a violating run, blue otherwise
-  const pointColours = values.map((_, i) => (runFlags[i] ? "orange" : "blue"));
+  // Colours: orange for run violations, dark blue otherwise
+  const pointColours = values.map((_, i) => (runFlags[i] ? "#ff8c00" : "#003f87"));
+
+  const { title, xLabel, yLabel } = getChartLabels(
+    "Run Chart",
+    "Date",
+    "Value"
+  );
 
   currentChart = new Chart(chartCanvas, {
     type: "line",
@@ -332,6 +358,7 @@ function drawRunChart(points, baselineCount) {
           data: values,
           pointRadius: 4,
           pointBackgroundColor: pointColours,
+          borderColor: "#003f87", // dark blue
           borderWidth: 2,
           fill: false
         },
@@ -339,8 +366,8 @@ function drawRunChart(points, baselineCount) {
           label: "Median",
           data: values.map(() => median),
           borderDash: [6, 4],
-          borderWidth: 1,
-          borderColor: "green",
+          borderWidth: 2,
+          borderColor: "#e41a1c", // red-ish
           fill: false
         }
       ]
@@ -350,7 +377,30 @@ function drawRunChart(points, baselineCount) {
       plugins: {
         title: {
           display: true,
-          text: "Run Chart (orange points are part of a long run ≥ 8)"
+          text: title,
+          font: {
+            size: 16,
+            weight: "bold"
+          }
+        },
+        legend: {
+          display: true
+        }
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          title: {
+            display: !!xLabel,
+            text: xLabel
+          }
+        },
+        y: {
+          grid: { display: false },
+          title: {
+            display: !!yLabel,
+            text: yLabel
+          }
         }
       }
     }
@@ -363,55 +413,135 @@ function drawXmRChart(points, baselineCount) {
   const result = computeXmR(points, baselineCount);
   const pts = result.points;
 
-  const labels       = pts.map(p => p.x.toISOString().slice(0, 10));
-  const values       = pts.map(p => p.y);
-  const pointColours = pts.map(p => (p.beyondLimits ? "red" : "blue"));
+  const labels = pts.map(p => p.x.toISOString().slice(0, 10));
+  const values = pts.map(p => p.y);
+  const pointColours = pts.map(p => (p.beyondLimits ? "#d73027" : "#003f87")); // red for breaches, dark blue otherwise
+
+  const { mean, sigma, ucl, lcl } = result;
+
+  const { title, xLabel, yLabel } = getChartLabels(
+    "I-MR Chart",
+    "Date",
+    "Value"
+  );
+
+  // 1σ and 2σ lines if sigma > 0
+  const oneSigmaUp   = sigma > 0 ? mean + 1 * sigma : null;
+  const oneSigmaDown = sigma > 0 ? mean - 1 * sigma : null;
+  const twoSigmaUp   = sigma > 0 ? mean + 2 * sigma : null;
+  const twoSigmaDown = sigma > 0 ? mean - 2 * sigma : null;
+
+  const sigmaLineColor = "rgba(128,128,128,0.35)"; // faint grey
+
+  const datasets = [
+    {
+      label: "Value",
+      data: values,
+      pointRadius: 4,
+      pointBackgroundColor: pointColours,
+      borderColor: "#003f87", // dark blue
+      borderWidth: 2,
+      fill: false
+    },
+    {
+      label: "Mean",
+      data: values.map(() => mean),
+      borderDash: [6, 4],
+      borderWidth: 2,
+      borderColor: "#e41a1c", // red
+      fill: false
+    },
+    {
+      label: "UCL (3σ)",
+      data: values.map(() => ucl),
+      borderDash: [4, 4],
+      borderWidth: 2,
+      borderColor: "#1a9850", // green
+      fill: false
+    },
+    {
+      label: "LCL (3σ)",
+      data: values.map(() => lcl),
+      borderDash: [4, 4],
+      borderWidth: 2,
+      borderColor: "#1a9850", // green
+      fill: false
+    }
+  ];
+
+  // Add 1σ & 2σ lines on both sides if sigma is valid
+  if (sigma > 0) {
+    datasets.push(
+      {
+        label: "+1σ",
+        data: values.map(() => oneSigmaUp),
+        borderDash: [2, 2],
+        borderWidth: 1,
+        borderColor: sigmaLineColor,
+        fill: false
+      },
+      {
+        label: "-1σ",
+        data: values.map(() => oneSigmaDown),
+        borderDash: [2, 2],
+        borderWidth: 1,
+        borderColor: sigmaLineColor,
+        fill: false
+      },
+      {
+        label: "+2σ",
+        data: values.map(() => twoSigmaUp),
+        borderDash: [2, 2],
+        borderWidth: 1,
+        borderColor: sigmaLineColor,
+        fill: false
+      },
+      {
+        label: "-2σ",
+        data: values.map(() => twoSigmaDown),
+        borderDash: [2, 2],
+        borderWidth: 1,
+        borderColor: sigmaLineColor,
+        fill: false
+      }
+    );
+  }
 
   currentChart = new Chart(chartCanvas, {
     type: "line",
     data: {
       labels: labels,
-      datasets: [
-        {
-          label: "Value",
-          data: values,
-          pointRadius: 4,
-          pointBackgroundColor: pointColours,
-          borderWidth: 2,
-          fill: false
-        },
-        {
-          label: "Mean",
-          data: values.map(() => result.mean),
-          borderDash: [6, 4],
-          borderWidth: 1,
-          borderColor: "green",
-          fill: false
-        },
-        {
-          label: "UCL",
-          data: values.map(() => result.ucl),
-          borderDash: [4, 4],
-          borderWidth: 1,
-          borderColor: "red",
-          fill: false
-        },
-        {
-          label: "LCL",
-          data: values.map(() => result.lcl),
-          borderDash: [4, 4],
-          borderWidth: 1,
-          borderColor: "red",
-          fill: false
-        }
-      ]
+      datasets: datasets
     },
     options: {
       responsive: true,
       plugins: {
         title: {
           display: true,
-          text: "XmR Chart (points beyond limits shown in red)"
+          text: title,
+          font: {
+            size: 16,
+            weight: "bold"
+          }
+        },
+        legend: {
+          display: true
+        }
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          title: {
+            display: !!xLabel,
+            text: xLabel
+          }
+        },
+        y: {
+          grid: { display: false },
+          title: {
+            display: !!yLabel,
+            text: yLabel
+          }
         }
       }
     }

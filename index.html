@@ -103,7 +103,30 @@
       </label>
 
       <br /><br />
-      <strong>4. Baseline (optional):</strong><br />
+
+	<strong>4. Titles / labels (optional):</strong><br />
+	<div>
+  	<label>
+    	Chart title:
+    	<input type="text" id="chartTitle" placeholder="e.g. I-MR Chart – Demonstration data" style="width: 24rem;" />
+  	</label>
+	</div>
+	<div>
+  	<label>
+    	X-axis label:
+   	 <input type="text" id="xAxisLabel" placeholder="Date" style="width: 16rem;" />
+ 	 </label>
+	</div>
+	<div>
+  	<label>
+   	 Y-axis label:
+    	<input type="text" id="yAxisLabel" placeholder="Example metric" style="width: 16rem;" />
+ 	 </label>
+	</div>
+
+	<br />
+
+      <strong>5. Baseline (optional):</strong><br />
       <label>
       Use first
       <input type="number" id="baselinePoints" min="2" step="1" style="width: 4rem;" />
@@ -121,7 +144,7 @@
   </div>
 
   <div class="panel">
-  <strong>4. Chart:</strong>
+  <strong>6. Chart:</strong>
   <div class="chart-container">
     <canvas id="spcChart"></canvas>
   </div>
