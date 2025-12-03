@@ -7,6 +7,8 @@
 
   <!-- Chart.js CDN -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Annotation script -->
+ <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1"></script>
   <!-- PapaParse for CSV parsing -->
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
  
@@ -142,9 +144,28 @@
 	  </label>
 	</div>
 
+<br />
+<strong>5. Annotations (optional):</strong><br />
+<div>
+  <label>
+    Annotation date:
+    <input type="date" id="annotationDate" />
+  </label>
+</div>
+<div>
+  <label>
+    Annotation label:
+    <input type="text" id="annotationLabel" placeholder="e.g. New pathway introduced" style="width: 24rem;" />
+  </label>
+</div>
+<button id="addAnnotationButton" type="button">Add annotation</button>
+<div class="hint">
+  Annotations will appear as vertical dashed lines with labels on the chart.
+</div>
+
 	<br />
 
-      <strong>5. Baseline (optional):</strong><br />
+      <strong>6. Baseline (optional):</strong><br />
       <label>
       Use first
       <input type="number" id="baselinePoints" min="2" step="1" style="width: 4rem;" />
@@ -162,7 +183,7 @@
   </div>
 
   <div class="panel">
-  <strong>6. Chart:</strong>
+  <strong>7. Chart:</strong>
   <div class="chart-container">
     <canvas id="spcChart"></canvas>
   </div>

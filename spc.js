@@ -13,6 +13,7 @@
 let rawRows = [];
 let currentChart = null;   // main I / run chart
 let mrChart = null;        // moving range chart
+let annotations = [];      // { date: 'YYYY-MM-DD', label: 'text' }
 
 const fileInput         = document.getElementById("fileInput");
 const columnSelectors   = document.getElementById("columnSelectors");
@@ -25,6 +26,9 @@ const yAxisLabelInput   = document.getElementById("yAxisLabel");
 const targetInput       = document.getElementById("targetValue");
 const targetDirectionInput = document.getElementById("targetDirection");
 const capabilityDiv     = document.getElementById("capability");
+const annotationDateInput  = document.getElementById("annotationDate");
+const annotationLabelInput = document.getElementById("annotationLabel");
+const addAnnotationBtn     = document.getElementById("addAnnotationButton");
 
 const generateButton    = document.getElementById("generateButton");
 const errorMessage      = document.getElementById("errorMessage");
@@ -35,6 +39,26 @@ const downloadBtn       = document.getElementById("downloadPngButton");
 const mrPanel           = document.getElementById("mrPanel");
 const mrChartCanvas     = document.getElementById("mrChartCanvas");
 
+if (addAnnotationBtn) {
+  addAnnotationBtn.addEventListener("click", () => {
+    if (!annotationDateInput || !annotationLabelInput) return;
+
+    const dateVal = annotationDateInput.value;
+    const labelVal = annotationLabelInput.value.trim();
+
+    if (!dateVal || !labelVal) {
+      alert("Please enter both a date and a label for the annotation.");
+      return;
+    }
+
+    // Dates from <input type="date"> are already 'YYYY-MM-DD'
+    annotations.push({ date: dateVal, label: labelVal });
+
+    // Re-generate the chart with the new annotation
+    generateButton.click();
+  });
+}
+
 // ---- CSV upload & column selection ----
 
 fileInput.addEventListener("change", () => {
@@ -44,6 +68,9 @@ fileInput.addEventListener("change", () => {
   errorMessage.textContent = "";
   if (summaryDiv) summaryDiv.innerHTML = "";
   if (capabilityDiv) capabilityDiv.innerHTML = "";
+  annotations = [];
+  if (annotationDateInput) annotationDateInput.value = "";
+  if (annotationLabelInput) annotationLabelInput.value = "";
 
   Papa.parse(file, {
     header: true,
@@ -168,6 +195,9 @@ function detectTrend(values, length = 6) {
   return false;
 }
 
+
+
+
 /**
  * Compute XmR statistics and MR values.
  */
@@ -250,6 +280,39 @@ function getTargetValue() {
   if (v === "") return null;
   const num = Number(v);
   return isFinite(num) ? num : null;
+}
+
+function buildAnnotationConfig(labels) {
+  if (!annotations || annotations.length === 0) {
+    return {};
+  }
+
+  const cfg = {};
+  annotations.forEach((a, idx) => {
+    const xVal = a.date; // we expect 'YYYY-MM-DD' to match label format
+    if (!labels.includes(xVal)) {
+      return; // skip if annotation date not in this dataset
+    }
+    cfg["annot" + idx] = {
+      type: "line",
+      xMin: xVal,
+      xMax: xVal,
+      borderColor: "#000000",
+      borderWidth: 1,
+      borderDash: [2, 2],
+      label: {
+        display: true,
+        content: a.label,
+        rotation: 90,
+        backgroundColor: "rgba(255,255,255,0.8)",
+        borderColor: "#000000",
+        borderWidth: 0.5,
+        position: "start"
+      }
+    };
+  });
+
+  return cfg;
 }
 
 // ---- Summary helpers ----
@@ -593,7 +656,10 @@ function drawRunChart(points, baselineCount) {
           display: true,
           position: "bottom",
           align: "center"
-        }
+        },
+        annotation: {
+         annotations: buildAnnotationConfig(labels)
+       }
       },
       elements: {
         point: {
@@ -774,7 +840,10 @@ function drawXmRChart(points, baselineCount) {
           display: true,
           position: "bottom",
           align: "center"
-        }
+        },
+        annotation: {
+         annotations: buildAnnotationConfig(labels)
+       }
       },
       elements: {
         point: {
