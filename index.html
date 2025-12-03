@@ -102,7 +102,7 @@ button:disabled {
   flex-shrink: 0;
   position: sticky;
   top: 1rem;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
 }
 
 .sidebar input,
@@ -140,32 +140,37 @@ button:disabled {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
-  margin-bottom: 0.4rem;
+  margin: 0.25rem 0 0.4rem 0;
 }
 
-/* Each option is a little pill */
+/* Make each radio+label a small inline chip, not a big bar */
 .radio-pill {
   display: inline-flex;
   align-items: center;
-  padding: 0.15rem 0.5rem;
+  padding: 0.05rem 0.25rem;
   border-radius: 9999px;
-  border: 1px solid #d0d7de;
-  background: #f6f8fa;
+  border: none;
+  background: transparent;
   cursor: pointer;
   white-space: nowrap;
+  font-size: 0.8rem;
 }
 
+/* Override the generic sidebar label rule for these */
+.sidebar .radio-pill {
+  display: inline-flex;   /* cancels label { display:block } */
+  width: auto;            /* no full-width bars */
+}
+
+/* Space between circle and text */
 .radio-pill input[type="radio"] {
-  margin-right: 0.3rem;
+  margin-right: 0.25rem;
 }
 
 /* When the radio is checked, emphasise the pill */
 .radio-pill input[type="radio"]:checked + span,
 .radio-pill input[type="radio"]:checked {
   font-weight: 600;
-}
-
-.radio-pill input[type="radio"]:checked ~ * {
   color: #005eb8;
 }
 
