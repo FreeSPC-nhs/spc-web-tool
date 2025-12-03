@@ -273,7 +273,7 @@ body.sidebar-collapsed .main {
 
 <body>
   <h1>Simple SPC Web Tool</h1>
-  <p class="sub">Upload a CSV and create SPC charts in your browser.</p>
+  <p class="sub">Upload a CSV and create SPC charts in your browser. Data never leaves your browser.</p>
 
 <button id="toggleSidebarButton" class="sidebar-toggle">
   Hide controls
@@ -425,7 +425,7 @@ body.sidebar-collapsed .main {
       </details>
 
       <!-- Section 5: Baseline & splits -->
-      <details open>
+      <details>
         <summary>5. Baseline & split</summary>
         <div class="panel">
       <label>
@@ -436,7 +436,22 @@ body.sidebar-collapsed .main {
      <div class="hint">
       Baseline restricts points used to calculate centre line and limits. Leave blank to use <em>all</em> points to calculate the median/mean and limits.
      </div>
-      <span class="hint">Data never leaves your browser.</span>
+      <hr>
+	<strong>Split the XmR chart:</strong>
+
+	<label>
+  	Add split after:
+  	<select id="splitPointSelect"></select>
+	</label>
+
+	<button id="addSplitButton" type="button">Add split</button>
+	<button id="clearSplitsButton" type="button" style="margin-left: 0.5rem;">
+  	Clear splits
+	</button>
+
+	<div class="hint">
+  	Splits allow the centre line and limits to recalculate from a chosen point onward (XmR only).
+	</div>
          	</div>
       </details>
 
