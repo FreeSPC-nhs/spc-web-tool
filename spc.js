@@ -309,10 +309,11 @@ function buildAnnotationConfig(labels) {
 
   const cfg = {};
   annotations.forEach((a, idx) => {
-    const xVal = a.date; // we expect 'YYYY-MM-DD' to match label format
+    const xVal = a.date; // 'YYYY-MM-DD' from <input type="date">
     if (!labels.includes(xVal)) {
-      return; // skip if annotation date not in this dataset
+      return; // skip if this date isn't on the x-axis
     }
+
     cfg["annot" + idx] = {
       type: "line",
       xMin: xVal,
@@ -323,16 +324,17 @@ function buildAnnotationConfig(labels) {
       label: {
         display: true,
         content: a.label,
-        rotation: 90,
-        backgroundColor: "rgba(255,255,255,0.8)",
+        backgroundColor: "rgba(255,255,255,0.9)",
+        color: "#000000",
         borderColor: "#000000",
         borderWidth: 0.5,
         font: {
           size: 10,
           weight: "bold"
         },
-	yAdjust: -6 
-        position: "end"
+        position: "end",   // near the top of the line
+        yAdjust: -6        // nudge it up a little
+        // no rotation – keep it horizontal so it's easy to read
       }
     };
   });
