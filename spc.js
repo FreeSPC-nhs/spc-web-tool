@@ -30,6 +30,7 @@ const annotationDateInput  = document.getElementById("annotationDate");
 const annotationLabelInput = document.getElementById("annotationLabel");
 const addAnnotationBtn     = document.getElementById("addAnnotationButton");
 const clearAnnotationsBtn  = document.getElementById("clearAnnotationsButton");
+const toggleSidebarButton = document.getElementById("toggleSidebarButton");
 
 const generateButton    = document.getElementById("generateButton");
 const errorMessage      = document.getElementById("errorMessage");
@@ -76,6 +77,17 @@ if (clearAnnotationsBtn) {
     if (currentChart) {
       generateButton.click();
     }
+  });
+}
+
+// ---- Toggle sidebar button ----
+if (toggleSidebarButton) {
+  toggleSidebarButton.addEventListener("click", () => {
+    const layout = document.querySelector(".layout");
+    if (!layout) return;
+
+    const collapsed = layout.classList.toggle("sidebar-collapsed");
+    toggleSidebarButton.textContent = collapsed ? "Show controls" : "Hide controls";
   });
 }
 

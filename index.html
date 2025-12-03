@@ -150,6 +150,41 @@ canvas {
   max-height: 100%;
 }
 
+/* Toggle button */
+.sidebar-toggle {
+  margin-bottom: 0.5rem;
+  padding: 0.35rem 0.9rem;
+  border-radius: 9999px;
+  border: 1px solid #005eb8;
+  background: #005eb8;
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+/* Slightly smaller than primary buttons so it feels like a utility */
+.sidebar-toggle:hover {
+  background: #003f87;
+  border-color: #003f87;
+}
+
+/* When collapsed, slide the sidebar off to the left and let main fill space */
+.layout.sidebar-collapsed .sidebar {
+  transform: translateX(-110%);
+  opacity: 0;
+  pointer-events: none;
+  position: absolute;
+}
+
+.layout.sidebar-collapsed .main {
+  flex: 1 1 100%;
+}
+
+/* Smooth transition */
+.sidebar {
+  transition: transform 0.2s ease-out, opacity 0.2s ease-out;
+}
+
 /* Responsive: stack sidebar on top for narrow screens */
 @media (max-width: 1000px) {
   .layout {
@@ -167,6 +202,10 @@ canvas {
 <body>
   <h1>Simple SPC Web Tool</h1>
   <p class="sub">Upload a CSV and create SPC charts in your browser.</p>
+
+<button id="toggleSidebarButton" class="sidebar-toggle">
+  Hide controls
+</button>
 
 <div class="layout">
     <!-- SIDEBAR: all controls -->
