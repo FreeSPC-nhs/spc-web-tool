@@ -35,6 +35,7 @@ const errorMessage      = document.getElementById("errorMessage");
 const chartCanvas       = document.getElementById("spcChart");
 const summaryDiv        = document.getElementById("summary");
 const downloadBtn       = document.getElementById("downloadPngButton");
+const downloadPdfBtn    = document.getElementById("downloadPdfButton");
 
 const mrPanel           = document.getElementById("mrPanel");
 const mrChartCanvas     = document.getElementById("mrChartCanvas");
@@ -994,5 +995,30 @@ if (downloadBtn) {
     link.href = currentChart.toBase64Image(); // Chart.js helper
     link.download = "spc-chart.png";
     link.click();
+  });
+}
+
+if (downloadPdfBtn) {
+  downloadPdfBtn.addEventListener("click", () => {
+    const reportElement = document.getElementById("reportContent");
+    if (!reportElement) {
+      alert("Report content not found.");
+      return;
+    }
+    if (!currentChart) {
+      alert("Please generate a chart first.");
+      return;
+    }
+
+    // Basic options – you can tweak orientation/format later
+    const opt = {
+      margin:       10,
+      filename:     "spc-report.pdf",
+      image:        { type: "jpeg", quality: 0.98 },
+      html2canvas:  { scale: 2 },
+      jsPDF:        { unit: "mm", format: "a4", orientation: "landscape" }
+    };
+
+    html2pdf().set(opt).from(reportElement).save();
   });
 }

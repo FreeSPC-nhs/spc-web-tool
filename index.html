@@ -11,7 +11,8 @@
  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1"></script>
   <!-- PapaParse for CSV parsing -->
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
- 
+   <!-- PDF export script -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script> 
 
   <style>
     body {
@@ -182,7 +183,8 @@
     </div>
   </div>
 
-  <div class="panel">
+<div id="reportContent">  
+<div class="panel">
   <strong>7. Chart:</strong>
   <div class="chart-container">
     <canvas id="spcChart"></canvas>
@@ -196,14 +198,18 @@
   </div>
 
   <button id="downloadPngButton" style="margin-top: 0.5rem;">
-    Download chart as PNG
-  </button>
+  Download chart as PNG
+</button>
+
+<button id="downloadPdfButton" style="margin-top: 0.5rem; margin-left: 0.5rem;">
+  Download PDF report
+</button>
 
   <div id="summary" style="margin-top: 1rem; font-size: 0.9rem;"></div>
 
   <div id="capability" style="margin-top: 1rem; font-size: 0.9rem;"></div>
 </div>
-
+</div>
    <script src="spc.js"></script>
 </body>
 </html>
