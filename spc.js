@@ -14,6 +14,7 @@ let rawRows = [];
 let currentChart = null;   // main I / run chart
 let mrChart = null;        // moving range chart
 let annotations = [];      // { date: 'YYYY-MM-DD', label: 'text' }
+let splits = [];   // indices where a new XmR segment starts (split AFTER index)
 
 const fileInput         = document.getElementById("fileInput");
 const columnSelectors   = document.getElementById("columnSelectors");
@@ -31,6 +32,9 @@ const annotationLabelInput = document.getElementById("annotationLabel");
 const addAnnotationBtn     = document.getElementById("addAnnotationButton");
 const clearAnnotationsBtn  = document.getElementById("clearAnnotationsButton");
 const toggleSidebarButton = document.getElementById("toggleSidebarButton");
+const splitPointSelect  = document.getElementById("splitPointSelect");
+const addSplitButton    = document.getElementById("addSplitButton");
+const clearSplitsButton = document.getElementById("clearSplitsButton");
 
 const generateButton    = document.getElementById("generateButton");
 const errorMessage      = document.getElementById("errorMessage");
@@ -103,6 +107,8 @@ fileInput.addEventListener("change", () => {
   annotations = [];
   if (annotationDateInput) annotationDateInput.value = "";
   if (annotationLabelInput) annotationLabelInput.value = "";
+  splits = [];
+  if (splitPointSelect) splitPointSelect.innerHTML = "";
 
   Papa.parse(file, {
     header: true,
@@ -227,6 +233,37 @@ function detectTrend(values, length = 6) {
   return false;
 }
 
+function populateSplitOptions(labels) {
+  if (!splitPointSelect) return;
+
+  splitPointSelect.innerHTML = "";
+
+  if (!labels || labels.length <= 1) {
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = "Not enough points to split";
+    splitPointSelect.appendChild(opt);
+    splitPointSelect.disabled = true;
+    if (addSplitButton) addSplitButton.disabled = true;
+    return;
+  }
+
+  splitPointSelect.disabled = false;
+  if (addSplitButton) addSplitButton.disabled = false;
+
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = "Select point…";
+  splitPointSelect.appendChild(placeholder);
+
+  // You can split after any point except the last one
+  for (let i = 0; i < labels.length - 1; i++) {
+    const opt = document.createElement("option");
+    opt.value = String(i); // index of the point AFTER which we split
+    opt.textContent = `After ${labels[i]} (point ${i + 1})`;
+    splitPointSelect.appendChild(opt);
+  }
+}
 
 
 
@@ -670,9 +707,9 @@ if (axisType === "date") {
   }
 
   if (chartType === "run") {
-  drawRunChart(points, baselineCount, labels);
+    drawRunChart(points, baselineCountUsed, labels);
 } else {
-  drawXmRChart(points, baselineCount, labels);
+    drawXmRChart(points, baselineCountUsed, labels);
 }
 });
 
@@ -804,137 +841,155 @@ function drawRunChart(points, baselineCount, labels) {
 }
 
 function drawXmRChart(points, baselineCount, labels) {
-  const result = computeXmR(points, baselineCount);
-  const pts = result.points;
+  if (!chartCanvas) return;
 
-  
-  const values = pts.map(p => p.y);
-  const pointColours = pts.map(p => (p.beyondLimits ? "#d73027" : "#003f87")); // red for breaches, dark blue otherwise
+  const n = points.length;
+  if (n < 2) {
+    errorMessage.textContent = "XmR chart needs at least 2 points.";
+    return;
+  }
 
-// Keep annotation date dropdown in sync with the current chart dates
-  populateAnnotationDateOptions(labels);
+  // ----- Segment definition from splits -----
+  let effectiveSplits = Array.isArray(splits) ? splits.slice() : [];
+  effectiveSplits = effectiveSplits
+    .filter(i => Number.isInteger(i) && i >= 0 && i < n - 1)
+    .sort((a, b) => a - b);
 
-  const { mean, sigma, ucl, lcl } = result;
+  const segmentStarts = [0];
+  const segmentEnds = [];
+  effectiveSplits.forEach(idx => {
+    segmentEnds.push(idx);
+    segmentStarts.push(idx + 1);
+  });
+  segmentEnds.push(n - 1);
 
-  const { title, xLabel, yLabel } = getChartLabels(
-    "I-MR Chart",
-    "Date",
-    "Value"
+  // ----- Global arrays for plotting -----
+  const values = points.map(p => p.y);
+
+  const meanLine      = new Array(n).fill(NaN);
+  const uclLine       = new Array(n).fill(NaN);
+  const lclLine       = new Array(n).fill(NaN);
+  const oneSigmaUp    = new Array(n).fill(NaN);
+  const oneSigmaDown  = new Array(n).fill(NaN);
+  const twoSigmaUp    = new Array(n).fill(NaN);
+  const twoSigmaDown  = new Array(n).fill(NaN);
+  const pointColours  = new Array(n).fill("#003f87");
+
+  let anySigma = false;
+
+  // We'll still compute a "global" XmR for the summary panel
+  const globalResult = computeXmR(points, baselineCount);
+
+  // ----- Per-segment XmR -----
+  for (let s = 0; s < segmentStarts.length; s++) {
+    const start = segmentStarts[s];
+    const end   = segmentEnds[s];
+
+    const segPoints = points.slice(start, end + 1);
+
+    // Only the first segment uses the user-specified baseline;
+    // later segments use all their points as baseline.
+    const segBaseline = s === 0 ? baselineCount : null;
+
+    const segResult = computeXmR(segPoints, segBaseline);
+    const segPts    = segResult.points;
+    const mean      = segResult.mean;
+    const ucl       = segResult.ucl;
+    const lcl       = segResult.lcl;
+    const sigma     = segResult.sigma;
+
+    for (let i = 0; i < segPts.length; i++) {
+      const globalIdx = start + i;
+
+      // Flag special-cause points within this segment
+      if (segPts[i].beyondLimits) {
+        pointColours[globalIdx] = "#d73027";
+      }
+
+      // Centre line & limits
+      meanLine[globalIdx] = mean;
+      uclLine[globalIdx]  = ucl;
+      lclLine[globalIdx]  = lcl;
+
+      // Sigma lines (if we have a valid sigma)
+      if (sigma && sigma > 0) {
+        anySigma = true;
+        oneSigmaUp[globalIdx]   = mean + sigma;
+        oneSigmaDown[globalIdx] = mean - sigma;
+        twoSigmaUp[globalIdx]   = mean + 2 * sigma;
+        twoSigmaDown[globalIdx] = mean - 2 * sigma;
+      }
+    }
+  }
+
+  // ----- Build datasets -----
+  const datasets = [];
+
+  // Main values
+  datasets.push({
+    label: "Value",
+    data: values,
+    borderColor: "#003f87",
+    backgroundColor: "#003f87",
+    pointRadius: 3,
+    pointHoverRadius: 4,
+    pointBackgroundColor: pointColours,
+    pointBorderColor: "#ffffff",
+    pointBorderWidth: 1,
+    tension: 0,
+    yAxisID: "y"
+  });
+
+  // Mean + limits
+  datasets.push(
+    {
+      label: "Mean",
+      data: meanLine,
+      borderColor: "#d73027",
+      borderDash: [6, 4],
+      pointRadius: 0
+    },
+    {
+      label: "UCL (3σ)",
+      data: uclLine,
+      borderColor: "#2ca25f",
+      borderDash: [4, 4],
+      pointRadius: 0
+    },
+    {
+      label: "LCL (3σ)",
+      data: lclLine,
+      borderColor: "#2ca25f",
+      borderDash: [4, 4],
+      pointRadius: 0
+    }
   );
 
-  const target = getTargetValue();
-
-  // 1σ and 2σ lines if sigma > 0
-  const oneSigmaUp   = sigma > 0 ? mean + 1 * sigma : null;
-  const oneSigmaDown = sigma > 0 ? mean - 1 * sigma : null;
-  const twoSigmaUp   = sigma > 0 ? mean + 2 * sigma : null;
-  const twoSigmaDown = sigma > 0 ? mean - 2 * sigma : null;
-
-  const sigmaLineColor = "rgba(128,128,128,0.35)"; // faint grey
-
-  const datasets = [
-    {
-      // DATA LINE
-      label: "Value",
-      data: values,
-      pointRadius: 4,
-      pointBackgroundColor: pointColours,
-      borderColor: "#003f87", // dark blue
-      borderWidth: 2,
-      fill: false
-    },
-    {
-      // MEAN
-      label: "Mean",
-      data: values.map(() => mean),
-      borderDash: [6, 4],
-      borderWidth: 2,
-      borderColor: "#e41a1c", // red
-      pointRadius: 0,
-      pointHoverRadius: 0,
-      fill: false
-    },
-    {
-      // UCL
-      label: "UCL (3σ)",
-      data: values.map(() => ucl),
-      borderDash: [4, 4],
-      borderWidth: 2,
-      borderColor: "#1a9850", // green
-      pointRadius: 0,
-      pointHoverRadius: 0,
-      fill: false
-    },
-    {
-      // LCL
-      label: "LCL (3σ)",
-      data: values.map(() => lcl),
-      borderDash: [4, 4],
-      borderWidth: 2,
-      borderColor: "#1a9850", // green
-      pointRadius: 0,
-      pointHoverRadius: 0,
-      fill: false
-    }
-  ];
-
-  if (sigma > 0) {
+  if (anySigma) {
+    const sigmaStyle = {
+      borderColor: "rgba(0,0,0,0.12)",
+      borderWidth: 1,
+      borderDash: [2, 2],
+      pointRadius: 0
+    };
     datasets.push(
-      {
-        label: "+1σ",
-        data: values.map(() => oneSigmaUp),
-        borderDash: [2, 2],
-        borderWidth: 1,
-        borderColor: sigmaLineColor,
-        pointRadius: 0,
-        pointHoverRadius: 0,
-        fill: false
-      },
-      {
-        label: "-1σ",
-        data: values.map(() => oneSigmaDown),
-        borderDash: [2, 2],
-        borderWidth: 1,
-        borderColor: sigmaLineColor,
-        pointRadius: 0,
-        pointHoverRadius: 0,
-        fill: false
-      },
-      {
-        label: "+2σ",
-        data: values.map(() => twoSigmaUp),
-        borderDash: [2, 2],
-        borderWidth: 1,
-        borderColor: sigmaLineColor,
-        pointRadius: 0,
-        pointHoverRadius: 0,
-        fill: false
-      },
-      {
-        label: "-2σ",
-        data: values.map(() => twoSigmaDown),
-        borderDash: [2, 2],
-        borderWidth: 1,
-        borderColor: sigmaLineColor,
-        pointRadius: 0,
-        pointHoverRadius: 0,
-        fill: false
-      }
+      { label: "+1σ", data: oneSigmaUp,   ...sigmaStyle },
+      { label: "-1σ", data: oneSigmaDown, ...sigmaStyle },
+      { label: "+2σ", data: twoSigmaUp,   ...sigmaStyle },
+      { label: "-2σ", data: twoSigmaDown, ...sigmaStyle }
     );
   }
 
-  if (target !== null) {
-    datasets.push({
-      label: "Target",
-      data: values.map(() => target),
-      borderDash: [4, 2],
-      borderWidth: 2,
-      borderColor: "#fdae61", // orange-ish
-      pointRadius: 0,
-      pointHoverRadius: 0,
-      fill: false
-    });
+  // Update annotation and split dropdowns
+  populateAnnotationDateOptions(labels);
+  populateSplitOptions(labels);
+
+  // ----- Create chart -----
+  if (currentChart) {
+    currentChart.destroy();
   }
+
+  const title = chartTitleInput.value.trim() || "I-MR Chart";
 
   currentChart = new Chart(chartCanvas, {
     type: "line",
@@ -944,7 +999,7 @@ function drawXmRChart(points, baselineCount, labels) {
     },
     options: {
       responsive: true,
-	maintainAspectRatio: false,
+      maintainAspectRatio: false,
       plugins: {
         title: {
           display: true,
@@ -960,8 +1015,8 @@ function drawXmRChart(points, baselineCount, labels) {
           align: "center"
         },
         annotation: {
-         annotations: buildAnnotationConfig(labels)
-       }
+          annotations: buildAnnotationConfig(labels)
+        }
       },
       elements: {
         point: {
@@ -973,24 +1028,26 @@ function drawXmRChart(points, baselineCount, labels) {
         x: {
           grid: { display: false },
           title: {
-            display: !!xLabel,
-            text: xLabel
+            display: !!xAxisLabelInput.value.trim(),
+            text: xAxisLabelInput.value.trim()
           }
         },
         y: {
           grid: { display: false },
           title: {
-            display: !!yLabel,
-            text: yLabel
+            display: !!yAxisLabelInput.value.trim(),
+            text: yAxisLabelInput.value.trim()
           }
         }
       }
     }
   });
 
-  updateXmRSummary(result, points.length);
-  drawMRChart(result, labels);
+  // Summary & MR chart still use the global (unsplit) result for now
+  updateXmRSummary(globalResult, points.length);
+  drawMRChart(globalResult, labels);
 }
+
 
 // MR chart: average MR as centre, UCL = 3.268 * avgMR, LCL = 0
 function drawMRChart(result, labels) {
@@ -1115,6 +1172,45 @@ if (downloadBtn) {
     link.click();
   });
 }
+
+if (addSplitButton) {
+  addSplitButton.addEventListener("click", () => {
+    if (!splitPointSelect) return;
+
+    const value = splitPointSelect.value;
+    if (value === "") {
+      alert("Please choose a point to split after.");
+      return;
+    }
+
+    const idx = parseInt(value, 10);
+    if (!Number.isInteger(idx)) return;
+
+    if (!splits.includes(idx)) {
+      splits.push(idx);
+    }
+
+    // Rebuild chart if we're on XmR
+    if (getSelectedChartType() === "xmr") {
+      generateButton.click();
+    }
+  });
+}
+
+if (clearSplitsButton) {
+  clearSplitsButton.addEventListener("click", () => {
+    splits = [];
+
+    if (splitPointSelect) {
+      splitPointSelect.value = "";
+    }
+
+    if (getSelectedChartType() === "xmr") {
+      generateButton.click();
+    }
+  });
+}
+
 
 if (downloadPdfBtn) {
   downloadPdfBtn.addEventListener("click", () => {
