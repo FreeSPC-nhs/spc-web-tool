@@ -790,7 +790,6 @@ function updateXmRMultiSummary(segments, totalPoints) {
   // Capability badge – focus on the last period (as a simple headline)
   if (!capabilityDiv) return;
 
-  const target = getTargetValue();
   if (target === null || !lastPeriodHasCapability) {
     capabilityDiv.innerHTML = "";
     return;
@@ -1553,8 +1552,10 @@ function toggleHelpSection() {
     }
 }
 
-document.getElementById("helpToggleButton")
-    .addEventListener("click", toggleHelpSection);
+const helpToggleButton = document.getElementById("helpToggleButton");
+if (helpToggleButton) {
+  helpToggleButton.addEventListener("click", toggleHelpSection);
+}
 
 
 if (downloadPdfBtn) {
