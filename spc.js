@@ -787,11 +787,29 @@ function updateXmRMultiSummary(segments, totalPoints) {
     html += `</ul>`;
 
     // Remember last period's signals + capability for the badge
-    if (idx === segments.length - 1) {
-      lastPeriodSignals = signals;
-      lastPeriodCapability = capability;
-      lastPeriodHasCapability = sigma > 0 && !!capability;
-    }
+if (idx === segments.length - 1) {
+  lastPeriodSignals = signals;
+  lastPeriodCapability = capability;
+  lastPeriodHasCapability = sigma > 0 && !!capability;
+
+  // Also store a structured summary for the SPC helper (last / current period)
+  lastXmRAnalysis = {
+    mean,
+    ucl,
+    lcl,
+    sigma,
+    avgMR,
+    n,
+    signals: signals.slice(),
+    hasTrend,
+    hasRunViolation,
+    baselineCountUsed,
+    target,
+    direction,
+    capability,
+    isStable: signals.length === 0
+  };
+}
   });
 
   if (target !== null && segments.length > 1) {
@@ -846,25 +864,6 @@ function updateXmRMultiSummary(segments, totalPoints) {
     capabilityDiv.innerHTML = "";
   }
 }
-
-// Store a structured summary for the helper to use
-  lastXmRAnalysis = {
-    n,
-    mean,
-    ucl,
-    lcl,
-    sigma,
-    avgMR,
-    baselineCountUsed,
-    nBeyond,
-    hasRunViolation,
-    hasTrend,
-    signals: signals.slice(),
-    target,
-    direction,
-    capability,
-    isStable: signals.length === 0
-  };
 
 // Approximate standard normal CDF Φ(z)
 function normalCdf(z) {
