@@ -44,7 +44,6 @@ const chartCanvas       = document.getElementById("spcChart");
 const summaryDiv        = document.getElementById("summary");
 const downloadBtn       = document.getElementById("downloadPngButton");
 const downloadPdfBtn    = document.getElementById("downloadPdfButton");
-const downloadExcelBtn  = document.getElementById("downloadExcelButton");
 const openDataEditorButton   = document.getElementById("openDataEditorButton");
 const dataEditorOverlay      = document.getElementById("dataEditorOverlay");
 const dataEditorTextarea     = document.getElementById("dataEditorTextarea");
@@ -1638,114 +1637,6 @@ if (downloadPdfBtn) {
 
 
     html2pdf().set(opt).from(reportElement).save();
-  });
-}
-
-// ------------------------------
-// Excel export – data + chart & summary
-// ------------------------------
-if (downloadExcelBtn) {
-  downloadExcelBtn.addEventListener("click", () => {
-    if (!rawRows || rawRows.length === 0) {
-      alert("No data available to export. Please upload or paste data first.");
-      return;
-    }
-
-    if (typeof XLSX === "undefined") {
-      alert("The Excel export library (xlsx.min.js) did not load. Please check your internet connection or any blockers.");
-      return;
-    }
-
-    // Create workbook
-    const wb = XLSX.utils.book_new();
-
-    // ----- Sheet 1: raw data -----
-    const dataSheet = XLSX.utils.json_to_sheet(rawRows);
-    XLSX.utils.book_append_sheet(wb, dataSheet, "Data");
-
-    // ----- Sheet 2: chart & summary -----
-    const sheet2Rows = [];
-
-    // Basic chart info
-    const chartTitle =
-      (chartTitleInput && chartTitleInput.value.trim()) || "SPC chart";
-
-    sheet2Rows.push(["Chart title", chartTitle]);
-
-    const chartTypeRadio = document.querySelector('input[name="chartType"]:checked');
-    if (chartTypeRadio) {
-      const friendlyType =
-        chartTypeRadio.value === "xmr" ? "XmR chart" : "Run chart";
-      sheet2Rows.push(["Chart type", friendlyType]);
-    }
-
-    if (xAxisLabelInput && xAxisLabelInput.value.trim()) {
-      sheet2Rows.push(["X-axis label", xAxisLabelInput.value.trim()]);
-    }
-    if (yAxisLabelInput && yAxisLabelInput.value.trim()) {
-      sheet2Rows.push(["Y-axis label", yAxisLabelInput.value.trim()]);
-    }
-
-    const targetVal = getTargetValue();
-    if (targetVal !== null) {
-      const dir = targetDirectionInput
-        ? targetDirectionInput.value
-        : "above";
-      const dirText =
-        dir === "above" ? "At or above is better" : "At or below is better";
-      sheet2Rows.push(["Target", String(targetVal)]);
-      sheet2Rows.push(["Target direction", dirText]);
-    }
-
-    // Blank row spacer
-    sheet2Rows.push([]);
-    sheet2Rows.push(["Analysis summary"]);
-
-    // Main analysis text
-    let summaryText = "";
-    if (summaryDiv) {
-      summaryText =
-        summaryDiv.innerText || summaryDiv.textContent || "";
-    }
-
-    if (!summaryText || !summaryText.trim()) {
-      sheet2Rows.push(["(No summary available – generate a chart first.)"]);
-    } else {
-      summaryText.split(/\r?\n/).forEach((line) => {
-        if (line.trim()) {
-          sheet2Rows.push([line.trim()]);
-        }
-      });
-    }
-
-    // Capability text (if present)
-    if (capabilityDiv && capabilityDiv.innerText.trim()) {
-      sheet2Rows.push([]);
-      sheet2Rows.push(["Capability"]);
-
-      capabilityDiv.innerText.split(/\r?\n/).forEach((line) => {
-        if (line.trim()) {
-          sheet2Rows.push([line.trim()]);
-        }
-      });
-    }
-
-    // Annotations (if any)
-    if (annotations && annotations.length > 0) {
-      sheet2Rows.push([]);
-      sheet2Rows.push(["Annotations"]);
-      sheet2Rows.push(["Date", "Label"]);
-
-      annotations.forEach((a) => {
-        sheet2Rows.push([a.date || "", a.label || ""]);
-      });
-    }
-
-    const chartSheet = XLSX.utils.aoa_to_sheet(sheet2Rows);
-    XLSX.utils.book_append_sheet(wb, chartSheet, "Chart & summary");
-
-    // ----- Save workbook -----
-    XLSX.writeFile(wb, "spc_output.xlsx");
   });
 }
 
