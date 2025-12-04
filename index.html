@@ -268,6 +268,11 @@ body.sidebar-collapsed .main {
   }
 }
 
+@media print {
+  #exportButtons {
+    display: none !important;
+  }
+}
   </style>
 </head>
 
@@ -281,6 +286,11 @@ body.sidebar-collapsed .main {
 
 <button id="generateButton">Generate chart</button>
 <div id="errorMessage" class="error"></div>
+
+<div class="panel" id="exportButtons" style="margin-top:0.5rem;">
+  <button id="downloadPngButton">Download chart as PNG</button>
+  <button id="downloadPdfButton" style="margin-left:0.5rem;">Download PDF report</button>
+</div>
 
 <div class="layout">
     <!-- SIDEBAR: all controls -->
@@ -481,15 +491,7 @@ body.sidebar-collapsed .main {
         </div>
 
       </div> <!-- end #reportContent -->
-	<div class=panel" style="margin-top:0.5rem;">
-	<button id="downloadPngButton" style="margin-top: 0.5rem;">
-            Download chart as PNG
-          </button>
-
-          <button id="downloadPdfButton" style="margin-top: 0.5rem; margin-left: 0.5rem;">
-            Download PDF report
-          </button>
-	</div>
+	
     </main>
   </div> <!-- end .layout -->
 
