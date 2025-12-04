@@ -1449,6 +1449,24 @@ if (clearSplitsButton) {
   });
 }
 
+// -----------------------------
+// Help section toggle
+// -----------------------------
+function toggleHelpSection() {
+    const help = document.getElementById("helpSection");
+    const isHidden = help.style.display === "none" || help.style.display === "";
+
+    if (isHidden) {
+        help.style.display = "block";
+        help.scrollIntoView({ behavior: "smooth" });
+    } else {
+        help.style.display = "none";
+    }
+}
+
+document.getElementById("helpToggleButton")
+    .addEventListener("click", toggleHelpSection);
+
 
 if (downloadPdfBtn) {
   downloadPdfBtn.addEventListener("click", () => {
