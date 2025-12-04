@@ -1037,8 +1037,8 @@ function drawXmRChart(points, baselineCount, labels) {
   if (!chartCanvas) return;
 
   const n = points.length;
-  if (n < 2) {
-    errorMessage.textContent = "XmR chart needs at least 2 points.";
+  if (n < 12) {
+    errorMessage.textContent = "XmR chart needs at least 12 points.";
     return;
   }
 
@@ -1172,6 +1172,20 @@ function drawXmRChart(points, baselineCount, labels) {
       { label: "-2σ", data: twoSigmaDown, ...sigmaStyle }
     );
   }
+
+// ----- Target line (optional) -----
+const target = getTargetValue();
+if (target !== null) {
+  datasets.push({
+    label: "Target",
+    data: values.map(() => target),
+    borderColor: "#fdae61",   // NHS-style orange
+    borderWidth: 2,
+    borderDash: [4, 2],
+    pointRadius: 0,
+    tension: 0,
+  });
+}
 
 
 
