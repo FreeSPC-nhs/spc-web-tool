@@ -535,6 +535,60 @@ if (dataEditorApplyButton) {
   });
 }
 
+const resetButton = document.getElementById("resetButton");
+
+if (resetButton) {
+  resetButton.addEventListener("click", () => {
+    
+    // 1. Clear stored data
+    rawRows = [];
+    annotations = [];
+    splits = [];
+
+    // 2. Reset file input
+    if (fileInput) fileInput.value = "";
+
+    // 3. Reset pasted-data editor
+    if (dataEditorTextarea) dataEditorTextarea.value = "";
+
+    // 4. Reset column selectors
+    if (dateSelect) dateSelect.innerHTML = "";
+    if (valueSelect) valueSelect.innerHTML = "";
+    if (columnSelectors) columnSelectors.style.display = "none";
+
+    // 5. Reset baseline, target, axis type, chart type
+    if (baselineInput) baselineInput.value = "";
+    if (targetInput) targetInput.value = "";
+    if (targetDirectionInput) targetDirectionInput.value = "below";
+
+    const dateAxisRadio = document.querySelector("input[name='axisType'][value='date']");
+    const runChartRadio = document.querySelector("input[name='chartType'][value='run']");
+    if (dateAxisRadio) dateAxisRadio.checked = true;
+    if (runChartRadio) runChartRadio.checked = true;
+
+    // 6. Clear summary + capability blocks
+    if (summaryDiv) summaryDiv.innerHTML = "";
+    if (capabilityDiv) capabilityDiv.innerHTML = "";
+
+    // 7. Clear MR chart panel
+    const mrPanel = document.getElementById("mrPanel");
+    if (mrPanel) mrPanel.style.display = "none";
+
+    // 8. Destroy existing chart
+    if (currentChart) {
+      currentChart.destroy();
+      currentChart = null;
+    }
+
+    // 9. Reset annotation inputs
+    if (annotationDateInput) annotationDateInput.value = "";
+    if (annotationLabelInput) annotationLabelInput.value = "";
+
+    // 10. Provide feedback
+    alert("The tool has been reset. You can upload or paste new data.");
+  });
+}
+
 
 // ---- Summary helpers ----
 
