@@ -653,76 +653,152 @@ function updateRunSummary(points, median, runFlags, baselineCountUsed) {
   summaryDiv.innerHTML = html;
 }
 
-function updateXmRSummary(result, totalPoints) {
+// ---- Summary helpers ----
+
+// Multi-period XmR summary (handles baseline + splits)
+function updateXmRMultiSummary(segments, totalPoints) {
   if (!summaryDiv) return;
 
-  const n = totalPoints;
-  const { mean, ucl, lcl, sigma, avgMR, baselineCountUsed } = result;
-  const nBeyond = result.points.filter(p => p.beyondLimits).length;
-  const values = result.points.map(p => p.y);
-
-  // additional rules for NHS-style interpretation
-  const runFlags = detectLongRuns(values, mean, 8);
-  const nRunPoints = runFlags.filter(Boolean).length;
-  const hasRunViolation = nRunPoints > 0;
-  const hasTrend = detectTrend(values, 6);
-
-  const signals = [];
-  if (nBeyond > 0) {
-    signals.push("one or more points beyond the control limits");
-  }
-  if (hasRunViolation) {
-    signals.push("a run of 8 or more points on one side of the mean");
-  }
-  if (hasTrend) {
-    signals.push("a trend of 6 or more points all increasing or all decreasing");
+  if (!segments || segments.length === 0) {
+    summaryDiv.innerHTML = "";
+    if (capabilityDiv) capabilityDiv.innerHTML = "";
+    return;
   }
 
   const target = getTargetValue();
   const direction = targetDirectionInput ? targetDirectionInput.value : "above";
 
-  let capability = null;
-  if (target !== null && sigma > 0) {
-    capability = computeTargetCapability(mean, sigma, target, direction);
-  }
-
   let html = `<h3>Summary (XmR chart)</h3>`;
-  html += `<ul>`;
-  html += `<li>Number of points: <strong>${n}</strong></li>`;
-  if (baselineCountUsed && baselineCountUsed < n) {
-    html += `<li>Baseline: first <strong>${baselineCountUsed}</strong> points used to calculate mean and limits.</li>`;
-  } else {
-    html += `<li>Baseline: all points used to calculate mean and limits.</li>`;
-  }
-  html += `<li>Mean: <strong>${mean.toFixed(3)}</strong></li>`;
-  html += `<li>Estimated σ (from MR): <strong>${sigma.toFixed(3)}</strong> (avg MR = ${avgMR.toFixed(3)})</li>`;
-  html += `<li>Control limits: <strong>LCL = ${lcl.toFixed(3)}</strong>, <strong>UCL = ${ucl.toFixed(3)}</strong></li>`;
+  html += `<p>Total number of points: <strong>${totalPoints}</strong>. `;
+  html += `The chart is divided into <strong>${segments.length}</strong> period${segments.length > 1 ? "s" : ""} `;
+  html += `(based on the baseline and any splits).</p>`;
 
-if (target !== null) {
-  html += `<li>Target: <strong>${target}</strong> (${direction === "above" ? "at or above is better" : "at or below is better"})</li>`;
-  if (capability && signals.length === 0) {
-    html += `<li>Estimated process capability (assuming a stable process and approximate normality): about <strong>${(capability.prob * 100).toFixed(1)}%</strong> of future points are expected to meet the target.</li>`;
-  } else if (capability && signals.length > 0) {
-    html += `<li>Capability: a target has been set, but special-cause signals are present. Any capability estimate would be unreliable until the process is stable.</li>`;
-  } else {
-    html += `<li>Capability: cannot be estimated (insufficient variation to estimate σ).</li>`;
-  }
-} else {
-  html += `<li>Target: not specified – capability not calculated.</li>`;
-}
+  // We'll also keep track of the last period's signals for the capability badge
+  let lastPeriodSignals = [];
+  let lastPeriodCapability = null;
+  let lastPeriodHasCapability = false;
 
-  if (signals.length === 0) {
-    html += `<li><strong>Special cause:</strong> No rule breaches detected (points within limits, no long runs or clear trend). Pattern is consistent with common-cause variation, but always interpret in context.</li>`;
-  } else {
-    html += `<li><strong>Special cause:</strong> Signals suggesting special-cause variation based on: ${signals.join("; ")}.</li>`;
-  }
+  segments.forEach((seg, idx) => {
+    const { startIndex, endIndex, labelStart, labelEnd, result } = seg;
+    const { mean, ucl, lcl, sigma, avgMR, baselineCountUsed } = result;
 
-  html += `</ul>`;
+    const points = result.points;
+    const n = points.length;
+    const values = points.map(p => p.y);
+    const nBeyond = points.filter(p => p.beyondLimits).length;
+
+    const runFlags = detectLongRuns(values, mean, 8);
+    const nRunPoints = runFlags.filter(Boolean).length;
+    const hasRunViolation = nRunPoints > 0;
+    const hasTrend = detectTrend(values, 6);
+
+    const signals = [];
+    if (nBeyond > 0) {
+      signals.push("one or more points beyond the control limits");
+    }
+    if (hasRunViolation) {
+      signals.push("a run of 8 or more points on one side of the mean");
+    }
+    if (hasTrend) {
+      signals.push("a trend of 6 or more points all increasing or all decreasing");
+    }
+
+    let capability = null;
+    if (target !== null && sigma > 0) {
+      capability = computeTargetCapability(mean, sigma, target, direction);
+    }
+
+    // How many points in this period meet the target?
+    let targetCoverageText = "";
+    if (target !== null && n > 0) {
+      let hits = 0;
+      points.forEach(p => {
+        if (direction === "above") {
+          if (p.y >= target) hits++;
+        } else {
+          if (p.y <= target) hits++;
+        }
+      });
+      const prop = hits / n;
+      targetCoverageText = `${(prop * 100).toFixed(1)}% of points in this period meet the target (${hits}/${n}).`;
+    }
+
+    const periodLabel =
+      segments.length === 1
+        ? "Single period"
+        : idx === 0
+          ? "Period 1 (initial segment / baseline)"
+          : `Period ${idx + 1}`;
+
+    const rangeText =
+      labelStart !== undefined && labelEnd !== undefined
+        ? `points ${startIndex + 1}–${endIndex + 1} (${labelStart} to ${labelEnd})`
+        : `points ${startIndex + 1}–${endIndex + 1}`;
+
+    html += `<h4>${periodLabel}</h4>`;
+    html += `<ul>`;
+    html += `<li>Coverage: <strong>${rangeText}</strong> – ${n} point${n !== 1 ? "s" : ""}.</li>`;
+
+    if (baselineCountUsed && baselineCountUsed < n) {
+      html += `<li>Baseline for this period: first <strong>${baselineCountUsed}</strong> point${baselineCountUsed !== 1 ? "s" : ""} used to calculate mean and limits.</li>`;
+    } else {
+      html += `<li>Baseline for this period: all points in this period used to calculate mean and limits.</li>`;
+    }
+
+    html += `<li>Mean: <strong>${mean.toFixed(3)}</strong>; control limits: <strong>LCL = ${lcl.toFixed(3)}</strong>, <strong>UCL = ${ucl.toFixed(3)}</strong>.</li>`;
+    html += `<li>Estimated σ (from MR): <strong>${sigma.toFixed(3)}</strong> (average MR = ${avgMR.toFixed(3)}).</li>`;
+
+    if (target !== null) {
+      html += `<li>Target: <strong>${target}</strong> (${direction === "above" ? "at or above is better" : "at or below is better"}). `;
+      if (targetCoverageText) {
+        html += targetCoverageText + `</li>`;
+      } else {
+        html += `Target coverage not calculated for this period.</li>`;
+      }
+    }
+
+    if (signals.length === 0) {
+      html += `<li><strong>Special cause:</strong> No rule breaches detected in this period (points within limits, no long runs or clear trend). Pattern is consistent with common-cause variation, but always interpret in clinical context.</li>`;
+    } else {
+      html += `<li><strong>Special cause:</strong> In this period, signals suggesting special-cause variation were detected based on: ${signals.join("; ")}.</li>`;
+    }
+
+    if (capability && sigma > 0) {
+      if (signals.length === 0) {
+        html += `<li><strong>Estimated capability (this period):</strong> if the process remains stable, about <strong>${(capability.prob * 100).toFixed(1)}%</strong> of future points are expected to meet the target.</li>`;
+      } else {
+        html += `<li><strong>Capability:</strong> a target has been set, but because special-cause signals are present in this period, any capability estimate would be unreliable.</li>`;
+      }
+    }
+
+    html += `</ul>`;
+
+    // Remember last period's signals + capability for the badge
+    if (idx === segments.length - 1) {
+      lastPeriodSignals = signals;
+      lastPeriodCapability = capability;
+      lastPeriodHasCapability = sigma > 0 && !!capability;
+    }
+  });
+
+  if (target !== null && segments.length > 1) {
+    html += `<p><em>Note:</em> comparing means, limits and target performance between periods gives an indication of whether the process has changed after interventions.</p>`;
+  }
 
   summaryDiv.innerHTML = html;
 
-if (capabilityDiv) {
-  if (target !== null && capability && signals.length === 0) {
+  // Capability badge – focus on the last period (as a simple headline)
+  if (!capabilityDiv) return;
+
+  const target = getTargetValue();
+  if (target === null || !lastPeriodHasCapability) {
+    capabilityDiv.innerHTML = "";
+    return;
+  }
+
+  const hasAnySignals = lastPeriodSignals && lastPeriodSignals.length > 0;
+
+  if (!hasAnySignals && lastPeriodCapability) {
     capabilityDiv.innerHTML = `
       <div style="
         display:inline-block;
@@ -731,16 +807,16 @@ if (capabilityDiv) {
         border:1px solid #ccc;
         border-radius:0.25rem;
       ">
-        <div style="font-weight:bold; text-align:center;">PROCESS CAPABILITY</div>
+        <div style="font-weight:bold; text-align:center;">PROCESS CAPABILITY (last period)</div>
         <div style="font-size:1.4rem; font-weight:bold; text-align:center; margin-top:0.2rem;">
-          ${(capability.prob * 100).toFixed(1)}%
+          ${(lastPeriodCapability.prob * 100).toFixed(1)}%
         </div>
         <div style="font-size:0.8rem; margin-top:0.2rem;">
-          (Estimated probability of meeting the target, assuming no special-cause variation.)
+          (Estimated probability of meeting the target in the final period, assuming a stable process and approximate normality.)
         </div>
       </div>
     `;
-  } else if (target !== null && signals.length > 0) {
+  } else if (target !== null && hasAnySignals) {
     capabilityDiv.innerHTML = `
       <div style="
         display:inline-block;
@@ -750,14 +826,13 @@ if (capabilityDiv) {
         border-radius:0.25rem;
         max-width:32rem;
       ">
-        <strong>Process not stable:</strong> special-cause signals are present.
+        <strong>Process not stable in the last period:</strong> special-cause signals are present.
         Focus on understanding and addressing these causes before relying on capability estimates.
       </div>
     `;
   } else {
     capabilityDiv.innerHTML = "";
   }
-}
 }
 
 // Approximate standard normal CDF Φ(z)
@@ -1032,29 +1107,6 @@ function drawRunChart(points, baselineCount, labels) {
   updateRunSummary(points, median, runFlags, baselineCountUsed);
 }
 
-function computeLastSegment(points, baselineCount) {
-  const n = points.length;
-  if (n < 2) return null;
-
-  let effectiveSplits = Array.isArray(splits) ? splits.slice() : [];
-  effectiveSplits = effectiveSplits
-    .filter(i => Number.isInteger(i) && i >= 0 && i < n - 1)
-    .sort((a, b) => a - b);
-
-  // Determine start index of the last segment
-  const lastSplitIndex = effectiveSplits.length > 0
-    ? effectiveSplits[effectiveSplits.length - 1] + 1
-    : 0;
-
-  const segPoints = points.slice(lastSplitIndex);
-
-  // Baseline for the last segment: use all its points
-  return {
-    result: computeXmR(segPoints, null),
-    count: segPoints.length
-  };
-}
-
 function drawXmRChart(points, baselineCount, labels) {
   if (!chartCanvas) return;
 
@@ -1078,6 +1130,9 @@ function drawXmRChart(points, baselineCount, labels) {
   });
   segmentEnds.push(n - 1);
 
+  // Compute a "global" XmR as a fallback (no splits)
+  const globalResult = computeXmR(points, baselineCount);
+
   // ----- Global arrays for plotting -----
   const values = points.map(p => p.y);
 
@@ -1092,8 +1147,8 @@ function drawXmRChart(points, baselineCount, labels) {
 
   let anySigma = false;
 
-  // We'll still compute a "global" XmR for the summary panel
-  const globalResult = computeXmR(points, baselineCount);
+  // We'll collect per-period results for the new summary
+  const segmentSummaries = [];
 
   // ----- Per-segment XmR -----
   for (let s = 0; s < segmentStarts.length; s++) {
@@ -1112,6 +1167,15 @@ function drawXmRChart(points, baselineCount, labels) {
     const ucl       = segResult.ucl;
     const lcl       = segResult.lcl;
     const sigma     = segResult.sigma;
+
+    // Store summary info for this period
+    segmentSummaries.push({
+      startIndex: start,
+      endIndex: end,
+      labelStart: labels[start],
+      labelEnd: labels[end],
+      result: segResult
+    });
 
     for (let i = 0; i < segPts.length; i++) {
       const globalIdx = start + i;
@@ -1195,21 +1259,19 @@ function drawXmRChart(points, baselineCount, labels) {
     );
   }
 
-// ----- Target line (optional) -----
-const target = getTargetValue();
-if (target !== null) {
-  datasets.push({
-    label: "Target",
-    data: values.map(() => target),
-    borderColor: "#fdae61",   // NHS-style orange
-    borderWidth: 2,
-    borderDash: [4, 2],
-    pointRadius: 0,
-    tension: 0,
-  });
-}
-
-
+  // ----- Target line (optional) -----
+  const target = getTargetValue();
+  if (target !== null) {
+    datasets.push({
+      label: "Target",
+      data: values.map(() => target),
+      borderColor: "#fdae61",   // NHS-style orange
+      borderWidth: 2,
+      borderDash: [4, 2],
+      pointRadius: 0,
+      tension: 0
+    });
+  }
 
   // Update annotation and split dropdowns
   populateAnnotationDateOptions(labels);
@@ -1274,26 +1336,34 @@ if (target !== null) {
     }
   });
 
-  // If splits exist: use only the last segment for summary & capability
-let summaryResult;
-let summaryCount;
+  // ----- New: multi-period summary -----
+  if (segmentSummaries.length > 0) {
+    updateXmRMultiSummary(segmentSummaries, points.length);
+  } else {
+    // Fallback: treat whole series as a single period
+    updateXmRMultiSummary(
+      [{
+        startIndex: 0,
+        endIndex: n - 1,
+        labelStart: labels[0],
+        labelEnd: labels[n - 1],
+        result: globalResult
+      }],
+      points.length
+    );
+  }
 
-if (splits.length > 0) {
-  const seg = computeLastSegment(points, baselineCount);
-  summaryResult = seg.result;
-  summaryCount = seg.count;
-} else {
-  summaryResult = globalResult;
-  summaryCount = points.length;
-}
-
- updateXmRSummary(summaryResult, summaryCount);
-
-  // Show / hide MR chart depending on checkbox
+  // ----- Show / hide MR chart depending on checkbox -----
   const showMR = showMRCheckbox ? showMRCheckbox.checked : true;
 
-  if (showMR) {
-    drawMRChart(summaryResult, labels);
+  // Use the last period for the MR chart (as a simple, focused view)
+  const lastSegmentResult =
+    segmentSummaries.length > 0
+      ? segmentSummaries[segmentSummaries.length - 1].result
+      : globalResult;
+
+  if (showMR && lastSegmentResult) {
+    drawMRChart(lastSegmentResult, labels);
   } else {
     if (mrChart) {
       mrChart.destroy();
@@ -1304,7 +1374,6 @@ if (splits.length > 0) {
     }
   }
 }
-
 
 
 // MR chart: average MR as centre, UCL = 3.268 * avgMR, LCL = 0
