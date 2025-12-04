@@ -591,6 +591,26 @@ if (resetButton) {
   });
 }
 
+// Convert CSV cell to a numeric value, handling percentages like "55.17%"
+function toNumericValue(raw) {
+  if (raw === null || raw === undefined) return NaN;
+
+  // If PapaParse has already converted it to a number, just use it
+  if (typeof raw === "number") return raw;
+
+  const s = String(raw).trim();
+  if (s === "") return NaN;
+
+  // Handle simple percentages, e.g. "55.17%" or "55.17 %"
+  const percentMatch = s.match(/^(-?\d+(?:\.\d+)?)\s*%$/);
+  if (percentMatch) {
+    return Number(percentMatch[1]);  // return the 55.17 part
+  }
+
+  // Fall back to normal numeric parsing
+  const num = Number(s);
+  return isFinite(num) ? num : NaN;
+}
 
 // ---- Summary helpers ----
 
@@ -805,7 +825,7 @@ if (axisType === "date") {
       const yRaw  = row[valueCol];
 
       const d = new Date(xRaw);
-      const y = Number(yRaw);
+      const y = toNumericValue(yRaw);
 
       if (!isFinite(d.getTime()) || !isFinite(y)) return null;
       return { x: d, y };
@@ -818,7 +838,7 @@ if (axisType === "date") {
       const labelRaw = row[dateCol];   // may be patient ID / category / blank
       const yRaw     = row[valueCol];
 
-      const y = Number(yRaw);
+      const y = toNumericValue(yRaw);
       if (!isFinite(y)) return null;
 
       const labelText = (labelRaw !== undefined && labelRaw !== null && String(labelRaw).trim() !== "")
