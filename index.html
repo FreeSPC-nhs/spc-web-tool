@@ -339,6 +339,67 @@ body.sidebar-collapsed .main {
   margin-left: 0.5rem;
 }
 
+/* SPC helper panel (bottom-right) */
+#spcHelperPanel {
+  position: fixed;
+  right: 0.75rem;
+  bottom: 0.75rem;
+  width: 260px;
+  max-height: 60vh;
+  background: #ffffff;
+  border-radius: 0.5rem;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  font-size: 0.8rem;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 900;
+}
+
+#spcHelperHeader {
+  background: #005eb8;
+  color: #ffffff;
+  padding: 0.4rem 0.6rem;
+  font-weight: 600;
+}
+
+#spcHelperBody {
+  padding: 0.5rem 0.6rem 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+#spcHelperAnswer {
+  font-size: 0.8rem;
+  max-height: 32vh;
+  overflow-y: auto;
+}
+
+#spcHelperAnswer ul {
+  margin: 0.2rem 0 0 1rem;
+  padding: 0;
+}
+
+#spcHelperControls {
+  display: flex;
+  gap: 0.25rem;
+  margin-top: 0.25rem;
+}
+
+#aiQuestionInput {
+  flex: 1;
+  padding: 0.25rem 0.4rem;
+  border-radius: 0.25rem;
+  border: 1px solid #d0d7de;
+  font-size: 0.8rem;
+}
+
+#aiAskButton {
+  padding: 0.25rem 0.6rem;
+  font-size: 0.8rem;
+}
+
 
   </style>
 </head>
@@ -755,6 +816,33 @@ body.sidebar-collapsed .main {
     </div>
   </div>
 </div>
+
+<!-- SPC Helper (rule-based "AI") -->
+<div id="spcHelperPanel">
+  <div id="spcHelperHeader">
+    SPC helper (beta)
+  </div>
+  <div id="spcHelperBody">
+    <div id="spcHelperAnswer">
+      Ask a question about your chart. For example:
+      <ul>
+        <li>Is the process stable?</li>
+        <li>Why isn’t capability shown?</li>
+        <li>What does the split mean?</li>
+      </ul>
+    </div>
+    <div id="spcHelperControls">
+      <input
+        type="text"
+        id="aiQuestionInput"
+        placeholder="Type your question…"
+        autocomplete="off"
+      />
+      <button id="aiAskButton" type="button">Ask</button>
+    </div>
+  </div>
+</div>
+
 
   <script src="spc.js"></script>
 </body>

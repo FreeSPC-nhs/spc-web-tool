@@ -15,6 +15,7 @@ let currentChart = null;   // main I / run chart
 let mrChart = null;        // moving range chart
 let annotations = [];      // { date: 'YYYY-MM-DD', label: 'text' }
 let splits = [];   // indices where a new XmR segment starts (split AFTER index)
+let lastXmRAnalysis = null;
 
 const fileInput         = document.getElementById("fileInput");
 const columnSelectors   = document.getElementById("columnSelectors");
@@ -49,6 +50,10 @@ const dataEditorOverlay      = document.getElementById("dataEditorOverlay");
 const dataEditorTextarea     = document.getElementById("dataEditorTextarea");
 const dataEditorApplyButton  = document.getElementById("dataEditorApplyButton");
 const dataEditorCancelButton = document.getElementById("dataEditorCancelButton");
+const aiQuestionInput  = document.getElementById("aiQuestionInput");
+const aiAskButton      = document.getElementById("aiAskButton");
+const spcHelperAnswer  = document.getElementById("spcHelperAnswer");
+
 
 
 const mrPanel           = document.getElementById("mrPanel");
@@ -188,6 +193,14 @@ function getSelectedChartType() {
   }
   return "run";
 }
+
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 
 function computeMedian(values) {
   const sorted = [...values].sort((a, b) => a - b);
@@ -833,6 +846,25 @@ function updateXmRMultiSummary(segments, totalPoints) {
     capabilityDiv.innerHTML = "";
   }
 }
+
+// Store a structured summary for the helper to use
+  lastXmRAnalysis = {
+    n,
+    mean,
+    ucl,
+    lcl,
+    sigma,
+    avgMR,
+    baselineCountUsed,
+    nBeyond,
+    hasRunViolation,
+    hasTrend,
+    signals: signals.slice(),
+    target,
+    direction,
+    capability,
+    isStable: signals.length === 0
+  };
 
 // Approximate standard normal CDF Φ(z)
 function normalCdf(z) {
@@ -1540,6 +1572,119 @@ function drawMRChart(result, labels) {
   });
 }
 
+// ---- AI helper function  -----
+
+function answerSpcQuestion(question) {
+  const q = question.trim().toLowerCase();
+  if (!q) {
+    return "Please type a question about your chart (for example: “Is the process stable?”).";
+  }
+
+  const chartType = getSelectedChartType ? getSelectedChartType() : "xmr";
+
+  if (chartType !== "xmr") {
+    return "The helper currently focuses on XmR (I-MR) charts. Please switch to an XmR chart to get an interpretation.";
+  }
+
+  if (!lastXmRAnalysis) {
+    return "I don't have an XmR analysis yet. Please generate an XmR chart first.";
+  }
+
+  const a = lastXmRAnalysis;
+  const lines = [];
+
+  // 1. Stability / special cause
+  if (q.includes("stable") || q.includes("in control") || q.includes("special cause") || q.includes("signals")) {
+    if (a.isStable) {
+      lines.push("The most recent segment of your XmR chart appears stable: no special-cause rules are triggered.");
+    } else {
+      lines.push("The most recent segment of your XmR chart is not stable. Special-cause rules are triggered based on:");
+      if (a.signals && a.signals.length > 0) {
+        lines.push("• " + a.signals.join("; "));
+      }
+    }
+  }
+
+  // 2. Capability / target
+  if (q.includes("capability") || q.includes("target")) {
+    if (a.target == null) {
+      lines.push("No target has been set. To see capability, please enter a target value and direction (above/below).");
+    } else if (!a.isStable) {
+      lines.push("Because the process is not stable, capability is not reliable. It is better to address special-cause variation first, then reassess capability.");
+    } else if (a.capability) {
+      const prob = (a.capability.prob * 100).toFixed(1);
+      lines.push(`With a target of ${a.target} (${a.direction === "above" ? "higher is better" : "lower is better"}), the estimated probability of meeting the target is about ${prob}%, assuming current behaviour continues.`);
+    } else {
+      lines.push("I could not calculate capability. Please check that the target is a valid number and that there is some variation in the data.");
+    }
+  }
+
+  // 3. Mean / limits / general description
+  if (q.includes("limit") || q.includes("ucl") || q.includes("lcl") || q.includes("mean") || q.includes("average") || q.includes("centre") || q.includes("center")) {
+    lines.push(
+      `For the current segment, the estimated mean is ${a.mean.toFixed(3)}, with LCL = ${a.lcl.toFixed(3)} and UCL = ${a.ucl.toFixed(3)}. ` +
+      `The estimated sigma (from the moving range) is ${a.sigma.toFixed(3)}.`
+    );
+  }
+
+  // 4. Splits / baseline
+  if (q.includes("split") || q.includes("baseline") || q.includes("phase") || q.includes("segment")) {
+    if (splits && splits.length > 0) {
+      lines.push(
+        "You have added one or more splits. The XmR chart uses the most recent segment (after the last split) to estimate the mean, limits and capability. " +
+        "Earlier sections of the chart represent previous versions of the process."
+      );
+    } else {
+      lines.push(
+        "No splits have been added. All points are treated as a single process. " +
+        "You can add a split if there has been a clear change in the way the system operates (for example, a new pathway or major staffing change)."
+      );
+    }
+  }
+
+  // 5. Trends / runs
+  if (q.includes("trend") || q.includes("run") || q.includes("shift")) {
+    if (!a.isStable) {
+      if (a.hasRunViolation) {
+        lines.push("There is at least one long run (8 or more points on one side of the mean), which suggests a shift in the process.");
+      }
+      if (a.hasTrend) {
+        lines.push("There is at least one trend (6 or more points all increasing or all decreasing). This also suggests special-cause variation.");
+      }
+    } else {
+      lines.push("No long runs or trends are detected in the most recent segment; variation is consistent with common-cause variation.");
+    }
+  }
+
+  // If nothing matched specifically, give a general description
+  if (lines.length === 0) {
+    if (a.isStable) {
+      lines.push(
+        "The current XmR chart shows a stable process: no special-cause rules are triggered. " +
+        `Mean = ${a.mean.toFixed(3)}, LCL = ${a.lcl.toFixed(3)}, UCL = ${a.ucl.toFixed(3)}.`
+      );
+    } else {
+      lines.push(
+        "The current XmR chart shows special-cause variation. " +
+        "Consider using the signals (beyond limits, long runs, or trends) to understand what has changed in the system."
+      );
+    }
+    if (a.target != null && a.capability && a.isStable) {
+      const prob = (a.capability.prob * 100).toFixed(1);
+      lines.push(
+        `With the current target of ${a.target}, the estimated probability of meeting the target is about ${prob}%, assuming the process continues as it is.`
+      );
+    }
+    lines.push(
+      "Always interpret these results in clinical context and, where possible, discuss with your local improvement or analytics team before making major decisions."
+    );
+  }
+
+  return lines.join(" ");
+}
+
+
+
 // ---- Download chart as PNG ----
 
 if (downloadBtn) {
@@ -1578,6 +1723,22 @@ if (addSplitButton) {
     }
   });
 }
+
+if (aiAskButton && aiQuestionInput && spcHelperAnswer) {
+  aiAskButton.addEventListener("click", () => {
+    const q = aiQuestionInput.value || "";
+    const ans = answerSpcQuestion(q);
+    spcHelperAnswer.innerHTML = `<p>${escapeHtml(ans)}</p>`;
+  });
+
+  aiQuestionInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      aiAskButton.click();
+    }
+  });
+}
+
 
 if (clearSplitsButton) {
   clearSplitsButton.addEventListener("click", () => {
