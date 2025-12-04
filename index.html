@@ -222,6 +222,18 @@ canvas {
   max-height: 100%;
 }
 
+/* Generate button */
+.sidebar-generate {
+  margin-bottom: 0.5rem;
+  border-radius: 9999px;
+  border: 1px solid #005eb8;
+  background: #03C04A;
+  color: #ffffff;
+  cursor: pointer;
+}
+
+
+
 /* Toggle button */
 .sidebar-toggle {
   margin-bottom: 0.5rem;
@@ -282,7 +294,7 @@ body.sidebar-collapsed .main {
 
 <div class="panel" id="exportButtons" style="margin-top:0.5rem;">
 <button id="toggleSidebarButton" class="sidebar-toggle"> Hide controls</button>
-<button id="generateButton">Generate chart</button> 
+<button id="generateButton" class="sidebar-generate">Generate chart</button> 
 <button id="downloadPngButton">Download chart as PNG</button>
 <button id="downloadPdfButton" style="margin-left:0.5rem;">Download PDF report</button>
 <div id="errorMessage" class="error"></div>
