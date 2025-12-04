@@ -865,6 +865,62 @@ function computeTargetCapability(mean, sigma, target, direction) {
   return { prob: p, z };
 }
 
+// Parse dates safely, supporting NHS-style dd/mm/yyyy as well as ISO yyyy-mm-dd
+function parseDateValue(xRaw) {
+  if (xRaw instanceof Date && !isNaN(xRaw)) {
+    return xRaw;
+  }
+
+  if (xRaw === null || xRaw === undefined) {
+    return new Date(NaN);
+  }
+
+  const s = String(xRaw).trim();
+  if (!s) return new Date(NaN);
+
+  // ISO style: 2025-10-02 or 2025-10-02T...
+  const isoMatch = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (isoMatch) {
+    const y = Number(isoMatch[1]);
+    const m = Number(isoMatch[2]);
+    const d = Number(isoMatch[3]);
+    return new Date(y, m - 1, d);
+  }
+
+  // NHS-style day-first: dd/mm/yyyy or dd-mm-yyyy
+  const dmMatch = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+  if (dmMatch) {
+    let day   = Number(dmMatch[1]);
+    let month = Number(dmMatch[2]);
+    let year  = Number(dmMatch[3]);
+    if (year < 100) year += 2000; // e.g. 25 -> 2025
+    return new Date(year, month - 1, day);
+  }
+
+  // Fallback: let the browser try
+  return new Date(s);
+}
+
+// Parse numeric cells, including percentages like "55.17%"
+function toNumericValue(raw) {
+  if (raw === null || raw === undefined) return NaN;
+
+  if (typeof raw === "number") return raw;
+
+  const s = String(raw).trim();
+  if (!s) return NaN;
+
+  // Handle simple percentages, e.g. "55.17%" or "55.17 %"
+  const percentMatch = s.match(/^(-?\d+(?:\.\d+)?)\s*%$/);
+  if (percentMatch) {
+    return Number(percentMatch[1]); // return 55.17
+  }
+
+  const num = Number(s);
+  return isFinite(num) ? num : NaN;
+}
+
+
 // ---- Generate chart button ----
 
 generateButton.addEventListener("click", () => {
@@ -898,7 +954,7 @@ if (axisType === "date") {
       const xRaw  = row[dateCol];
       const yRaw  = row[valueCol];
 
-      const d = new Date(xRaw);
+      const d = parseDateValue(xRaw);
       const y = toNumericValue(yRaw);
 
       if (!isFinite(d.getTime()) || !isFinite(y)) return null;
