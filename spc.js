@@ -35,6 +35,8 @@ const toggleSidebarButton = document.getElementById("toggleSidebarButton");
 const splitPointSelect  = document.getElementById("splitPointSelect");
 const addSplitButton    = document.getElementById("addSplitButton");
 const clearSplitsButton = document.getElementById("clearSplitsButton");
+const showMRCheckbox   = document.getElementById("showMRCheckbox");
+
 
 const generateButton    = document.getElementById("generateButton");
 const errorMessage      = document.getElementById("errorMessage");
@@ -1265,8 +1267,23 @@ if (splits.length > 0) {
   summaryCount = points.length;
 }
 
-updateXmRSummary(summaryResult, summaryCount);
-drawMRChart(summaryResult, labels);
+ updateXmRSummary(summaryResult, summaryCount);
+
+  // Show / hide MR chart depending on checkbox
+  const showMR = showMRCheckbox ? showMRCheckbox.checked : true;
+
+  if (showMR) {
+    drawMRChart(summaryResult, labels);
+  } else {
+    if (mrChart) {
+      mrChart.destroy();
+      mrChart = null;
+    }
+    if (mrPanel) {
+      mrPanel.style.display = "none";
+    }
+  }
+}
 }
 
 
@@ -1453,6 +1470,7 @@ if (downloadPdfBtn) {
       html2canvas:  { scale: 2, scrollY: -window.scrollY },
       jsPDF:        { unit: "mm", format: "a4", orientation: "landscape" }
     };
+
 
     html2pdf().set(opt).from(reportElement).save();
   });
