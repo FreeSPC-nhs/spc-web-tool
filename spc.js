@@ -1284,7 +1284,7 @@ if (splits.length > 0) {
     }
   }
 }
-}
+
 
 
 // MR chart: average MR as centre, UCL = 3.268 * avgMR, LCL = 0
