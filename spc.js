@@ -42,9 +42,50 @@ const chartCanvas       = document.getElementById("spcChart");
 const summaryDiv        = document.getElementById("summary");
 const downloadBtn       = document.getElementById("downloadPngButton");
 const downloadPdfBtn    = document.getElementById("downloadPdfButton");
+const openDataEditorButton   = document.getElementById("openDataEditorButton");
+const dataEditorOverlay      = document.getElementById("dataEditorOverlay");
+const dataEditorTextarea     = document.getElementById("dataEditorTextarea");
+const dataEditorApplyButton  = document.getElementById("dataEditorApplyButton");
+const dataEditorCancelButton = document.getElementById("dataEditorCancelButton");
+
 
 const mrPanel           = document.getElementById("mrPanel");
 const mrChartCanvas     = document.getElementById("mrChartCanvas");
+
+function loadRows(rows) {
+  if (!rows || rows.length === 0) {
+    errorMessage.textContent = "No rows found in the data.";
+    return false;
+  }
+
+  rawRows = rows;
+  const firstRow = rows[0];
+  const columns = Object.keys(firstRow);
+
+  if (!columns || columns.length === 0) {
+    errorMessage.textContent = "Could not detect any columns in the data.";
+    return false;
+  }
+
+  dateSelect.innerHTML = "";
+  valueSelect.innerHTML = "";
+
+  columns.forEach(col => {
+    const opt1 = document.createElement("option");
+    opt1.value = col;
+    opt1.textContent = col;
+    dateSelect.appendChild(opt1);
+
+    const opt2 = document.createElement("option");
+    opt2.value = col;
+    opt2.textContent = col;
+    valueSelect.appendChild(opt2);
+  });
+
+  columnSelectors.style.display = "block";
+  errorMessage.textContent = "";
+  return true;
+}
 
 
 //---- Add annotations button
@@ -115,34 +156,21 @@ fileInput.addEventListener("change", () => {
     dynamicTyping: true,
     skipEmptyLines: true,
     complete: (results) => {
-      const rows = results.data;
-      if (!rows || rows.length === 0) {
-        errorMessage.textContent = "No rows found in this CSV.";
-        return;
-      }
+  const rows = results.data;
 
-      rawRows = rows;
-      const firstRow = rows[0];
-      const columns = Object.keys(firstRow);
+  // Use the shared loader so CSV and pasted data behave the same
+  if (!loadRows(rows)) {
+    return;
+  }
 
-      // populate the dropdowns
-      dateSelect.innerHTML = "";
-      valueSelect.innerHTML = "";
+  // Reset annotations and splits because the data changed
+  annotations = [];
+  if (annotationDateInput) annotationDateInput.value = "";
+  if (annotationLabelInput) annotationLabelInput.value = "";
+  splits = [];
+  if (splitPointSelect) splitPointSelect.innerHTML = "";
+},
 
-      columns.forEach(col => {
-        const opt1 = document.createElement("option");
-        opt1.value = col;
-        opt1.textContent = col;
-        dateSelect.appendChild(opt1);
-
-        const opt2 = document.createElement("option");
-        opt2.value = col;
-        opt2.textContent = col;
-        valueSelect.appendChild(opt2);
-      });
-
-      columnSelectors.style.display = "block";
-    },
     error: (err) => {
       errorMessage.textContent = "Error parsing CSV: " + err.message;
     }
@@ -419,6 +447,94 @@ function buildAnnotationConfig(labels) {
 
   return cfg;
 }
+
+function openDataEditor() {
+  if (!dataEditorOverlay || !dataEditorTextarea) return;
+
+  // If we already have data, show it as CSV; otherwise, give a skeleton
+  if (rawRows && rawRows.length > 0) {
+    try {
+      dataEditorTextarea.value = Papa.unparse(rawRows);
+    } catch (e) {
+      // Fallback to blank if unparse fails for any reason
+      dataEditorTextarea.value = "";
+    }
+  } else {
+    dataEditorTextarea.value = "Date,Value\n";
+  }
+
+  dataEditorOverlay.style.display = "flex";
+}
+
+function closeDataEditor() {
+  if (dataEditorOverlay) {
+    dataEditorOverlay.style.display = "none";
+  }
+}
+
+if (openDataEditorButton) {
+  openDataEditorButton.addEventListener("click", () => {
+    openDataEditor();
+  });
+}
+
+if (dataEditorCancelButton) {
+  dataEditorCancelButton.addEventListener("click", () => {
+    closeDataEditor();
+  });
+}
+
+// Optional: close when clicking outside the dialog
+if (dataEditorOverlay) {
+  dataEditorOverlay.addEventListener("click", (e) => {
+    if (e.target === dataEditorOverlay) {
+      closeDataEditor();
+    }
+  });
+}
+
+if (dataEditorApplyButton) {
+  dataEditorApplyButton.addEventListener("click", () => {
+    if (!dataEditorTextarea) return;
+    const text = dataEditorTextarea.value.trim();
+    if (!text) {
+      alert("Please paste or type some data first.");
+      return;
+    }
+
+    try {
+      const results = Papa.parse(text, {
+        header: true,
+        dynamicTyping: true,
+        skipEmptyLines: true
+      });
+
+      if (results.errors && results.errors.length > 0) {
+        console.error(results.errors);
+        errorMessage.textContent = "Error parsing pasted data: " + results.errors[0].message;
+        return;
+      }
+
+      const rows = results.data;
+      if (!loadRows(rows)) {
+        return;
+      }
+
+      // Reset annotations and splits because the data changed
+      annotations = [];
+      if (annotationDateInput) annotationDateInput.value = "";
+      if (annotationLabelInput) annotationLabelInput.value = "";
+      splits = [];
+      if (splitPointSelect) splitPointSelect.innerHTML = "";
+
+      closeDataEditor();
+    } catch (e) {
+      console.error(e);
+      errorMessage.textContent = "Unexpected error parsing pasted data.";
+    }
+  });
+}
+
 
 // ---- Summary helpers ----
 

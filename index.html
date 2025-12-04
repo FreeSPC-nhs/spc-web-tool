@@ -290,6 +290,53 @@ body.sidebar-collapsed .main {
     display: none !important;
   }
 }
+
+/* Data editor modal */
+#dataEditorOverlay {
+  position: fixed;
+  inset: 0;
+  display: none;                /* toggled to flex in JS */
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 1000;
+}
+
+.data-editor-dialog {
+  background: #ffffff;
+  max-width: 900px;
+  width: 90%;
+  max-height: 90vh;
+  padding: 1rem;
+  border-radius: 0.5rem;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+  display: flex;
+  flex-direction: column;
+}
+
+#dataEditorTextarea {
+  width: 100%;
+  flex: 1;
+  min-height: 240px;
+  resize: vertical;
+  margin-top: 0.5rem;
+  font-family: "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.85rem;
+  padding: 0.5rem;
+  border-radius: 0.25rem;
+  border: 1px solid #d0d7de;
+}
+
+.data-editor-buttons {
+  margin-top: 0.75rem;
+  text-align: right;
+}
+
+.data-editor-buttons button {
+  margin-left: 0.5rem;
+}
+
+
   </style>
 </head>
 
@@ -320,6 +367,9 @@ body.sidebar-collapsed .main {
       <div class="hint">
         Expected columns: a date/time column (e.g. <code>Date</code>) and a numeric column (e.g. <code>Value</code>).
       </div>
+	<button id="openDataEditorButton" type="button" style="margin-top:0.5rem;">
+ 	 Open data editor (paste/type data)
+	</button>
     </div>
 
     <div id="columnSelectors" style="display: none;">
@@ -506,7 +556,22 @@ body.sidebar-collapsed .main {
       </div> <!-- end #reportContent -->
 	
     </main>
+
   </div> <!-- end .layout -->
+<div id="dataEditorOverlay">
+  <div class="data-editor-dialog">
+    <h2>Data editor</h2>
+    <p class="hint">
+      Paste data from Excel or type it directly. The first row can be headers (e.g. <code>Date,Value</code>).
+      When you click <strong>Apply data</strong>, the chart options will update to use this data.
+    </p>
+    <textarea id="dataEditorTextarea" spellcheck="false"></textarea>
+    <div class="data-editor-buttons">
+      <button id="dataEditorApplyButton" type="button">Apply data</button>
+      <button id="dataEditorCancelButton" type="button">Cancel</button>
+    </div>
+  </div>
+</div>
 
   <script src="spc.js"></script>
 </body>
