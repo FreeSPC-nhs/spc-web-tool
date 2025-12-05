@@ -213,7 +213,7 @@ function resetAll() {
   if (annotationLabelInput) annotationLabelInput.value = "";
 
   // --- Reset target direction dropdown ---
-  if (targetDirectionInput) targetDirectionInput.value = "none";
+  if (targetDirectionInput) targetDirectionInput.value = "above";
 
   // --- Clear any error message ---
   if (errorMessage) errorMessage.textContent = "";
@@ -619,33 +619,6 @@ if (dataEditorApplyButton) {
   });
 }
 
-const resetButton = document.getElementById("resetButton");
-
-if (resetButton) {
-  resetButton.addEventListener("click", resetAll);
-}
-
-
-// Convert CSV cell to a numeric value, handling percentages like "55.17%"
-function toNumericValue(raw) {
-  if (raw === null || raw === undefined) return NaN;
-
-  // If PapaParse has already converted it to a number, just use it
-  if (typeof raw === "number") return raw;
-
-  const s = String(raw).trim();
-  if (s === "") return NaN;
-
-  // Handle simple percentages, e.g. "55.17%" or "55.17 %"
-  const percentMatch = s.match(/^(-?\d+(?:\.\d+)?)\s*%$/);
-  if (percentMatch) {
-    return Number(percentMatch[1]);  // return the 55.17 part
-  }
-
-  // Fall back to normal numeric parsing
-  const num = Number(s);
-  return isFinite(num) ? num : NaN;
-}
 
 // ---- Summary helpers ----
 
