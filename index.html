@@ -143,14 +143,13 @@ button:disabled {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
-  margin: 0.25rem 0 0.4rem 0;
+  margin: 0 0.2rem 0 0;
 }
 
 /* Make each radio+label a small inline chip, not a big bar */
 .radio-pill {
   display: inline-flex;
   align-items: center;
-  padding: 0.05rem 0.25rem;
   border-radius: 9999px;
   border: none;
   background: transparent;
@@ -436,7 +435,7 @@ body.sidebar-collapsed .main {
 
 <body>
   <h1>Simple SPC Web Tool</h1>
-  <p class="sub">Upload a CSV and create SPC charts in your browser. Data never leaves your browser.</p>
+  <p class="sub">Upload data and create SPC charts in your browser. Data never leaves your browser.</p>
 
 <div class="panel" id="exportButtons" style="margin-top:0.5rem;">
 <button id="toggleSidebarButton" class="sidebar-toggle" style="margin-left:0.5rem;"> Hide controls</button>
@@ -460,8 +459,11 @@ body.sidebar-collapsed .main {
 	<div class="panel">
 
     <div>
-      <label for="fileInput"><strong>1. Upload CSV file:</strong></label><br />
-      <input type="file" id="fileInput" accept=".csv" />
+      <label for="fileInput"><strong>1. Add data:</strong></label><br />
+	<div class="hint">
+        Upload a csv file or use the data editor to paste/type/edit data directly.
+      	</div>      
+	<input type="file" id="fileInput" accept=".csv" />
       <div class="hint">
         Expected columns: a date/time column (e.g. <code>Date</code>) and a numeric column (e.g. <code>Value</code>).
       </div>
@@ -481,7 +483,7 @@ body.sidebar-collapsed .main {
       <label>Value / Y-axis column:
         <select id="valueColumn"></select>
       </label>
-
+	<hr />
 	<strong class="field-label">X-axis type:</strong>
 	<div class="radio-row">
  	 <label class="radio-pill">
@@ -498,7 +500,7 @@ body.sidebar-collapsed .main {
   	or <em>Sequence / category</em> to plot each row in the order it appears
   	(e.g. individual patients).
 	</div>
-
+	<hr />
       	<strong class="field-label">Chart type:</strong>
 	<div class="radio-row">
   	<label class="radio-pill">
@@ -513,12 +515,12 @@ body.sidebar-collapsed .main {
 	<div class="hint small-hint">
   	Run chart uses the median only. XmR chart adds mean, control limits and sigma lines.
 	</div>
-<div style="margin-top:0.5rem;">
-  <label>
-    <input type="checkbox" id="showMRCheckbox" checked>
-    Show Moving Range (MR) chart
-  </label>
-</div>
+	<div class="radio-row">
+  	<label class="radio-pill">
+    	<input type="checkbox" id="showMRCheckbox" checked>
+    	Show Moving Range (MR) chart
+  	</label>
+	</div>
 
       	</details>
 
@@ -530,7 +532,7 @@ body.sidebar-collapsed .main {
 	<div>
   	<label>
     	Chart title:
-    	<input type="text" id="chartTitle" placeholder="e.g. I-MR Chart – Demonstration data" style="width: 16rem;" />
+    	<input type="text" id="chartTitle" placeholder="e.g. X-MR Chart – Demonstration data" style="width: 16rem;" />
   	</label>
 	</div>
 	<div>
@@ -579,7 +581,7 @@ body.sidebar-collapsed .main {
         <div class="panel">
 	<div>
   	<label>
-   	 Annotation date:
+   	 Annotation marker:
     	<select id="annotationDate">
     	  <!-- options will be filled automatically from the chart dates -->
    	 </select>
@@ -605,7 +607,10 @@ body.sidebar-collapsed .main {
       <details>
         <summary>5. Baseline & split</summary>
         <div class="panel">
-      <label>
+	<div class="hint">
+      Splitting the control limits should <em>only</em> be done where a sustained shift in performance has been investigated, understood and agreed to be representative of the <em>new normal</em> level of performance for the process.
+     </div>      
+	<label>
       Use first
       <input type="number" id="baselinePoints" min="2" step="1" style="width: 4rem;" />
       points as baseline 
@@ -629,8 +634,8 @@ body.sidebar-collapsed .main {
 	<div class="hint">
   	Splits allow the centre line and limits to recalculate from a chosen point onward (XmR only).
 	</div>
-         	</div>
-      </details>
+        </div>
+      	</details>
 
 
 
