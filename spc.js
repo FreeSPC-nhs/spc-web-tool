@@ -185,6 +185,74 @@ fileInput.addEventListener("change", () => {
   });
 });
 
+function resetAll() {
+  // --- Clear stored data ---
+  rawRows = [];
+  annotations = [];
+  splits = [];
+  lastXmRAnalysis = null;
+
+  // --- Reset file input ---
+  if (fileInput) fileInput.value = "";
+
+  // --- Hide column selectors ---
+  if (columnSelectors) columnSelectors.style.display = "none";
+
+  // --- Reset dropdowns ---
+  if (dateSelect) dateSelect.innerHTML = "";
+  if (valueSelect) valueSelect.innerHTML = "";
+  if (splitPointSelect) splitPointSelect.innerHTML = "";
+
+  // --- Reset text inputs ---
+  if (baselineInput) baselineInput.value = "";
+  if (chartTitleInput) chartTitleInput.value = "";
+  if (xAxisLabelInput) xAxisLabelInput.value = "";
+  if (yAxisLabelInput) yAxisLabelInput.value = "";
+  if (targetInput) targetInput.value = "";
+  if (annotationDateInput) annotationDateInput.value = "";
+  if (annotationLabelInput) annotationLabelInput.value = "";
+
+  // --- Reset target direction dropdown ---
+  if (targetDirectionInput) targetDirectionInput.value = "none";
+
+  // --- Clear any error message ---
+  if (errorMessage) errorMessage.textContent = "";
+
+  // --- Clear summary & capability output ---
+  if (summaryDiv) summaryDiv.innerHTML = "";
+  if (capabilityDiv) capabilityDiv.innerHTML = "";
+
+  // --- Destroy main chart ---
+  if (currentChart) {
+    currentChart.destroy();
+    currentChart = null;
+  }
+
+  // --- Destroy MR chart ---
+  if (mrChart) {
+    mrChart.destroy();
+    mrChart = null;
+  }
+
+  // --- Hide MR panel ---
+  if (mrPanel) mrPanel.style.display = "none";
+
+  // --- Reset AI helper ---
+  if (spcHelperAnswer) spcHelperAnswer.textContent = "";
+  if (aiQuestionInput) aiQuestionInput.value = "";
+
+  // Optionally hide the whole AI helper panel:
+  if (spcHelperPanel) spcHelperPanel.style.display = "none";
+
+  // --- Reset data editor ---
+  if (dataEditorTextarea) dataEditorTextarea.value = "";
+  if (dataEditorOverlay) dataEditorOverlay.style.display = "none";
+
+  console.log("All elements reset.");
+}
+
+
+
 // ---- Helpers ----
 
 function getSelectedChartType() {
@@ -2141,6 +2209,12 @@ function toggleHelpSection() {
 const helpToggleButton = document.getElementById("helpToggleButton");
 if (helpToggleButton) {
   helpToggleButton.addEventListener("click", toggleHelpSection);
+}
+
+const resetButton = document.getElementById("resetButton");
+
+if (resetButton) {
+  resetButton.addEventListener("click", resetAll);
 }
 
 
