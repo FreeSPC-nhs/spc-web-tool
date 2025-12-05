@@ -400,6 +400,36 @@ body.sidebar-collapsed .main {
   font-size: 0.8rem;
 }
 
+/* Hide helper by default */
+#spcHelperPanel {
+  display: none; /* START HIDDEN */
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+/* When visible */
+#spcHelperPanel.visible {
+  display: flex;
+  opacity: 1;
+}
+
+/* Help button styling */
+.helper-toggle-btn {
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+  margin-bottom: 0.5rem;
+  background: #005eb8;
+  color: white;
+  border: none;
+  border-radius: 0.35rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.helper-toggle-btn:hover {
+  background: #003f78;
+}
+
 
   </style>
 </head>

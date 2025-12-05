@@ -53,6 +53,7 @@ const dataEditorCancelButton = document.getElementById("dataEditorCancelButton")
 const aiQuestionInput  = document.getElementById("aiQuestionInput");
 const aiAskButton      = document.getElementById("aiAskButton");
 const spcHelperAnswer  = document.getElementById("spcHelperAnswer");
+const spcHelperPanel     = document.getElementById("spcHelperPanel");
 
 
 
@@ -1771,6 +1772,12 @@ function toggleHelpSection() {
 const helpToggleButton = document.getElementById("helpToggleButton");
 if (helpToggleButton) {
   helpToggleButton.addEventListener("click", toggleHelpSection);
+}
+
+if (helpGuidanceSection  && spcHelperPanel) {
+  helpGuidanceSection .addEventListener("click", () => {
+    spcHelperPanel.classList.toggle("visible");
+  });
 }
 
 
