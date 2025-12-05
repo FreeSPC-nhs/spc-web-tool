@@ -1758,26 +1758,35 @@ if (clearSplitsButton) {
 // Help section toggle
 // -----------------------------
 function toggleHelpSection() {
-    const help = document.getElementById("helpSection");
-    const isHidden = help.style.display === "none" || help.style.display === "";
+  const help = document.getElementById("helpSection");
+  const helper = document.getElementById("spcHelperPanel");
 
-    if (isHidden) {
-        help.style.display = "block";
-        help.scrollIntoView({ behavior: "smooth" });
-    } else {
-        help.style.display = "none";
+  const isHidden =
+    !help ||
+    help.style.display === "none" ||
+    help.style.display === "";
+
+  if (isHidden) {
+    if (help) {
+      help.style.display = "block";
+      help.scrollIntoView({ behavior: "smooth" });
     }
+    if (helper) {
+      helper.classList.add("visible");   // show AI helper
+    }
+  } else {
+    if (help) {
+      help.style.display = "none";
+    }
+    if (helper) {
+      helper.classList.remove("visible"); // hide AI helper
+    }
+  }
 }
 
 const helpToggleButton = document.getElementById("helpToggleButton");
 if (helpToggleButton) {
   helpToggleButton.addEventListener("click", toggleHelpSection);
-}
-
-if (helpGuidanceSection  && spcHelperPanel) {
-  helpGuidanceSection .addEventListener("click", () => {
-    spcHelperPanel.classList.toggle("visible");
-  });
 }
 
 
