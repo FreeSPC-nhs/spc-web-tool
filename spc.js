@@ -1574,7 +1574,19 @@ function drawMRChart(result, labels) {
 
 // ---- AI helper function  -----
 
-// ---- AI helper function  -----
+
+// Helper for matching user questions to keyword patterns
+function matchesKeywords(q, keywords) {
+  return keywords.some((k) => {
+    // If k is an array, treat it as "all these words must appear"
+    if (Array.isArray(k)) {
+      return k.every((word) => q.includes(word));
+    }
+    // Otherwise simple substring match
+    return q.includes(k);
+  });
+}
+
 
 function answerSpcQuestion(question) {
   const q = question.trim().toLowerCase();
@@ -1637,12 +1649,21 @@ function answerSpcQuestion(question) {
         "For counts or percentages (falls, infections, readmissions, proportion achieving a standard) you usually use attribute charts such as p, np, c or u charts."
     },
     {
-      keywords: ["moving range chart", "mr chart", "why moving range"],
-      answer:
-        "On an XmR chart the moving range (MR) chart shows how much each point changes from the one before it. " +
-        "The average moving range is used to estimate the underlying variation (sigma), which then determines the control limits on the X chart. " +
-        "Looking at the MR chart helps you see sudden jumps in the data that may represent shocks or measurement issues, even when the X chart itself still looks fairly stable."
-    },
+  	keywords: [
+    "moving range",
+    "moving-range",
+    "moving range chart",
+    "mr chart",
+    "mr-chart",
+    "use the moving range",
+    "interpret the moving range"
+  	],
+  	answer:
+    	"On an XmR chart the moving range (MR) chart shows how much each point changes from the one before it. " +
+    	"The average moving range is used to estimate the underlying variation (sigma), which then determines the control limits on the X chart. " +
+    	"You can use the moving range chart to spot sudden jumps in the data, measurement issues, or changes in the short-term variation, even when the X chart itself still looks fairly stable."
+	},
+
     {
       keywords: ["normal distribution", "normality", "do control charts assume normal"],
       answer:
@@ -1716,16 +1737,11 @@ function answerSpcQuestion(question) {
   ];
 
   for (const item of generalFaq) {
-    if (item.keywords.some(k => q.includes(k))) {
-      return item.answer;
-    }
+  if (matchesKeywords(q, item.keywords)) {
+    return item.answer;
   }
+}
 
-  for (const item of generalFaq) {
-    if (item.keywords.some(k => q.includes(k))) {
-      return item.answer;
-    }
-  }
 
   // 1. From here on: chart-specific interpretation (currently XmR only)
   const chartType = getSelectedChartType ? getSelectedChartType() : "xmr";
