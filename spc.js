@@ -1585,83 +1585,141 @@ function answerSpcQuestion(question) {
   // 0. General SPC knowledge – works even without a chart
   const generalFaq = [
     {
-      keywords: ["moving range", "mr chart", "m-r chart"],
+      keywords: ["control chart", "shewhart chart", "why use control chart", "use one in healthcare"],
       answer:
-        "A moving range (MR) chart shows how much each value changes from one point to the next. " +
-        "On an XmR chart, the X chart shows the individual values over time and the MR chart shows the size of the step between consecutive points. " +
-        "If the moving ranges are mostly small and within their limits, the short-term variation looks stable. Large spikes in the moving range can indicate a one-off shock or a change in how the process behaves."
+        "A control chart (also called a Shewhart chart) is a line chart with a centre line and upper and lower control limits calculated from your own data. " +
+        "It helps you see whether the variation you are seeing is just routine noise (common cause) or whether there is evidence that something in the system has changed (special cause). " +
+        "In healthcare this means you can tell the difference between random ups and downs and true improvement or deterioration, so you can respond appropriately and avoid over-reacting to every change."
     },
     {
-      keywords: ["xmr", "xm r", "i-mr", "individuals chart", "individual chart"],
+      keywords: ["run chart", "run vs control chart", "difference between run chart and control chart"],
       answer:
-        "An XmR chart (also called an I-MR chart) is used when you have one measurement at each time point – for example, length of stay per day, or waiting time for one patient at a time. " +
-        "The X chart shows the individual values with a centre line and control limits. The MR chart shows the absolute difference between each pair of consecutive points (the moving range). " +
-        "The moving ranges are used to estimate the natural amount of variation (sigma), which then gives the control limits on the X chart."
+        "A run chart shows data over time with a median line and uses simple rules (trend, shift, runs) to look for signals of change. " +
+        "It is quick to produce and works well when you are starting out or have limited data. " +
+        "A control chart adds statistically-based control limits around a mean and can tell you more clearly whether the process is stable and how much natural variation there is. " +
+        "A common approach in healthcare is to start with a run chart and move to a control chart once you have enough data and want a more precise view of stability."
     },
     {
-      keywords: ["less than 12", "fewer than 12", "< 12", "minimum data", "how many points", "how many data points"],
+      keywords: ["how many data points", "minimum data", "minimum points", "how many points do i need"],
       answer:
-        "For an XmR chart we usually recommend at least 12 data points, and often 20 or more. " +
-        "The control limits are based on the average moving range. With only a few points that estimate of variation is very shaky, so the limits can be too tight or too wide and you can get misleading ‘signals’. " +
-        "Using at least 12 points gives a more reliable picture of the natural variation before you start interpreting signals or claiming changes."
+        "Control charts work best when they have enough data to estimate the natural variation reliably. " +
+        "A common rule is to have at least 12 data points for any control chart, and 20 or more points when you are using an individuals (XmR or I-chart) or X-bar and S chart. " +
+        "With fewer points the limits can be misleading, so many teams start with a run chart and convert to a control chart once more data are available."
     },
     {
-      keywords: ["sigma line", "sigma lines", "1 sigma", "2 sigma", "3 sigma", "standard deviation"],
+      keywords: ["special cause rules", "spc rules", "signal rules", "rules for detecting special cause"],
+      answer:
+        "Typical special-cause rules on a control chart include: a point outside a control limit; a run of 7–8 or more points on the same side of the centre line; " +
+        "a trend of 6 or more points steadily rising or falling; and two out of three points near a control limit on the same side. " +
+        "Some guides also include 15 points very close to the mean as a signal of something unusual. " +
+        "These patterns are very unlikely to occur by chance if the process is stable, so when they appear it is worth looking for a change in the real system."
+    },
+    {
+      keywords: ["sigma line", "sigma lines", "1 sigma", "2 sigma", "3 sigma", "sigma limits"],
       answer:
         "Sigma is a way of describing how much the data vary – it is closely related to the standard deviation. " +
         "Sigma lines are drawn at fixed multiples of this variation above and below the average, for example ±1 sigma, ±2 sigma and ±3 sigma. " +
-        "The ±3 sigma lines are the classic control limits (UCL and LCL). If the process is stable, points beyond ±3 sigma are very rare, so they are treated as potential special-cause signals."
+        "The ±3 sigma lines are the classic control limits (UCL and LCL). If the process is stable, points beyond ±3 sigma are very rare, so they are treated as potential signals that something has changed."
     },
     {
-      keywords: ["ucl", "lcl", "control limit", "control limits"],
+      keywords: ["control limits", "specification limits", "target limits", "difference between control and specification"],
       answer:
-        "The upper control limit (UCL) and lower control limit (LCL) show the range of values we would expect from common-cause variation if the process is stable. " +
-        "They are not targets, and they are not specification limits. Values outside the control limits, or unusual patterns within them, suggest special-cause variation – something has changed in the way the system is working."
+        "Control limits are calculated from how your process is currently behaving and show the range you would expect from common-cause variation. " +
+        "Specification or target limits are external goals or requirements, such as a waiting-time standard or a clinical threshold. " +
+        "You should not move control limits to match a target. Instead, use the chart to ask: “given the current process, how often will we meet the target, and what needs to change if that is not good enough?”"
     },
     {
-      keywords: ["process capability", "capability", "capable of", "meeting the target", "specification"],
+      keywords: ["which control chart", "choose right chart", "what chart should i use"],
       answer:
-        "Process capability describes how well a stable process can meet a given target or specification. " +
-        "In practical terms it answers: “If the process keeps behaving like this, what proportion of results will be on the desired side of the target?” " +
-        "If the chart shows special-cause variation (an unstable process), capability figures are unreliable – we usually aim to stabilise the process first, then assess capability."
+        "The right chart depends mainly on the type of data and the way it is collected. " +
+        "For individual continuous measurements over time (for example, length of stay per patient or daily waiting time) an XmR chart is often appropriate. " +
+        "For small subgroups of measurements at each time point you might use X-bar and R or X-bar and S charts. " +
+        "For counts or percentages (falls, infections, readmissions, proportion achieving a standard) you usually use attribute charts such as p, np, c or u charts."
     },
     {
-      keywords: ["common cause", "special cause"],
+      keywords: ["moving range chart", "mr chart", "why moving range"],
       answer:
-        "Common-cause variation is the natural, everyday noise in a stable system – the small ups and downs you expect even when nothing has changed. " +
-        "Special-cause variation means something different has happened: for example, a new process, a staffing issue, a change in case-mix, or a data problem. " +
-        "SPC charts help you separate these two so that you don’t over-react to routine noise, and you do investigate genuine changes."
+        "On an XmR chart the moving range (MR) chart shows how much each point changes from the one before it. " +
+        "The average moving range is used to estimate the underlying variation (sigma), which then determines the control limits on the X chart. " +
+        "Looking at the MR chart helps you see sudden jumps in the data that may represent shocks or measurement issues, even when the X chart itself still looks fairly stable."
     },
     {
-      keywords: ["run rule", "run rules", "spc rule", "spc rules", "signal", "signals"],
+      keywords: ["normal distribution", "normality", "do control charts assume normal"],
       answer:
-        "Run rules (or SPC rules) are simple patterns on the chart that are very unlikely to occur just by chance if the process is stable. " +
-        "Examples include a point outside the control limits, several points in a row on the same side of the mean, or a steady trend upwards or downwards. " +
-        "When a rule is triggered we treat it as a signal of possible special-cause variation and look for an explanation in the real system."
+        "Classical explanations of control charts often mention the normal distribution, but in practice Shewhart charts such as XmR are quite robust to non-normal data. " +
+        "You do not need perfectly normal data before you can use a control chart. " +
+        "If the data are very skewed or have natural limits, be cautious when interpreting probabilities and capability indices, and focus on the presence or absence of clear signals rather than exact percentages."
     },
     {
-      keywords: ["xbar", "x-bar", "x̄", "r chart", "xbar r", "x-bar r", "subgroup", "subgrouping"],
+      keywords: ["process unstable", "out of control", "chart unstable", "what should i do if unstable"],
       answer:
-        "X-bar and R charts are used when you have small groups (subgroups) of measurements at each time point, for example 5 blood pressures measured each day. " +
-        "The X-bar chart shows the average of each group and the R chart shows the range within each group. " +
-        "This approach is useful when measurements are taken in natural clusters and you want to monitor both the central tendency (average) and within-group variation."
+        "If your chart shows special-cause signals, treat this as a prompt to understand what changed in the system rather than simply adjusting the chart. " +
+        "Look for real-world explanations around the time of the signals: new policies, staffing changes, case-mix changes, data issues, or improvement tests. " +
+        "Decide whether the change is desirable or not. For desirable changes you may later re-baseline the chart around the new level; for undesirable changes you may plan PDSA cycles to remove or reduce the special cause."
     },
     {
-      keywords: ["p chart", "u chart", "c chart", "np chart", "attribute chart"],
+      keywords: ["process capability", "capability", "cp", "cpk", "meeting the target"],
       answer:
-        "Attribute charts are used when you are counting things rather than measuring a continuous value. " +
-        "Examples include the number of falls, the number of infections, or the proportion of patients with a particular outcome. " +
-        "p-charts and np-charts are for proportions or counts with a fixed number of opportunities; u-charts and c-charts are for counts where the number of opportunities can vary. " +
-        "Choosing the right chart type helps the limits reflect the way the data are generated."
+        "Process capability asks how well a stable process can meet a particular target or specification. " +
+        "In simple terms it answers: “if the process continues like this, what proportion of future results will be on the desired side of the target?” " +
+        "Capability measures are only meaningful when the process is stable, so you normally sort out special-cause signals first and then assess capability. " +
+        "In healthcare the focus is often on an estimated percent meeting a standard rather than formal Cp/Cpk indices."
     },
     {
-      keywords: ["why spc", "why use spc", "why not use a line", "why not just use a line", "why can’t i just"],
+      keywords: ["annotate chart", "add notes to chart", "why annotate"],
       answer:
-        "Simple line charts or monthly averages show trends but they do not distinguish between common-cause noise and real change. " +
-        "SPC adds a statistical framework – based on the natural variation in your own data – so that you can say with more confidence when something genuinely different is happening. " +
-        "This helps avoid over-reacting to every up and down, and focuses attention on changes that are unlikely to be due to chance alone."
+        "Annotations link what you see on the chart to what was happening in the real world. " +
+        "Marking important events such as new guidelines, staffing changes, pathway redesigns or data definition changes helps people understand why the pattern changed and prevents mis-interpretation later. " +
+        "Annotated charts are much easier to use in meetings because they tell the story of the improvement work, not just the numbers."
+    },
+    {
+      keywords: ["run chart few data points", "only a few data points", "why run chart recommended"],
+      answer:
+        "Run charts are recommended when you are starting out and have only a small number of data points, because they are simpler and need fewer observations to begin giving useful feedback. " +
+        "You can begin with around 8–10 points on a run chart and apply simple run-chart rules to look for changes. " +
+        "As you collect more data and want to estimate control limits and capability, you can then move to a control chart."
+    },
+    {
+      keywords: ["quarterly data", "annual data", "why not use quarterly", "why not use annual"],
+      answer:
+        "Quarterly or annual data give very few points over a reasonable time period and can hide important patterns of change. " +
+        "They also make it hard to apply run or control-chart rules, which rely on having enough points to detect signals. " +
+        "Where possible, collect data at a more frequent interval such as weekly or monthly so that your charts can provide timely and reliable feedback."
+    },
+    {
+      keywords: ["target line", "goal line", "add target to chart"],
+      answer:
+        "On an SPC chart the control limits come from the data, but you can still add a separate horizontal line to show a target or goal. " +
+        "This makes it clear whether the current stable process is good enough compared with what you are aiming for. " +
+        "If the average is far from the target, the chart is telling you that improvement work should focus on shifting the process, not on tightening the control limits."
+    },
+    {
+      keywords: ["common cause", "special cause", "common and special causes"],
+      answer:
+        "Common-cause variation is the ordinary, expected noise in a stable system – the small ups and downs that are always present. " +
+        "Special-cause variation comes from specific circumstances or changes that affect the system at particular times, such as a new process, an outbreak, or a data error. " +
+        "Control charts help you distinguish between the two so you can decide when to redesign the system and when to investigate particular events."
+    },
+    {
+      keywords: ["is a process in control always good", "in control but bad", "stable but poor performance"],
+      answer:
+        "No. A process can be “in control” (showing only common-cause variation) and still be performing at an unacceptable level, for example when an average waiting time is stable but far above the standard. " +
+        "In that case SPC tells you the current system is delivering exactly what it is designed to deliver – poor performance – and that improvement requires changing the system, not just reacting to individual points."
+    },
+    {
+      keywords: ["recalculate control limits", "rebaseline", "when to recalc limits"],
+      answer:
+        "Recalculate control limits when you have evidence that the process has genuinely shifted to a new, stable level – for example, a clear and sustained signal following an intentional change. " +
+        "A common approach is to split the chart at the point of change and use the later data to estimate a new mean and limits. " +
+        "Avoid constantly recomputing limits in response to every small fluctuation, as this hides real changes and defeats the purpose of SPC."
     }
   ];
+
+  for (const item of generalFaq) {
+    if (item.keywords.some(k => q.includes(k))) {
+      return item.answer;
+    }
+  }
 
   for (const item of generalFaq) {
     if (item.keywords.some(k => q.includes(k))) {

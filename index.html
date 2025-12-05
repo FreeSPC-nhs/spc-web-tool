@@ -607,9 +607,6 @@ body.sidebar-collapsed .main {
       <details>
         <summary>5. Baseline & split</summary>
         <div class="panel">
-	<div class="hint">
-      Splitting the control limits should <em>only</em> be done where a sustained shift in performance has been investigated, understood and agreed to be representative of the <em>new normal</em> level of performance for the process.
-     </div>      
 	<label>
       Use first
       <input type="number" id="baselinePoints" min="2" step="1" style="width: 4rem;" />
@@ -620,7 +617,9 @@ body.sidebar-collapsed .main {
      </div>
       <hr>
 	<strong>Split the XmR chart:</strong>
-
+	<div class="hint">
+      Splitting the control limits should <em>only</em> be done where a sustained shift in performance has been investigated, understood and agreed to be representative of the <em>new normal</em> level of performance for the process.
+     </div>
 	<label>
   	Add split after:
   	<select id="splitPointSelect"></select>
