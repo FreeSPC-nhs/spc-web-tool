@@ -1597,29 +1597,61 @@ function answerSpcQuestion(question) {
   // 0. General SPC knowledge – works even without a chart
   const generalFaq = [
     {
-      keywords: ["control chart", "shewhart chart", "why use control chart", "use one in healthcare"],
+      // What is a control chart / why use it?
+      keywords: [
+        "what is a control chart",
+        "what's a control chart",
+        "control chart",
+        "shewhart chart",
+        "spc chart",
+        "statistical process control chart",
+        "why use a control chart",
+        "use one in healthcare"
+      ],
       answer:
-        "A control chart (also called a Shewhart chart) is a line chart with a centre line and upper and lower control limits calculated from your own data. " +
-        "It helps you see whether the variation you are seeing is just routine noise (common cause) or whether there is evidence that something in the system has changed (special cause). " +
-        "In healthcare this means you can tell the difference between random ups and downs and true improvement or deterioration, so you can respond appropriately and avoid over-reacting to every change."
+        "A control chart (also called a Shewhart chart or SPC chart) is a line chart with a centre line and upper and lower control limits calculated from your own data. " +
+        "It helps you see whether the variation you are seeing is just routine noise (common-cause variation) or whether there is evidence that something in the system has changed (special-cause variation). " +
+        "In healthcare this means you can tell the difference between random ups and downs and true improvement or deterioration, so you can respond appropriately and avoid over-reacting to every small change."
     },
     {
-      keywords: ["run chart", "run vs control chart", "difference between run chart and control chart"],
+      // Run vs control chart
+      keywords: [
+        "run chart vs control chart",
+        "difference between run chart and control chart",
+        "run or control chart",
+        "when to use a run chart",
+        "when to use a control chart"
+      ],
       answer:
-        "A run chart shows data over time with a median line and uses simple rules (trend, shift, runs) to look for signals of change. " +
-        "It is quick to produce and works well when you are starting out or have limited data. " +
+        "A run chart shows data over time with a median line and uses simple rules (trend, shift, runs) to look for signals of change. It is quick to produce and works well when you are starting out or have limited data. " +
         "A control chart adds statistically-based control limits around a mean and can tell you more clearly whether the process is stable and how much natural variation there is. " +
-        "A common approach in healthcare is to start with a run chart and move to a control chart once you have enough data and want a more precise view of stability."
+        "A common approach in healthcare is to start with a run chart and move to a control chart once you have enough data and want a more precise view of stability and capability."
     },
     {
-      keywords: ["how many data points", "minimum data", "minimum points", "how many points do i need"],
+      // How many data points do I need?
+      keywords: [
+        "how many data points",
+        "how many points do i need",
+        "minimum data points",
+        "minimum points",
+        "how much data before i can make a control chart",
+        "how much data before i can make an spc chart"
+      ],
       answer:
         "Control charts work best when they have enough data to estimate the natural variation reliably. " +
-        "A common rule is to have at least 12 data points for any control chart, and 20 or more points when you are using an individuals (XmR or I-chart) or X-bar and S chart. " +
+        "A common rule is to have at least 12 data points for any control chart, and 20 or more points when you are using an individuals (XmR or I chart) or X-bar and S chart. " +
         "With fewer points the limits can be misleading, so many teams start with a run chart and convert to a control chart once more data are available."
     },
     {
-      keywords: ["special cause rules", "spc rules", "signal rules", "rules for detecting special cause"],
+      // Special-cause rules
+      keywords: [
+        "special cause rules",
+        "spc rules",
+        "signal rules",
+        "rules for detecting special cause",
+        "how do i know if there is a signal",
+        "what are the rules for a signal"
+      ],
       answer:
         "Typical special-cause rules on a control chart include: a point outside a control limit; a run of 7–8 or more points on the same side of the centre line; " +
         "a trend of 6 or more points steadily rising or falling; and two out of three points near a control limit on the same side. " +
@@ -1627,21 +1659,44 @@ function answerSpcQuestion(question) {
         "These patterns are very unlikely to occur by chance if the process is stable, so when they appear it is worth looking for a change in the real system."
     },
     {
-      keywords: ["sigma line", "sigma lines", "1 sigma", "2 sigma", "3 sigma", "sigma limits"],
+      // Sigma lines
+      keywords: [
+        "sigma line",
+        "sigma lines",
+        "1 sigma",
+        "2 sigma",
+        "3 sigma",
+        "sigma limits",
+        "what is sigma"
+      ],
       answer:
         "Sigma is a way of describing how much the data vary – it is closely related to the standard deviation. " +
         "Sigma lines are drawn at fixed multiples of this variation above and below the average, for example ±1 sigma, ±2 sigma and ±3 sigma. " +
         "The ±3 sigma lines are the classic control limits (UCL and LCL). If the process is stable, points beyond ±3 sigma are very rare, so they are treated as potential signals that something has changed."
     },
     {
-      keywords: ["control limits", "specification limits", "target limits", "difference between control and specification"],
+      // Control limits vs spec/target
+      keywords: [
+        "control limits vs specification",
+        "control limits vs spec limits",
+        "control limits vs target",
+        "difference between control and specification limits",
+        "difference between control and target limits"
+      ],
       answer:
         "Control limits are calculated from how your process is currently behaving and show the range you would expect from common-cause variation. " +
         "Specification or target limits are external goals or requirements, such as a waiting-time standard or a clinical threshold. " +
         "You should not move control limits to match a target. Instead, use the chart to ask: “given the current process, how often will we meet the target, and what needs to change if that is not good enough?”"
     },
     {
-      keywords: ["which control chart", "choose right chart", "what chart should i use"],
+      // Which chart should I use?
+      keywords: [
+        "which control chart should i use",
+        "what chart should i use",
+        "choose right chart",
+        "how do i pick the right chart",
+        "what spc chart should i use"
+      ],
       answer:
         "The right chart depends mainly on the type of data and the way it is collected. " +
         "For individual continuous measurements over time (for example, length of stay per patient or daily waiting time) an XmR chart is often appropriate. " +
@@ -1649,37 +1704,61 @@ function answerSpcQuestion(question) {
         "For counts or percentages (falls, infections, readmissions, proportion achieving a standard) you usually use attribute charts such as p, np, c or u charts."
     },
     {
-  	keywords: [
-    "moving range",
-    "moving-range",
-    "moving range chart",
-    "mr chart",
-    "mr-chart",
-    "use the moving range",
-    "interpret the moving range"
-  	],
-  	answer:
-    	"On an XmR chart the moving range (MR) chart shows how much each point changes from the one before it. " +
-    	"The average moving range is used to estimate the underlying variation (sigma), which then determines the control limits on the X chart. " +
-    	"You can use the moving range chart to spot sudden jumps in the data, measurement issues, or changes in the short-term variation, even when the X chart itself still looks fairly stable."
-	},
-
+      // Moving range / MR chart
+      keywords: [
+        "moving range",
+        "moving-range",
+        "moving range chart",
+        "mr chart",
+        "mr-chart",
+        "use the moving range",
+        "interpret the moving range",
+        ["use", "moving", "range"]
+      ],
+      answer:
+        "On an XmR chart the moving range (MR) chart shows how much each point changes from the one before it. " +
+        "The average moving range is used to estimate the underlying variation (sigma), which then determines the control limits on the X chart. " +
+        "You can use the moving range chart to spot sudden jumps in the data, measurement issues, or changes in the short-term variation, even when the X chart itself still looks fairly stable."
+    },
     {
-      keywords: ["normal distribution", "normality", "do control charts assume normal"],
+      // Normal distribution / normality
+      keywords: [
+        "normal distribution",
+        "normality",
+        "do control charts assume normal",
+        "do my data need to be normal",
+        "does spc require normal distribution"
+      ],
       answer:
         "Classical explanations of control charts often mention the normal distribution, but in practice Shewhart charts such as XmR are quite robust to non-normal data. " +
         "You do not need perfectly normal data before you can use a control chart. " +
         "If the data are very skewed or have natural limits, be cautious when interpreting probabilities and capability indices, and focus on the presence or absence of clear signals rather than exact percentages."
     },
     {
-      keywords: ["process unstable", "out of control", "chart unstable", "what should i do if unstable"],
+      // Process unstable / out of control – what to do?
+      keywords: [
+        "process unstable",
+        "unstable process",
+        "out of control",
+        "chart unstable",
+        "what should i do if the chart is out of control",
+        "what should i do if unstable"
+      ],
       answer:
         "If your chart shows special-cause signals, treat this as a prompt to understand what changed in the system rather than simply adjusting the chart. " +
         "Look for real-world explanations around the time of the signals: new policies, staffing changes, case-mix changes, data issues, or improvement tests. " +
         "Decide whether the change is desirable or not. For desirable changes you may later re-baseline the chart around the new level; for undesirable changes you may plan PDSA cycles to remove or reduce the special cause."
     },
     {
-      keywords: ["process capability", "capability", "cp", "cpk", "meeting the target"],
+      // Process capability – what is it?
+      keywords: [
+        "process capability",
+        "capability",
+        "cp",
+        "cpk",
+        "meeting the target",
+        "how capable is the process"
+      ],
       answer:
         "Process capability asks how well a stable process can meet a particular target or specification. " +
         "In simple terms it answers: “if the process continues like this, what proportion of future results will be on the desired side of the target?” " +
@@ -1687,48 +1766,95 @@ function answerSpcQuestion(question) {
         "In healthcare the focus is often on an estimated percent meeting a standard rather than formal Cp/Cpk indices."
     },
     {
-      keywords: ["annotate chart", "add notes to chart", "why annotate"],
+      // Why annotate charts?
+      keywords: [
+        "annotate chart",
+        "add notes to chart",
+        "why annotate",
+        "why put comments on the chart"
+      ],
       answer:
         "Annotations link what you see on the chart to what was happening in the real world. " +
         "Marking important events such as new guidelines, staffing changes, pathway redesigns or data definition changes helps people understand why the pattern changed and prevents mis-interpretation later. " +
         "Annotated charts are much easier to use in meetings because they tell the story of the improvement work, not just the numbers."
     },
     {
-      keywords: ["run chart few data points", "only a few data points", "why run chart recommended"],
+      // Run chart with few data points
+      keywords: [
+        "run chart few data points",
+        "only a few data points",
+        "i don't have much data",
+        "not much data yet",
+        "why use a run chart first"
+      ],
       answer:
         "Run charts are recommended when you are starting out and have only a small number of data points, because they are simpler and need fewer observations to begin giving useful feedback. " +
         "You can begin with around 8–10 points on a run chart and apply simple run-chart rules to look for changes. " +
         "As you collect more data and want to estimate control limits and capability, you can then move to a control chart."
     },
     {
-      keywords: ["quarterly data", "annual data", "why not use quarterly", "why not use annual"],
+      // Quarterly / annual data
+      keywords: [
+        "quarterly data",
+        "annual data",
+        "why not use quarterly",
+        "why not use annual data",
+        "can i make a chart with quarterly data"
+      ],
       answer:
         "Quarterly or annual data give very few points over a reasonable time period and can hide important patterns of change. " +
         "They also make it hard to apply run or control-chart rules, which rely on having enough points to detect signals. " +
         "Where possible, collect data at a more frequent interval such as weekly or monthly so that your charts can provide timely and reliable feedback."
     },
     {
-      keywords: ["target line", "goal line", "add target to chart"],
+      // Target / goal line on chart
+      keywords: [
+        "target line",
+        "goal line",
+        "add target to chart",
+        "how do i show the target on the chart"
+      ],
       answer:
         "On an SPC chart the control limits come from the data, but you can still add a separate horizontal line to show a target or goal. " +
         "This makes it clear whether the current stable process is good enough compared with what you are aiming for. " +
         "If the average is far from the target, the chart is telling you that improvement work should focus on shifting the process, not on tightening the control limits."
     },
     {
-      keywords: ["common cause", "special cause", "common and special causes"],
+      // Common vs special cause – concept
+      keywords: [
+        "common cause",
+        "special cause",
+        "common and special cause",
+        "difference between common and special cause"
+      ],
       answer:
         "Common-cause variation is the ordinary, expected noise in a stable system – the small ups and downs that are always present. " +
         "Special-cause variation comes from specific circumstances or changes that affect the system at particular times, such as a new process, an outbreak, or a data error. " +
         "Control charts help you distinguish between the two so you can decide when to redesign the system and when to investigate particular events."
     },
     {
-      keywords: ["is a process in control always good", "in control but bad", "stable but poor performance"],
+      // Can a process be in control but still bad?
+      keywords: [
+        "in control but bad",
+        "process in control but poor performance",
+        "stable but poor",
+        "is a process in control always good"
+      ],
       answer:
-        "No. A process can be “in control” (showing only common-cause variation) and still be performing at an unacceptable level, for example when an average waiting time is stable but far above the standard. " +
+        "No. A process can be in control (showing only common-cause variation) and still be performing at an unacceptable level, for example when an average waiting time is stable but far above the standard. " +
         "In that case SPC tells you the current system is delivering exactly what it is designed to deliver – poor performance – and that improvement requires changing the system, not just reacting to individual points."
     },
     {
-      keywords: ["recalculate control limits", "rebaseline", "when to recalc limits"],
+      // When to recalc control limits / rebaseline
+      keywords: [
+        "recalculate control limits",
+        "recalc control limits",
+        "re-baseline",
+        "rebaseline",
+        "when should i recalculate the limits",
+        "when to reset the baseline",
+        "when to recalc limits"
+      ],
       answer:
         "Recalculate control limits when you have evidence that the process has genuinely shifted to a new, stable level – for example, a clear and sustained signal following an intentional change. " +
         "A common approach is to split the chart at the point of change and use the later data to estimate a new mean and limits. " +
@@ -1736,11 +1862,13 @@ function answerSpcQuestion(question) {
     }
   ];
 
+  // Try general SPC FAQ answers first
   for (const item of generalFaq) {
-  if (matchesKeywords(q, item.keywords)) {
-    return item.answer;
+    if (matchesKeywords(q, item.keywords)) {
+      return item.answer;
+    }
   }
-}
+
 
 
   // 1. From here on: chart-specific interpretation (currently XmR only)
