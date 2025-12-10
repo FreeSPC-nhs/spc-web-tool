@@ -1569,12 +1569,64 @@ function drawMRChart(result, labels) {
 // ---- AI helper function  -----
 
 function answerSpcQuestion(question) {
-  const q = question.trim().toLowerCase();
+  const q = (question || "").trim().toLowerCase();
   if (!q) {
-    return "Please type a question about SPC or your chart (for example: “Is the process stable?” or “What is a moving range chart?”).";
+    return "Please type a question about SPC or your chart (for example: \"Is the process stable?\" or \"What is a moving range chart?\").";
   }
 
-  // ----- 0. General SPC knowledge -----
+  // Helper to match simple keyword / phrase based FAQs
+  function matchFaq(items, text) {
+    for (const item of items) {
+      if (
+        item.keywords.some(k =>
+          Array.isArray(k)
+            ? k.every(word => text.includes(word))
+            : text.includes(k)
+        )
+      ) {
+        return item.answer;
+      }
+    }
+    return null;
+  }
+
+  // ----- 0. Conceptual SPC knowledge (no chart needed at all) -----
+  const conceptualFaq = [
+    {
+      keywords: [
+        "what is spc",
+        "what is an spc",
+        "what is a spc",
+        "what is an spc chart",
+        "what is a spc chart",
+        "what are spc charts",
+        "what is statistical process control",
+        "spc chart",
+        "control chart",
+        ["statistical", "process", "control"]
+      ],
+      answer:
+        "Statistical Process Control (SPC) is a way of using time-series charts to separate routine \"common-cause\" variation from unusual \"special-cause\" variation. " +
+        "An SPC or control chart plots your measure over time, shows a typical average, and adds upper and lower control limits that represent the range you would expect if the system is stable. " +
+        "When the pattern of points breaks simple rules (for example a point outside the limits or a long run of points on one side of the average), this is treated as a signal that the system may have changed."
+    },
+    {
+      keywords: [
+        "what is a run chart",
+        "what is run chart",
+        "run chart",
+        ["what", "run chart"]
+      ],
+      answer:
+        "A run chart is a simple time-series chart that shows your data in order with a median line. " +
+        "It uses basic run and trend rules (such as long runs of points on one side of the median or steady upward or downward trends) to highlight possible special-cause variation even without formal control limits."
+    }
+  ];
+
+  const conceptualHit = matchFaq(conceptualFaq, q);
+  if (conceptualHit) return conceptualHit;
+
+  // ----- 1. General SPC FAQs (can be answered without your specific chart) -----
   const generalFaq = [
     {
       keywords: [
@@ -1584,219 +1636,244 @@ function answerSpcQuestion(question) {
       ],
       answer:
         "A moving range (MR) chart shows how much each value changes from one point to the next. " +
-        "On an XmR chart, the X chart shows the individual values over time and the MR chart shows the size of the step between consecutive points. " +
+        "On an XmR chart, the X chart shows the individual values over time and the MR chart shows the absolute difference between consecutive values. " +
         "If the moving ranges are mostly small and within their limits, the short-term variation looks stable. Large spikes in the moving range can indicate a one-off shock or a change in how the process behaves."
     },
-
     {
       keywords: ["xmr", "xm r", "i-mr", "individuals chart", "individual chart"],
       answer:
-        "An XmR chart (also called an I-MR chart) is used when you have one measurement at each time point – for example, length of stay per day or waiting time for one patient. " +
-        "The X chart shows the individual values with a centre line and control limits. The MR chart shows the absolute difference between each pair of consecutive points. " +
-        "The moving ranges are used to estimate the natural variation (sigma), which then gives the control limits on the X chart."
+        "An XmR chart (also called an Individuals and Moving Range chart, or I-MR) is used when you have one value per time period, such as daily admissions, length of stay per day, or time for a single patient. " +
+        "The X chart shows the individual values with a centre line and control limits. The MR chart shows the size of the step between each pair of consecutive points. " +
+        "The average moving range is used to estimate the underlying variation (sigma), which then gives the control limits on the X chart."
     },
-
     {
-      keywords: ["less than 12", "fewer than 12", "< 12", "minimum data", "how many points", "how many data points"],
+      keywords: ["control limit", "control limits", "ucl", "lcl"],
       answer:
-        "For an XmR chart we usually recommend at least 12 data points, and ideally 20 or more. " +
-        "The control limits are based on the average moving range. With too few points this estimate is unstable and the limits can be misleading. " +
-        "Using at least 12 points gives a more reliable picture of natural variation."
+        "Control limits show the range of values you would expect to see from a stable process just due to routine variation. " +
+        "They are not targets and they are not hard performance thresholds. Points outside the limits or unusual patterns inside the limits suggest special-cause variation that may be worth investigating."
     },
-
     {
-      keywords: ["sigma line", "sigma lines", "1 sigma", "2 sigma", "3 sigma", "standard deviation"],
+      keywords: ["sigma", "standard deviation", "spread of the data", "variation"],
       answer:
-        "Sigma describes the typical amount of variation in your data. Sigma lines are placed at ±1, ±2 and ±3 sigma around the average. " +
-        "The ±3 sigma lines are the traditional control limits (UCL/LCL). Points outside ±3 sigma suggest special-cause variation."
+        "In SPC, sigma is an estimate of the usual spread of the process. On an XmR chart, sigma is estimated from the average moving range between consecutive points. " +
+        "Control limits are typically placed at plus or minus three sigma from the mean. A larger sigma means a wider spread of routine variation."
     },
-
-    {
-      keywords: ["ucl", "lcl", "control limit", "control limits"],
-      answer:
-        "Control limits (UCL and LCL) show the range of values you would expect from common-cause variation if the process is stable. " +
-        "They are not targets. Points outside the limits, or unusual patterns within them, may indicate special-cause variation."
-    },
-
-    {
-      keywords: ["process capability", "capability", "capable", "meeting the target", "specification"],
-      answer:
-        "Process capability describes how well a stable process can meet a given target. It answers: “If the process continues like this, what proportion of results will meet the target?” " +
-        "Capability should only be assessed when the process is stable."
-    },
-
     {
       keywords: ["common cause", "special cause"],
       answer:
-        "Common-cause variation is the natural background noise in a stable process. Special-cause variation occurs when something different happens, such as a change in process, staffing, case-mix or data quality. " +
-        "SPC helps you distinguish between the two."
+        "Common-cause variation is the natural background noise of a stable system. Special-cause variation is a signal that the system may have changed, for example due to a new policy, a change in demand, or a data issue. " +
+        "SPC helps you distinguish common-cause from special-cause variation so that you can avoid over-reacting to noise while still spotting real changes."
     },
-
     {
       keywords: ["run rule", "run rules", "spc rule", "spc rules", "signal", "signals"],
       answer:
-        "SPC rules help you detect unusual patterns that are unlikely to occur in a stable system. Examples include a point outside the control limits, a long run of points on one side of the mean, or a steady trend. " +
-        "These patterns are treated as potential signals of special-cause variation."
+        "SPC rules are simple patterns that are unlikely to occur if the process is stable. Examples include a point outside the control limits, a long run of points on one side of the mean, or a long trend of points steadily increasing or decreasing. " +
+        "When one of these patterns appears, it is treated as a potential special-cause signal that may be worth investigating."
     },
-
     {
-      keywords: ["xbar", "x-bar", "x̄", "r chart", "subgroup", "subgrouping"],
+      keywords: ["capability", "capable process", "process capability"],
       answer:
-        "X-bar and R charts are used when you have groups (subgroups) of measurements at each time point. " +
-        "The X-bar chart plots the subgroup average while the R chart plots the subgroup range. This helps monitor both central tendency and within-group variation."
+        "Capability in this context is about the chance that future points will meet a chosen target, assuming the process stays as it is now. " +
+        "If the process is stable, we can estimate the mean and sigma and then work out the percentage of future points likely to fall above or below a target threshold."
     },
-
     {
-      keywords: ["p chart", "u chart", "c chart", "np chart", "attribute chart"],
+      keywords: ["baseline", "phase", "segment", "split the chart"],
       answer:
-        "Attribute charts are used when you are counting things rather than measuring a continuous value – for example falls, infections or the proportion of patients meeting a standard. " +
-        "p-charts and np-charts handle proportions/counts with a fixed denominator; u-charts and c-charts handle varying denominators."
-    },
-
-    {
-      keywords: ["why spc", "why use spc", "why not use a line", "why can’t i just"],
-      answer:
-        "Simple line charts show trends but cannot distinguish between common-cause noise and real change. SPC adds statistical structure so you can identify when a change is unlikely to be random. " +
-        "This helps avoid over-reacting to routine variation."
+        "Splitting an SPC chart into phases (baselines) lets you compare the process before and after a known change, such as a new pathway or intervention. " +
+        "Each segment gets its own mean and control limits so you can see whether the system has shifted, rather than averaging everything together."
     }
   ];
 
-  // ----- Match general SPC questions -----
-  for (const item of generalFaq) {
-    if (item.keywords.some(k =>
-      (Array.isArray(k) ? k.every(word => q.includes(word)) : q.includes(k))
-    )) {
-      return item.answer;
-    }
-  }
+  const generalHit = matchFaq(generalFaq, q);
+  if (generalHit) return generalHit;
 
-  // ----- 1. Chart-specific interpretation (XmR only) -----
-  const chartType = getSelectedChartType ? getSelectedChartType() : "xmr";
+  // ----- 2. Chart-specific interpretation (XmR only) -----
+  const chartType = (typeof getSelectedChartType === "function")
+    ? getSelectedChartType()
+    : "xmr";
+
   if (chartType !== "xmr") {
     return (
-      "I can answer general SPC questions, but detailed automatic chart interpretation currently applies only to XmR charts. " +
-      "Please switch to an XmR chart if you want automated interpretation."
+      "I can answer general SPC questions for any chart, but the automatic detailed interpretation currently applies only to XmR charts. " +
+      "Please switch to an XmR chart if you want automated interpretation of stability, signals, limits or capability."
     );
   }
 
   if (!lastXmRAnalysis) {
-    return "Please generate an XmR chart first, then ask about stability, signals, limits or capability.";
+    return (
+      "I can only interpret your chart once an XmR chart has been generated. " +
+      "Please create an XmR chart first, then ask me about stability, signals, control limits, target performance or capability."
+    );
   }
 
   const a = lastXmRAnalysis;
-  const splits = (a && a.splits) || [];
   const lines = [];
 
-  // ----- 2. Stability / signals -----
+  // ----- 2a. Stability / signals -----
   if (
-    q.includes("stable") || q.includes("in control") || q.includes("out of control") ||
-    q.includes("special cause") || q.includes("signal") || q.includes("run rule")
+    q.includes("stable") || q.includes("stability") ||
+    q.includes("in control") || q.includes("out of control") ||
+    q.includes("special cause") || q.includes("signal") ||
+    q.includes("run rule") || q.includes("rule broken") ||
+    q.includes("any signals")
   ) {
     if (a.isStable) {
       lines.push(
-        "This segment of the XmR chart appears stable: no special-cause rules are triggered and the variation looks consistent with common-cause behaviour."
+        "This segment of the XmR chart appears stable: no SPC rules are triggered and the points fluctuate randomly around the mean within the control limits."
+      );
+    } else if (Array.isArray(a.signals) && a.signals.length > 0) {
+      const count = a.signals.length;
+      const labels = a.signals.map(s => s.description || s.type || "signal").join("; ");
+      lines.push(
+        `This XmR chart shows evidence of special-cause variation. I can see ${count} signal${count > 1 ? "s" : ""}: ${labels}. ` +
+        "These patterns are unlikely to arise from common-cause variation alone and suggest that the system may have changed."
       );
     } else {
       lines.push(
-        "This segment of the XmR chart appears unstable: one or more SPC rules are triggered, suggesting special-cause variation."
-      );
-      if (a.signals?.length) {
-        lines.push("Signals detected: " + a.signals.join("; ") + ".");
-      }
-      lines.push(
-        "It may help to review what was happening in the system at the times signals appear – for example changes in demand, staffing, processes or data definitions."
+        "The chart does not look completely stable, but no specific SPC signals have been recorded. Check for obvious shifts, trends or outlying points."
       );
     }
   }
 
-  // ----- 3. Capability / target -----
+  // ----- 2b. Mean and control limits -----
   if (
-    q.includes("capability") || q.includes("target") ||
-    q.includes("specification") || q.includes("meeting the target")
+    q.includes("mean") || q.includes("average") ||
+    q.includes("ucl") || q.includes("lcl") ||
+    q.includes("control limit") || q.includes("limits")
   ) {
-    if (a.target == null) {
-      lines.push("No target is set. Please enter a target value and whether higher or lower values are better.");
+    if (typeof a.mean === "number" && typeof a.sigma === "number") {
+      const meanText = a.mean.toFixed(2);
+      const uclText = (a.ucl != null ? a.ucl.toFixed(2) : "not calculated");
+      const lclText = (a.lcl != null ? a.lcl.toFixed(2) : "not calculated");
+      lines.push(
+        `The current segment has an estimated mean of ${meanText}. The upper control limit (UCL) is ${uclText} and the lower control limit (LCL) is ${lclText}. ` +
+        "These are based on the average moving range and represent the range you would expect from common-cause variation in this period."
+      );
+    } else {
+      lines.push(
+        "Mean and control limits could not be calculated for this chart. Check that there are enough data points and that the values are numeric."
+      );
+    }
+  }
+
+  // ----- 2c. Short-term variation / sigma -----
+  if (
+    q.includes("sigma") || q.includes("variation") ||
+    q.includes("spread") || q.includes("variability")
+  ) {
+    if (typeof a.sigma === "number" && typeof a.avgMR === "number") {
+      lines.push(
+        `The estimated sigma (spread) for this segment is approximately ${a.sigma.toFixed(2)}, based on an average moving range of ${a.avgMR.toFixed(2)}. ` +
+        "This captures the usual short-term variation between consecutive points and is used to set the control limits."
+      );
+    } else {
+      lines.push(
+        "An estimate of sigma could not be calculated. This usually happens if there are too few points or no variation in the data."
+      );
+    }
+  }
+
+  // ----- 2d. Target / direction / performance relative to target -----
+  if (
+    q.includes("target") || q.includes("goal") ||
+    q.includes("above target") || q.includes("below target") ||
+    q.includes("better") || q.includes("worse") ||
+    q.includes("improve") || q.includes("improvement")
+  ) {
+    if (a.target == null || !a.direction) {
+      lines.push(
+        "A target has not been set for this chart, or the direction of improvement (above or below the target) is not defined. " +
+        "Set a target value and specify whether higher or lower is better to get a clearer view of performance."
+      );
     } else if (!a.isStable) {
       lines.push(
-        "Because the process is not stable, capability estimates would be unreliable. Stabilise the process first, then reassess capability."
+        "Because the process is not yet stable, performance against the target may change unpredictably. " +
+        "Stabilise the process first, then reassess how reliably the target is being met."
       );
-    } else if (a.capability?.prob != null) {
+    } else if (a.capability && typeof a.capability.prob === "number") {
       const prob = (a.capability.prob * 100).toFixed(1);
       const dirText = a.direction === "above" ? "at or above" : "at or below";
       lines.push(
-        `Based on the current stable process and a target of ${a.target} (values ${dirText} the target), about ${prob}% of future points are expected to meet the target.`
+        `Given the current stable process and a target of ${a.target}, about ${prob}% of future points are expected to fall ${dirText} the target. ` +
+        "This assumes that the underlying process does not change."
       );
     } else {
       lines.push(
-        "A capability estimate could not be calculated. Check that a numeric target has been set and that there is some variation in the data."
+        "A formal capability estimate against the target could not be calculated, but you can still use the chart to see whether the mean is comfortably on the desired side of the target and how often points cross it."
       );
     }
   }
 
-  // ----- 4. Mean / limits / sigma -----
-  if (
-    q.includes("limit") || q.includes("ucl") || q.includes("lcl") ||
-    q.includes("mean") || q.includes("centre") || q.includes("sigma")
-  ) {
-    if (a.mean != null && a.lcl != null && a.ucl != null && a.sigma != null) {
-      lines.push(`The estimated mean (centre line) is ${a.mean.toFixed(3)}.`);
-      lines.push(`Control limits: LCL = ${a.lcl.toFixed(3)}, UCL = ${a.ucl.toFixed(3)}.`);
-      lines.push(
-        `The estimated sigma (typical variation, based on the moving ranges) is about ${a.sigma.toFixed(3)}.`
-      );
-    } else {
-      lines.push("I do not have complete statistics (mean, limits, sigma) for this segment.");
-    }
-  }
-
-  // ----- 5. Splits / baselines -----
+  // ----- 2e. Splits / baselines (using the global splits array) -----
   if (
     q.includes("split") || q.includes("baseline") ||
     q.includes("phase") || q.includes("segment")
   ) {
-    if (splits.length === 0) {
+    if (!Array.isArray(splits) || splits.length === 0) {
       lines.push(
-        "No splits have been added, so the whole chart is treated as one baseline. " +
-        "If a known system change occurred, adding a split will give the before-and-after segments their own mean and limits."
+        "No splits have been added, so the whole series is treated as one baseline. " +
+        "If a known system change occurred, you can add a split so that before-and-after periods each get their own mean and control limits."
       );
     } else {
       lines.push(
-        `You have added ${splits.length} split${splits.length > 1 ? "s" : ""}. Each marks a point where the chart begins a new baseline segment.`
-      );
-      lines.push(
-        "Interpret each segment separately. Large shifts between segments may reflect intentional changes or system-level step-changes."
+        `You have added ${splits.length} split${splits.length > 1 ? "s" : ""} to this chart. ` +
+        "Each split marks a point where a new baseline begins with its own mean and limits, allowing you to compare periods before and after key changes."
       );
     }
   }
 
-  // ----- 6. If no specific question matched -----
+  // ----- 2f. Moving range chart questions (chart-specific) -----
+  if (
+    q.includes("moving range") || q.includes("mr chart") || q.includes("m-r chart") ||
+    q.includes("mr line") || q.includes("mr panel")
+  ) {
+    lines.push(
+      "The moving range (MR) chart under the main XmR chart shows the size of the jump between one point and the next. " +
+      "Large spikes in the MR chart indicate abrupt changes between consecutive observations, while a stable band of small ranges suggests consistent short-term behaviour."
+    );
+  }
+
+  // ----- 3. Fallback if nothing matched in chart-specific logic -----
   if (lines.length === 0) {
-    if (a.isStable) {
-      lines.push(
-        "Overall, the current XmR chart segment looks stable: the points vary around a consistent average within the control limits."
-      );
-    } else {
-      lines.push(
-        "Overall, the current XmR chart segment appears unstable: at least one SPC rule is triggered, suggesting special-cause variation. " +
-        "It may help to compare the timing of the signals with operational or clinical events."
-      );
-    }
-
-    if (a.target != null && a.capability?.prob != null) {
-      const prob = (a.capability.prob * 100).toFixed(1);
-      const dirText = a.direction === "above" ? "at or above" : "at or below";
-      lines.push(
-        `Given the current target of ${a.target}, about ${prob}% of future points are expected to fall ${dirText} the target, assuming the process remains stable.`
-      );
-    }
+    return (
+      "I could not match that question to a specific SPC topic. " +
+      "Try asking about stability, signals, control limits, sigma (variation), target performance, capability, moving range, or splits/baselines."
+    );
   }
 
-  // ----- 7. Final reminder -----
+  // ----- 4. Final reminder -----
   lines.push(
-    "Always interpret SPC results alongside clinical or operational context, and involve your quality improvement or analytics team when planning changes."
+    "Always interpret SPC charts alongside clinical or operational context, rather than in isolation. " +
+    "Use the signals as prompts for discussion, not as automatic proof that a change has worked."
   );
 
   return lines.join(" ");
+}
+
+function updateHelperIntro() {
+  if (!spcHelperAnswer) return;
+
+  if (!lastXmRAnalysis) {
+    // No chart yet: emphasise general questions
+    spcHelperAnswer.innerHTML = `
+      Ask a question about SPC. For example:
+      <ul>
+        <li>What is an SPC chart?</li>
+        <li>What is a run chart?</li>
+        <li>Why use SPC instead of a simple line?</li>
+      </ul>
+    `;
+  } else {
+    // Chart available: emphasise chart questions
+    spcHelperAnswer.innerHTML = `
+      Ask a question about <strong>this chart</strong>. For example:
+      <ul>
+        <li>Is the process stable?</li>
+        <li>What signals are present?</li>
+        <li>How is the process performing against the target?</li>
+      </ul>
+    `;
+  }
 }
 
 
