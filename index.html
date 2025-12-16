@@ -343,7 +343,7 @@ body.sidebar-collapsed .main {
   position: fixed;
   right: 0.75rem;
   bottom: 0.75rem;
-  width: 280px;
+  width: 520px;
 
   /* key changes */
   max-height: 75vh;        /* taller, relative to viewport */
@@ -444,6 +444,29 @@ body.sidebar-collapsed .main {
 .spc-helper-chips button:hover {
   background: #eef2f6;
 }
+
+.spc-chip-section {
+  margin-top: 0.15rem;
+}
+
+.spc-chip-title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  margin: 0.15rem 0 0.25rem;
+  color: #2b2b2b;
+}
+
+/* Slightly tighten chips now that the panel is wider */
+#spcHelperPanel .spc-helper-chips button {
+  max-width: 100%;
+}
+
+/* Optional: visually show chart chips are “inactive” until a chart exists */
+#spcHelperPanel .spc-helper-chips.is-disabled {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
 
 #spcHelperOutput {
   font-size: 0.8rem;
@@ -954,7 +977,16 @@ body.sidebar-collapsed .main {
   <div id="spcHelperBody">
   <div id="spcHelperIntro"></div>
 
-  <div id="spcHelperChips" class="spc-helper-chips" aria-label="Suggested questions"></div>
+  <div class="spc-chip-section">
+  <div class="spc-chip-title">General SPC questions</div>
+  <div id="spcHelperChipsGeneral" class="spc-helper-chips" aria-label="General SPC suggested questions"></div>
+</div>
+
+<div class="spc-chip-section">
+  <div class="spc-chip-title">My chart questions</div>
+  <div id="spcHelperChipsChart" class="spc-helper-chips" aria-label="My chart suggested questions"></div>
+</div>
+
 
   <div id="spcHelperOutput" aria-live="polite"></div>
 

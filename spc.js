@@ -55,7 +55,8 @@ const aiAskButton       = document.getElementById("aiAskButton");
 const spcHelperPanel    = document.getElementById("spcHelperPanel");
 
 const spcHelperIntro    = document.getElementById("spcHelperIntro");
-const spcHelperChips    = document.getElementById("spcHelperChips");
+const spcHelperChipsGeneral = document.getElementById("spcHelperChipsGeneral");
+const spcHelperChipsChart   = document.getElementById("spcHelperChipsChart");
 const spcHelperOutput   = document.getElementById("spcHelperOutput");
 
 
@@ -1710,6 +1711,119 @@ function answerSpcQuestion(question) {
     );
   }
 
+  // ----- Special: “My chart” standard questions -----
+  const isMyChartQ =
+    q.includes("what is my chart telling") ||
+    q.includes("what's my chart telling") ||
+    q.includes("what is this chart telling") ||
+    q.includes("what decision should i make") ||
+    q.includes("what should i do") ||
+    (q.includes("decision") && q.includes("make")) ||
+    q.includes("what about my target") ||
+    (q.includes("my target") && q.includes("what about"));
+
+  if (isMyChartQ) {
+    const a = lastXmRAnalysis;
+
+    // If we somehow got here without analysis
+    if (!a) {
+      return "Please generate an XmR chart first, then ask one of the “My chart” questions.";
+    }
+
+    const signals = Array.isArray(a.signals) ? a.signals : [];
+    const stable = !!a.isStable;
+
+    // Helpful phrasing for signals list
+    const signalsText =
+      signals.length === 0
+        ? "No special-cause signals detected."
+        : `Signals detected: ${signals.join("; ")}.`;
+
+    // Target summary (if present)
+    let targetText = "No target is set on this chart.";
+    if (a.target != null && a.direction) {
+      const dirText = a.direction === "above" ? "at or above" : "at or below";
+      targetText = `Target is ${a.target} (${dirText} is better).`;
+
+      if (stable && a.capability && typeof a.capability.prob === "number") {
+        targetText += ` If the process stays stable, about ${(a.capability.prob * 100).toFixed(1)}% of future points are expected to meet the target.`;
+      } else if (!stable) {
+        targetText += " Because special-cause signals are present, any capability estimate is unreliable until the process is stable.";
+      }
+    }
+
+    // 1) “What is my chart telling me?”
+    if (q.includes("what is my chart telling") || q.includes("what is this chart telling") || q.includes("what's my chart telling")) {
+      const meanText = (typeof a.mean === "number") ? a.mean.toFixed(2) : "n/a";
+      const uclText  = (typeof a.ucl === "number") ? a.ucl.toFixed(2) : "n/a";
+      const lclText  = (typeof a.lcl === "number") ? a.lcl.toFixed(2) : "n/a";
+
+      return (
+        `Your chart summary: mean ≈ ${meanText}, limits ≈ [${lclText}, ${uclText}]. ` +
+        (stable
+          ? "The process looks stable (common-cause variation). "
+          : "The process does not look stable (special-cause variation). ") +
+        signalsText + " " +
+        targetText
+      );
+    }
+
+    // 2) “What decision should I make?”
+    if (q.includes("what decision should i make") || q.includes("what should i do") || (q.includes("decision") && q.includes("make"))) {
+      if (!stable) {
+        return (
+          "Decision guidance: don’t react to individual points as if they are “performance”. " +
+          "Because special-cause signals are present, treat this as evidence the system may have changed. " +
+          "Investigate the timing of the signals (what changed in the process/data), confirm the change is real, and then re-baseline (use a split) once the new system is established. " +
+          targetText
+        );
+      }
+
+      // Stable process
+      if (a.target == null) {
+        return (
+          "Decision guidance: the process looks stable, so most up-and-down movement is routine variation. " +
+          "If performance is not good enough, the decision is to change the system (not chase individual points), then use the chart to see whether a real shift occurs. " +
+          "If performance is acceptable, the decision is to hold the system steady and continue monitoring."
+        );
+      }
+
+      // Stable + target set
+      if (a.capability && typeof a.capability.prob === "number") {
+        const pct = (a.capability.prob * 100);
+        if (pct >= 90) {
+          return (
+            `Decision guidance: the process is stable and is very likely to meet the target (~${pct.toFixed(1)}%). ` +
+            "Hold the gains, standardise the current approach, and keep monitoring for any new special-cause signals."
+          );
+        }
+        if (pct >= 50) {
+          return (
+            `Decision guidance: the process is stable but only sometimes meets the target (~${pct.toFixed(1)}%). ` +
+            "If the target matters, you’ll need a system change to shift the mean and/or reduce variation. " +
+            "Use improvement cycles and watch for a sustained shift before re-baselining."
+          );
+        }
+        return (
+          `Decision guidance: the process is stable but unlikely to meet the target (~${pct.toFixed(1)}%). ` +
+          "A system redesign is needed (shift the mean and/or reduce variation). Consider stratifying data, reviewing drivers of variation, and testing changes."
+        );
+      }
+
+      return (
+        "Decision guidance: the process looks stable. With a target set, the key question is whether the mean is on the right side of the target and whether variation frequently crosses it. " +
+        "If it does, you’ll likely need a system change to make target achievement more reliable."
+      );
+    }
+
+    // 3) “What about my target?”
+    if (q.includes("what about my target") || (q.includes("my target") && q.includes("what about"))) {
+      return targetText;
+    }
+  }
+
+
+
   const a = lastXmRAnalysis;
   const lines = [];
 
@@ -1855,12 +1969,11 @@ function answerSpcQuestion(question) {
 }
 
 function renderHelperState() {
-  // If the helper isn't in the DOM, do nothing
-  if (!spcHelperIntro || !spcHelperChips) return;
+  if (!spcHelperIntro) return;
 
   const hasChart = !!lastXmRAnalysis;
 
-  // 1) Intro text (never overwrites the answer output)
+  // 1) Intro text
   if (!hasChart) {
     spcHelperIntro.innerHTML = `
       <div><strong>SPC helper</strong></div>
@@ -1874,38 +1987,44 @@ function renderHelperState() {
   } else {
     spcHelperIntro.innerHTML = `
       <div><strong>Chart helper</strong></div>
-      <div>Ask about <strong>this chart</strong> (signals, stability, targets, splits, MR panel).</div>
-      <ul>
-        <li>Is the process stable?</li>
-        <li>What signals are present?</li>
-        <li>How is performance vs target?</li>
-      </ul>
+      <div>Use the <strong>My chart</strong> questions for a tailored interpretation.</div>
     `;
   }
 
-  // 2) Suggestion chips (click = auto-fill + auto-ask)
-  const chipQuestions = !hasChart
-    ? [
-        "What is an SPC chart?",
-        "What is a run chart?",
-        "Why use SPC instead of a simple line chart?",
-        "What is common cause vs special cause variation?",
-        "How do control limits work?"
-      ]
-    : [
-        "Is the process stable?",
-        "What signals are present?",
-        "Are any points beyond the limits?",
-        "Is there a sustained shift in the mean?",
-        "How is the process performing against the target?",
-        "What does the moving range chart tell me?",
-        "What do splits/baselines do?"
-      ];
+  // 2) General chips (always available)
+  const generalQs = [
+    "What is an SPC chart?",
+    "What is a run chart?",
+    "What is an XmR chart?",
+    "What is common cause vs special cause variation?",
+    "How do control limits work?"
+  ];
 
-  spcHelperChips.innerHTML = chipQuestions
-    .map(q => `<button type="button" class="spc-chip" data-q="${escapeHtml(q)}">${escapeHtml(q)}</button>`)
-    .join("");
+  if (spcHelperChipsGeneral) {
+    spcHelperChipsGeneral.innerHTML = generalQs
+      .map(q => `<button type="button" class="spc-chip" data-q="${escapeHtml(q)}">${escapeHtml(q)}</button>`)
+      .join("");
+    spcHelperChipsGeneral.classList.remove("is-disabled");
+  }
+
+  // 3) My chart chips (available only when a chart exists)
+  const chartQs = [
+    "What is my chart telling me?",
+    "What decision should I make?",
+    "What about my target?"
+  ];
+
+  if (spcHelperChipsChart) {
+    spcHelperChipsChart.innerHTML = chartQs
+      .map(q => `<button type="button" class="spc-chip" data-q="${escapeHtml(q)}">${escapeHtml(q)}</button>`)
+      .join("");
+
+    // Optional: disable interaction until a chart exists
+    if (!hasChart) spcHelperChipsChart.classList.add("is-disabled");
+    else spcHelperChipsChart.classList.remove("is-disabled");
+  }
 }
+
 
 
 
@@ -1974,18 +2093,23 @@ if (aiAskButton && aiQuestionInput) {
   });
 }
 
-// Clickable suggestion chips: fill input + ask immediately
-if (spcHelperChips) {
-  spcHelperChips.addEventListener("click", (e) => {
-    const btn = e.target.closest("button[data-q]");
-    if (!btn) return;
+function handleChipClick(e) {
+  const btn = e.target.closest("button[data-q]");
+  if (!btn) return;
 
-    const q = btn.getAttribute("data-q") || "";
-    if (aiQuestionInput) aiQuestionInput.value = q;
+  const q = btn.getAttribute("data-q") || "";
+  if (aiQuestionInput) aiQuestionInput.value = q;
 
-    showHelperAnswer(q);
-  });
+  showHelperAnswer(q);
 }
+
+if (spcHelperChipsGeneral) {
+  spcHelperChipsGeneral.addEventListener("click", handleChipClick);
+}
+if (spcHelperChipsChart) {
+  spcHelperChipsChart.addEventListener("click", handleChipClick);
+}
+
 
 
 if (clearSplitsButton) {
