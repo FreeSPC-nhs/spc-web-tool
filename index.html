@@ -401,6 +401,35 @@ body.sidebar-collapsed .main {
   cursor: pointer;
 }
 
+/* --- Fix chip styling so it overrides the global button styles --- */
+#spcHelperPanel .spc-helper-chips button {
+  /* override global button look */
+  background: #f6f8fa;
+  border: 1px solid #d0d7de;
+  color: #003087;              /* <-- key fix: readable text */
+  font-weight: 600;
+
+  /* make long questions wrap nicely */
+  white-space: normal;
+  text-align: left;
+  line-height: 1.2;
+  max-width: 100%;
+
+  /* keep them chip-like */
+  padding: 0.3rem 0.55rem;
+  border-radius: 9999px;
+}
+
+/* Hover/active states */
+#spcHelperPanel .spc-helper-chips button:hover {
+  background: #eef2f6;
+}
+
+#spcHelperPanel .spc-helper-chips button:active {
+  transform: translateY(1px);
+}
+
+
 .spc-helper-chips button:hover {
   background: #eef2f6;
 }
