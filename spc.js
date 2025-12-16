@@ -2126,35 +2126,33 @@ if (clearSplitsButton) {
 // -----------------------------
 function toggleHelpSection() {
   const help = document.getElementById("helpSection");
-  const helper = document.getElementById("spcHelperPanel");
+  if (!help) return;
 
-  const isHidden =
-    !help ||
-    help.style.display === "none" ||
-    help.style.display === "";
+  const isHidden = help.style.display === "none" || help.style.display === "";
 
   if (isHidden) {
-    if (help) {
-      help.style.display = "block";
-      help.scrollIntoView({ behavior: "smooth" });
-    }
-    if (helper) {
-      helper.classList.add("visible");   // show AI helper
-    }
+    help.style.display = "block";
+    help.scrollIntoView({ behavior: "smooth" });
   } else {
-    if (help) {
-      help.style.display = "none";
-    }
-    if (helper) {
-      helper.classList.remove("visible"); // hide AI helper
-    }
+    help.style.display = "none";
   }
 }
 
-const helpToggleButton = document.getElementById("helpToggleButton");
-if (helpToggleButton) {
-  helpToggleButton.addEventListener("click", toggleHelpSection);
+let spcHelperHasBeenOpened = false;
+
+function toggleSpcHelper() {
+  const panel = document.getElementById("spcHelperPanel");
+  if (!panel) return;
+
+  const isVisible = panel.classList.toggle("visible");
+
+  // Populate chips / intro once, when the helper is first opened
+  if (isVisible && !spcHelperHasBeenOpened) {
+    if (typeof renderHelperState === "function") renderHelperState();
+    spcHelperHasBeenOpened = true;
+  }
 }
+
 
 const resetButton = document.getElementById("resetButton");
 
