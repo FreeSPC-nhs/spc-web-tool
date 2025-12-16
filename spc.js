@@ -1978,11 +1978,6 @@ function renderHelperState() {
     spcHelperIntro.innerHTML = `
       <div><strong>SPC helper</strong></div>
       <div>Ask a general question before you load any data, or use a suggested prompt below.</div>
-      <ul>
-        <li>General SPC concepts</li>
-        <li>Run charts vs XmR charts</li>
-        <li>How to interpret common signals</li>
-      </ul>
     `;
   } else {
     spcHelperIntro.innerHTML = `
