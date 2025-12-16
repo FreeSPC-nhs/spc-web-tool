@@ -368,6 +368,29 @@ body.sidebar-collapsed .main {
   font-weight: 600;
 }
 
+#spcHelperHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* Close (X) button */
+#spcHelperCloseBtn {
+  background: transparent;
+  border: none;
+  color: #ffffff;
+  font-size: 1.1rem;
+  font-weight: 600;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0 0.25rem;
+}
+
+#spcHelperCloseBtn:hover {
+  opacity: 0.85;
+}
+
+
 #spcHelperBody {
   padding: 0.5rem 0.6rem 0.6rem;
   display: flex;
@@ -974,8 +997,16 @@ body.sidebar-collapsed .main {
 <!-- SPC Helper (rule-based "AI") -->
 <div id="spcHelperPanel">
   <div id="spcHelperHeader">
-    SPC helper (beta)
-  </div>
+  <span>SPC helper</span>
+  <button
+    type="button"
+    id="spcHelperCloseBtn"
+    aria-label="Close SPC helper"
+    title="Close"
+  >
+    ×
+  </button>
+</div>
   <div id="spcHelperBody">
   <div id="spcHelperIntro"></div>
 

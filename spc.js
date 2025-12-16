@@ -2153,12 +2153,31 @@ function toggleSpcHelper() {
   }
 }
 
+const spcHelperCloseBtn = document.getElementById("spcHelperCloseBtn");
+
+if (spcHelperCloseBtn) {
+  spcHelperCloseBtn.addEventListener("click", () => {
+    if (spcHelperPanel) {
+      spcHelperPanel.classList.remove("visible");
+    }
+  });
+}
+
 
 const resetButton = document.getElementById("resetButton");
 
 if (resetButton) {
   resetButton.addEventListener("click", resetAll);
 }
+
+// Allow Escape key to close the SPC helper
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    if (spcHelperPanel && spcHelperPanel.classList.contains("visible")) {
+      spcHelperPanel.classList.remove("visible");
+    }
+  }
+});
 
 
 if (downloadPdfBtn) {
