@@ -375,10 +375,50 @@ body.sidebar-collapsed .main {
   overflow-y: auto;
 }
 
-#spcHelperAnswer ul {
+#spcHelperIntro {
+  font-size: 0.8rem;
+  line-height: 1.25;
+}
+
+#spcHelperIntro ul {
   margin: 0.2rem 0 0 1rem;
   padding: 0;
 }
+
+.spc-helper-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.1rem 0 0.25rem;
+}
+
+.spc-helper-chips button {
+  font-size: 0.75rem;
+  padding: 0.2rem 0.45rem;
+  border-radius: 9999px;
+  border: 1px solid #d0d7de;
+  background: #f6f8fa;
+  cursor: pointer;
+}
+
+.spc-helper-chips button:hover {
+  background: #eef2f6;
+}
+
+#spcHelperOutput {
+  font-size: 0.8rem;
+  max-height: 28vh;
+  overflow-y: auto;
+  border: 1px solid #eef2f6;
+  border-radius: 0.35rem;
+  padding: 0.4rem 0.45rem;
+  background: #ffffff;
+}
+
+#spcHelperOutput p {
+  margin: 0.25rem 0;
+}
+
 
 #spcHelperControls {
   display: flex;
@@ -856,24 +896,17 @@ body.sidebar-collapsed .main {
     SPC helper (beta)
   </div>
   <div id="spcHelperBody">
-    <div id="spcHelperAnswer">
-      Ask a question about your chart. For example:
-      <ul>
-        <li>Is the process stable?</li>
-        <li>Why isn’t capability shown?</li>
-        <li>What does the split mean?</li>
-      </ul>
-    </div>
-    <div id="spcHelperControls">
-      <input
-        type="text"
-        id="aiQuestionInput"
-        placeholder="Type your question…"
-        autocomplete="off"
-      />
-      <button id="aiAskButton" type="button">Ask</button>
-    </div>
+  <div id="spcHelperIntro"></div>
+
+  <div id="spcHelperChips" class="spc-helper-chips" aria-label="Suggested questions"></div>
+
+  <div id="spcHelperOutput" aria-live="polite"></div>
+
+  <div id="spcHelperControls">
+    <input id="aiQuestionInput" type="text" placeholder="Ask a question…" />
+    <button id="aiAskButton" type="button">Ask</button>
   </div>
+</div>
 </div>
 
 

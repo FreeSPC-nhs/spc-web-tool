@@ -50,10 +50,13 @@ const dataEditorOverlay      = document.getElementById("dataEditorOverlay");
 const dataEditorTextarea     = document.getElementById("dataEditorTextarea");
 const dataEditorApplyButton  = document.getElementById("dataEditorApplyButton");
 const dataEditorCancelButton = document.getElementById("dataEditorCancelButton");
-const aiQuestionInput  = document.getElementById("aiQuestionInput");
-const aiAskButton      = document.getElementById("aiAskButton");
-const spcHelperAnswer  = document.getElementById("spcHelperAnswer");
-const spcHelperPanel     = document.getElementById("spcHelperPanel");
+const aiQuestionInput   = document.getElementById("aiQuestionInput");
+const aiAskButton       = document.getElementById("aiAskButton");
+const spcHelperPanel    = document.getElementById("spcHelperPanel");
+
+const spcHelperIntro    = document.getElementById("spcHelperIntro");
+const spcHelperChips    = document.getElementById("spcHelperChips");
+const spcHelperOutput   = document.getElementById("spcHelperOutput");
 
 
 
@@ -237,12 +240,11 @@ function resetAll() {
   // --- Hide MR panel ---
   if (mrPanel) mrPanel.style.display = "none";
 
-  // --- Reset AI helper ---
-  if (spcHelperAnswer) spcHelperAnswer.textContent = "";
+    // --- Reset AI helper ---
   if (aiQuestionInput) aiQuestionInput.value = "";
-
-  // Optionally hide the whole AI helper panel:
-  if (spcHelperPanel) spcHelperPanel.style.display = "none";
+  if (spcHelperOutput) spcHelperOutput.innerHTML = "";
+  if (spcHelperPanel) spcHelperPanel.classList.remove("visible"); // keep consistent with toggleHelpSection()
+  renderHelperState();
 
   // --- Reset data editor ---
   if (dataEditorTextarea) dataEditorTextarea.value = "";
@@ -1059,6 +1061,8 @@ if (axisType === "date") {
 } else {
     drawXmRChart(points, baselineCount, labels);
 }
+
+renderHelperState();
 });
 
 // ---- Chart drawing ----
@@ -1850,30 +1854,57 @@ function answerSpcQuestion(question) {
   return lines.join(" ");
 }
 
-function updateHelperIntro() {
-  if (!spcHelperAnswer) return;
+function renderHelperState() {
+  // If the helper isn't in the DOM, do nothing
+  if (!spcHelperIntro || !spcHelperChips) return;
 
-  if (!lastXmRAnalysis) {
-    // No chart yet: emphasise general questions
-    spcHelperAnswer.innerHTML = `
-      Ask a question about SPC. For example:
+  const hasChart = !!lastXmRAnalysis;
+
+  // 1) Intro text (never overwrites the answer output)
+  if (!hasChart) {
+    spcHelperIntro.innerHTML = `
+      <div><strong>SPC helper</strong></div>
+      <div>Ask a general question before you load any data, or use a suggested prompt below.</div>
       <ul>
-        <li>What is an SPC chart?</li>
-        <li>What is a run chart?</li>
-        <li>Why use SPC instead of a simple line?</li>
+        <li>General SPC concepts</li>
+        <li>Run charts vs XmR charts</li>
+        <li>How to interpret common signals</li>
       </ul>
     `;
   } else {
-    // Chart available: emphasise chart questions
-    spcHelperAnswer.innerHTML = `
-      Ask a question about <strong>this chart</strong>. For example:
+    spcHelperIntro.innerHTML = `
+      <div><strong>Chart helper</strong></div>
+      <div>Ask about <strong>this chart</strong> (signals, stability, targets, splits, MR panel).</div>
       <ul>
         <li>Is the process stable?</li>
         <li>What signals are present?</li>
-        <li>How is the process performing against the target?</li>
+        <li>How is performance vs target?</li>
       </ul>
     `;
   }
+
+  // 2) Suggestion chips (click = auto-fill + auto-ask)
+  const chipQuestions = !hasChart
+    ? [
+        "What is an SPC chart?",
+        "What is a run chart?",
+        "Why use SPC instead of a simple line chart?",
+        "What is common cause vs special cause variation?",
+        "How do control limits work?"
+      ]
+    : [
+        "Is the process stable?",
+        "What signals are present?",
+        "Are any points beyond the limits?",
+        "Is there a sustained shift in the mean?",
+        "How is the process performing against the target?",
+        "What does the moving range chart tell me?",
+        "What do splits/baselines do?"
+      ];
+
+  spcHelperChips.innerHTML = chipQuestions
+    .map(q => `<button type="button" class="spc-chip" data-q="${escapeHtml(q)}">${escapeHtml(q)}</button>`)
+    .join("");
 }
 
 
@@ -1917,18 +1948,42 @@ if (addSplitButton) {
   });
 }
 
-if (aiAskButton && aiQuestionInput && spcHelperAnswer) {
+function showHelperAnswer(questionText) {
+  if (!spcHelperOutput) return;
+
+  const q = (questionText ?? aiQuestionInput?.value ?? "").trim();
+  if (!q) {
+    spcHelperOutput.innerHTML = `<p>${escapeHtml("Type a question (or click a suggestion) to get started.")}</p>`;
+    return;
+  }
+
+  const ans = answerSpcQuestion(q);
+  spcHelperOutput.innerHTML = `<p>${escapeHtml(ans)}</p>`;
+}
+
+if (aiAskButton && aiQuestionInput) {
   aiAskButton.addEventListener("click", () => {
-    const q = aiQuestionInput.value || "";
-    const ans = answerSpcQuestion(q);
-    spcHelperAnswer.innerHTML = `<p>${escapeHtml(ans)}</p>`;
+    showHelperAnswer();
   });
 
   aiQuestionInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") {
       e.preventDefault();
-      aiAskButton.click();
+      showHelperAnswer();
     }
+  });
+}
+
+// Clickable suggestion chips: fill input + ask immediately
+if (spcHelperChips) {
+  spcHelperChips.addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-q]");
+    if (!btn) return;
+
+    const q = btn.getAttribute("data-q") || "";
+    if (aiQuestionInput) aiQuestionInput.value = q;
+
+    showHelperAnswer(q);
   });
 }
 
@@ -2015,3 +2070,4 @@ if (downloadPdfBtn) {
   });
 }
 
+renderHelperState();
