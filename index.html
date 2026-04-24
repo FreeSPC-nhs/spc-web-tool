@@ -13,8 +13,11 @@
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
    <!-- PDF export script -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script> 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <!-- Excel export script -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+
 
 <link rel="stylesheet" href="./vendor/jsuites.css">
 <link rel="stylesheet" href="./vendor/jspreadsheet.css">
@@ -84,6 +87,11 @@ button:disabled {
   overflow: hidden;
 }
 
+select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 /* MR chart a bit shorter */
 #mrPanel .chart-container {
   height: 300px;
@@ -96,6 +104,17 @@ button:disabled {
       color: #b00020;
       font-size: 0.9rem;
     }
+
+.column-check-warning {
+  margin: 0.4rem 0 0.6rem 0;
+  padding: 0.55rem 0.65rem;
+  border-left: 4px solid #ffb81c;
+  background: #fff4ce;
+  color: #4d3700;
+  border-radius: 0.35rem;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
 
 .layout {
   display: flex;
@@ -122,8 +141,109 @@ button:disabled {
   box-sizing: border-box;
   margin-bottom: 0.6rem;
 }
+.tab-container {
+  height: 72vh;
+  display: flex;
+  flex-direction: column;
+  background: #e8eef1;
+  border: 1px solid #c7d3da;
+  border-radius: 0.75rem;
+  padding: 0.5rem;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.5);
+}
 
-/* Keep headings readable */
+.tab-bar {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.25rem;
+  margin-bottom: 0.4rem;
+}
+
+.tab-btn {
+  width: 100%;
+  border: 1px solid #005eb8;
+  background: #005eb8;
+  color: #ffffff;
+  cursor: pointer;
+  padding: 0.45rem 0.5rem;
+  font-size: 0.85rem;
+  border-radius: 0.55rem 0.55rem 0 0;
+  font-weight: 600;
+  line-height: 1.1;
+  text-align: center;
+}
+
+.tab-btn:hover {
+  background: #003f87;
+  border-color: #003f87;
+  color: #ffffff;
+}
+
+.tab-btn.active:hover {
+  background: #ffffff;
+  color: #003f87;
+  border-color: #c7d3da;
+  border-bottom-color: #ffffff;
+}
+
+.tab-btn.active {
+  background: #ffffff;
+  color: #003f87;
+  border-color: #c7d3da;
+  border-bottom-color: #ffffff;
+  position: relative;
+  top: 1px;
+}
+
+.tab-panels {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background: #ffffff;
+  border: 1px solid #c7d3da;
+  border-radius: 0 0.6rem 0.6rem 0.6rem;
+  padding: 0.75rem;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+
+.tab-panel {
+  display: none;
+}
+
+.tab-panel.active {
+  display: block;
+}
+
+/* Make cards inside tabs feel integrated, not like separate floating tiles */
+.tab-panel .panel {
+  border: none;
+  box-shadow: none;
+  background: transparent;
+  padding: 0;
+  margin-bottom: 0;
+}
+
+/* Slightly improve section spacing inside tabs */
+.tab-panel hr {
+  border: 0;
+  border-top: 1px solid #d8dde0;
+  margin: 0.9rem 0;
+}
+
+/* Keep the scroll area feeling intentional */
+.tab-panels::-webkit-scrollbar {
+  width: 10px;
+}
+
+.tab-panels::-webkit-scrollbar-thumb {
+  background: #c2ccd3;
+  border-radius: 999px;
+  border: 2px solid #ffffff;
+}
+
+.tab-panels::-webkit-scrollbar-track {
+  background: transparent;
+}/* Keep headings readable */
 .sidebar .field-label {
   display: block;
   font-size: 0.9rem;
@@ -163,6 +283,11 @@ button:disabled {
   cursor: pointer;
   white-space: nowrap;
   font-size: 0.8rem;
+}
+
+.chart-disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 /* Override the generic sidebar label rule for these */
@@ -247,6 +372,12 @@ canvas {
   border-color: #03AC13;
 }
 
+.section-divider {
+  border: 0;
+  border-top: 1px solid #d5dbe1;
+  margin: 1rem 0 0.75rem 0;
+}
+
 
 /* Toggle button */
 .sidebar-toggle {
@@ -311,6 +442,23 @@ body.sidebar-collapsed .main {
   z-index: 1000;
 }
 
+#sheetPickerOverlay {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 1000;
+}
+
+#sheetPickerSelect {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 0.4rem;
+  margin-bottom: 0.75rem;
+}
+
 .data-editor-dialog {
   background: #ffffff;
   max-width: 900px;
@@ -330,6 +478,70 @@ body.sidebar-collapsed .main {
   justify-content: space-between;
   gap: 0.75rem;
   margin: 0.5rem 0 0.25rem 0;
+}
+
+.data-editor-controls-left{
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.data-editor-intro-hint{
+  margin-bottom: 0.6rem;
+  line-height: 1.35;
+}
+
+.data-editor-help-inline{
+  position: relative;
+  display: inline-block;
+  margin-left: 0.35rem;
+  vertical-align: baseline;
+}
+
+.data-editor-help-btn{
+  background: transparent !important;
+  border: none !important;
+  color: #005eb8 !important;
+  padding: 0 !important;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+  line-height: 1.2;
+}
+
+.data-editor-help-btn:hover{
+  color: #003f87 !important;
+  background: transparent !important;
+}
+
+.data-editor-help-btn:focus{
+  outline: 2px solid #ffb81c;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.data-editor-help-popup{
+  position: absolute;
+  top: calc(100% + 0.2rem);
+  left: 0;
+  min-width: 290px;
+  max-width: 340px;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #c7d3da;
+  border-radius: 0.45rem;
+  background: #ffffff;
+  color: #222;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.12);
+  font-size: 0.82rem;
+  line-height: 1.35;
+  z-index: 1100;
+  display: none;
+}
+
+.data-editor-help-popup.show{
+  display: block;
 }
 
 /* Make this label not full-width (overrides global label display) */
@@ -387,6 +599,82 @@ body.sidebar-collapsed .main {
   z-index: 900;
 }
 
+/* --- Chart wizard polish --- */
+#chartWizardModal .modal-dialog {
+  width: min(720px, calc(100% - 2rem));
+}
+
+.chart-wizard-panel {
+  display: block;
+  margin: 0;
+  padding: 1.25rem;
+}
+
+.chart-wizard-panel h2 {
+  margin-top: 0;
+  margin-bottom: 0.35rem;
+  color: #003087;
+}
+
+.chart-wizard-question {
+  font-size: 1rem;
+  font-weight: 700;
+  margin: 0.8rem 0 0.6rem;
+}
+
+.chart-wizard-options {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.5rem;
+}
+
+.chart-wizard-option {
+  width: 100%;
+  text-align: left;
+  border: 1px solid #c7d3da !important;
+  background: #ffffff !important;
+  color: #1f2933 !important;
+  border-radius: 0.65rem !important;
+  padding: 0.7rem 0.8rem !important;
+  margin: 0 !important;
+  line-height: 1.3;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+
+.chart-wizard-option:hover {
+  border-color: #005eb8 !important;
+  background: #f0f7ff !important;
+}
+
+.chart-wizard-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 1rem;
+  border-top: 1px solid #e5e9ed;
+  padding-top: 0.85rem;
+}
+
+.chart-wizard-secondary {
+  background: #ffffff !important;
+  color: #005eb8 !important;
+  border: 1px solid #005eb8 !important;
+}
+
+.chart-wizard-result {
+  border-left: 4px solid #005eb8;
+  background: #f0f7ff;
+  padding: 0.85rem;
+  border-radius: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.chart-wizard-result-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #003087;
+  margin-bottom: 0.35rem;
+}
 
 #spcHelperHeader {
   background: #005eb8;
@@ -496,14 +784,49 @@ body.sidebar-collapsed .main {
 }
 
 .spc-chip-section {
-  margin-top: 0.15rem;
+  margin-top: 0.2rem;
+  border-top: 1px solid #eef2f6;
+  padding-top: 0.35rem;
 }
 
-.spc-chip-title {
-  font-size: 0.75rem;
-  font-weight: 700;
-  margin: 0.15rem 0 0.25rem;
+.spc-chip-section-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  background: transparent;
+  border: none;
   color: #2b2b2b;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0.2rem 0;
+  margin: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+#spcHelperPanel .spc-chip-section-toggle:hover {
+  background: transparent;
+  color: #003087;
+}
+
+.spc-chip-section-toggle-icon {
+  font-size: 0.8rem;
+  line-height: 1;
+  transition: transform 0.15s ease;
+}
+
+.spc-chip-section-toggle[aria-expanded="false"] .spc-chip-section-toggle-icon {
+  transform: rotate(-90deg);
+}
+
+.spc-chip-section-body {
+  display: block;
+}
+
+.spc-chip-section-body.is-collapsed {
+  display: none;
 }
 
 /* Toggle button that shows/hides suggested question chips */
@@ -519,8 +842,10 @@ body.sidebar-collapsed .main {
   cursor: pointer;
 }
 
-.spc-helper-toggle-suggestions:hover {
+#spcHelperPanel .spc-helper-toggle-suggestions:hover {
   background: #eef2f6;
+  color: #003087;
+  border-color: #c9d1d9;
 }
 
 
@@ -625,6 +950,13 @@ body.sidebar-collapsed .main {
   background: #003f78;
 }
 
+.helper-note {
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: #5f6b75;
+  margin: 0.55rem 0 0.45rem 0;
+}
+
 /* --- Chart context menu (right-click) --- */
 .chart-context-menu {
   position: fixed;
@@ -659,6 +991,34 @@ body.sidebar-collapsed .main {
   margin: 0.25rem 0;
 }
 
+.context-submenu-wrap {
+  position: relative;
+}
+
+.context-submenu-wrap .submenu-parent {
+  width: 100%;
+  text-align: left;
+}
+
+.context-submenu {
+  display: none;
+  position: absolute;
+  top: 0;
+  left: calc(100% - 2px);
+  min-width: 200px;
+  background: #ffffff;
+  border: 1px solid #c7d3da;
+  border-radius: 0.4rem;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.12);
+  padding: 0.25rem;
+  z-index: 1001;
+}
+
+.context-submenu-wrap:hover .context-submenu,
+.context-submenu-wrap:focus-within .context-submenu {
+  display: block;
+}
+
 /* Generate button turns red when changes are pending */
 #generateButton.needs-recalc {
   background: #b00020 !important;
@@ -684,30 +1044,127 @@ body.sidebar-collapsed .main {
 .modal-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(0,0,0,0.45);
+  background: rgba(0,0,0,0.5);
+  backdrop-filter: blur(3px);
 }
 
 .modal-dialog {
   position: relative;
-  background: #fff;
-  margin: 5vh auto;
+  background: #ffffff;
+  margin: 3vh auto;
   width: min(980px, calc(100% - 2rem));
-  max-height: 90vh;
-  overflow: auto;
-  border-radius: 12px;
-  padding: 1rem;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+  max-height: 92vh;
+  overflow: hidden;
+  border-radius: 16px;
+  border: 1px solid #d8dde0;
+  box-shadow: 0 18px 45px rgba(0,0,0,0.22);
+}
+
+.modal-shell {
+  display: flex;
+  flex-direction: column;
+  max-height: 92vh;
+}
+
+.modal-header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.1rem 1.25rem 0.9rem 1.25rem;
+  background: #ffffff;
+  border-bottom: 1px solid #e5eaed;
+}
+
+.modal-header-text h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: #111;
+}
+
+.modal-header-text .sub {
+  margin: 0.45rem 0 0 0;
+  font-size: 0.92rem;
+  color: #5a5a5a;
 }
 
 .modal-close {
-  position: absolute;
-  top: 0.5rem;
-  right: 0.75rem;
-  font-size: 1.75rem;
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  margin: 0;
+  border: none;
+  border-radius: 9999px;
+  background: #005eb8;
+  color: #ffffff;
+
+  font-size: 1.35rem;
   line-height: 1;
-  border: 0;
-  background: transparent;
+  font-weight: 600;
+
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  box-shadow: 0 2px 6px rgba(0,0,0,0.10);
+}
+
+.modal-close:hover {
+  background: #003f87;
+}
+
+.modal-close:focus {
+  outline: 3px solid #ffb81c;
+  outline-offset: 2px;
+}
+
+.modal-body {
+  overflow: auto;
+  padding: 1rem 1.25rem 1.25rem 1.25rem;
+}
+
+.modal-body details {
+  border: 1px solid #d8dde0;
+  border-radius: 0.65rem;
+  background: #ffffff;
+  padding: 0.8rem 0.9rem;
+  margin: 0 0 0.75rem 0;
+}
+
+.modal-body summary {
+  cursor: pointer;
+  font-size: 0.98rem;
+  color: #111;
+}
+
+.modal-body summary strong {
+  font-weight: 700;
+}
+
+.modal-body details[open] {
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+
+.modal-body p,
+.modal-body li {
+  line-height: 1.45;
+}
+
+.modal-body ul,
+.modal-body ol {
+  margin-top: 0.45rem;
+}
+
+.modal-note {
+  padding: 0.75rem 0.9rem;
+  border-radius: 0.6rem;
+  background: #f6f8fa;
+  border: 1px solid #d8dde0;
+  margin: 0.6rem 0 0.4rem 0;
 }
 
 body.modal-open {
@@ -748,9 +1205,19 @@ body.modal-open {
 }
 
 .help-btn {
-  padding: 0.25rem 0.5rem;
-  font-size: 0.9em;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.85em;
   white-space: nowrap;
+  background: #f6f8fa;
+  color: #003f87;
+  border: 1px solid #b8c7d1;
+  border-radius: 9999px;
+}
+
+.help-btn:hover {
+  background: #e9f0f5;
+  border-color: #8fa8b8;
+  color: #f6f8fa;
 }
 
 .mr-label {
@@ -837,10 +1304,42 @@ body.modal-open {
 }
 .data-editor-status strong{ color:#003087; }
 
+.data-editor-workbook-bar {
+  margin: 0.25rem 0 0.5rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid #d8dde0;
+  border-radius: 0.4rem;
+  background: #f8fbfc;
+}
+
+.data-editor-workbook-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.35rem;
+}
+
+.data-editor-sheet-label {
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  white-space: nowrap;
+}
+
+#dataEditorSheetSelect {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+}
+
 /* PDF export: try to keep each period summary together */
 .pdf-avoid-break {
   break-inside: avoid;
   page-break-inside: avoid;
+}
+
+.hidden {
+  display: none !important;
 }
 
 /* PDF export: ensure capability text renders */
@@ -851,6 +1350,54 @@ body.pdf-exporting #capability {
   print-color-adjust: exact;
 }
 
+body.pdf-exporting #reportContent {
+  width: 1200px;
+  max-width: 1200px;
+  margin: 0 auto;
+  background: #ffffff;
+}
+
+body.pdf-exporting .chart-container {
+  width: 1200px !important;
+  height: 560px !important;
+  overflow: visible !important;
+}
+
+body.pdf-exporting #mrPanel .chart-container {
+  height: 360px !important;
+}
+
+body.pdf-exporting #summary,
+body.pdf-exporting #capability {
+  max-width: 1120px;
+  margin-left: auto;
+  margin-right: auto;
+  line-height: 1.35;
+}
+
+.font-toggle-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.font-toggle-btn {
+  min-width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 0.5rem;
+  border: 1px solid #b8c4cc;
+  background: #ffffff;
+  color: #003087;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0;
+}
+
+.font-toggle-btn[aria-pressed="true"] {
+  background: #005eb8;
+  border-color: #005eb8;
+  color: #ffffff;
+}
 
   </style>
 </head>
@@ -882,63 +1429,75 @@ body.pdf-exporting #capability {
 <div id="errorMessage" class="error"></div>
 </div>
 
-<p class="sub">Add your data, select your requirements, click 'Generate chart' to create, or re-draw your charts after changing settings. Not sure about SPC? Ask the helper.</p>
+<p class="sub">Add your data, choose your chart and settings, then click 'Generate / Recalculate' when needed. You can upload CSV or Excel files, clean data in the editor, and save chart to reopen later. Not sure about SPC? Ask the helper.</p>
 
 <div class="layout">
     <!-- SIDEBAR: all controls -->
     <aside class="sidebar">
+<div class="tab-container">
 
+<div class="tab-bar">
+<button class="tab-btn active" data-tab="tab-data">Data</button>
+<button class="tab-btn" data-tab="tab-chart">Chart</button>
+<button class="tab-btn" data-tab="tab-labels">Labels</button>
+<button class="tab-btn" data-tab="tab-axes">Axes</button>
+<button class="tab-btn" data-tab="tab-baseline">Baseline</button>
+<button class="tab-btn" data-tab="tab-rules">Rules</button>
+</div>
 
-<!-- Section 1: Data -->
-<details open>
-  <summary>1. Data</summary>
+<div class="tab-panels">
+
+<!-- TAB 1: DATA -->
+<div id="tab-data" class="tab-panel active">
+
   <div class="panel">
 
-    <div>
-      <label for="fileInput"><strong>Add data:</strong></label> 
-      <div class="hint small-hint">
-        Upload a csv file or use the data editor to paste/type/edit data directly.
-      </div>
-      <input type="file" id="fileInput" accept=".csv" />
-      <div class="hint small-hint">
-        Expected columns: a date/time column (e.g. <code>Date</code>) and a numeric column (e.g. <code>Value</code>).
-      </div>
-      <button id="openDataEditorButton" type="button" style="margin-top:0.5rem;">
-  Open data editor (paste/type data)
-</button>
+    <label for="fileInput"><strong>Add data:</strong></label>
 
-<!-- Settings import/export (settings only — does NOT include data) -->
-<div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.4rem;">
-  <button id="exportSettingsBtn" type="button" class="btn-small-secondary" title="Save your chart choices (not your data) so you can reuse them later">
-    Export settings
-  </button>
-
-  <button id="importSettingsBtn" type="button" class="btn-small-secondary" title="Load previously saved chart settings (your CSV data is still loaded separately)">
-    Import settings
-  </button>
-
-  <input id="importSettingsFileInput" type="file" accept=".json,application/json" style="display:none;" />
-</div>
-
-<div class="hint small-hint" style="margin-top:0.25rem;">
-  <strong>Tip:</strong> Settings save your chart choices (columns, baseline, rules, labels, target, splits/annotations) — not your data.
-</div>
-
+    <div class="hint small-hint">
+      Upload a CSV or Excel file, or use the data editor to paste/type/edit data directly.
     </div>
 
-  </div>
-</details>
+    <input type="file" id="fileInput" accept=".csv,.xlsx,.xls" />
 
-<!-- Section 2: Chart selection -->
-<details>
-  <summary>2. Chart selection</summary>
-  <div class="panel">
+    <div class="hint small-hint">
+      Expected columns: a date/time column and a numeric column.
+    </div>
+
+    <button id="openDataEditorButton" type="button">
+      Open data editor (paste/type data)
+    </button>
+
+    <hr class="section-divider" />
+
+    <div class="helper-note">
+      Save your work to come back later, or open a saved chart. Files are saved as .json.
+    </div>
+
+    <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.4rem;">
+      <button id="exportSettingsBtn" type="button" disabled>
+      Save chart
+      </button>
+
+      <button id="importSettingsBtn" type="button">
+        Open saved chart
+      </button>
+    </div>
+
+    <input id="importSettingsFileInput" type="file" accept=".json,application/json" style="display:none;" />
+
+  </div>
+
+</div>
+<!-- TAB 2: CHART -->
+<div id="tab-chart" class="tab-panel">
+
+<div class="panel">
 
 <div id="noDataYetHint" class="hint">
   Load data to enable chart and column selection.
 </div>
 
-    <!-- Columns -->
 <strong class="field-label">Chart type:</strong>
 
 <div class="radio-row chart-row">
@@ -951,10 +1510,6 @@ body.pdf-exporting #capability {
     <input type="radio" name="chartType" value="xmr" />
     XmR chart
   </label>
-
-  <button id="helpChooseChartBtn" type="button" class="help-btn">
-    Help me choose
-  </button>
 </div>
 
 <details id="moreChartTypesDetails" class="more-types">
@@ -981,12 +1536,12 @@ body.pdf-exporting #capability {
       X̄–S chart (subgroups)
     </label>
 
-    <label class="radio-pill" title="Time between events (e.g., days between serious incidents)">
+    <label class="radio-pill" title="Time between rare events (e.g., days between serious incidents)">
       <input type="radio" name="chartType" value="t" />
       T chart (time between)
     </label>
 
-    <label class="radio-pill" title="Opportunities between events (e.g., procedures between harms)">
+    <label class="radio-pill" title="Opportunities between rare events (e.g., procedures between harms)">
       <input type="radio" name="chartType" value="g" />
       G chart (opportunities between)
     </label>
@@ -997,16 +1552,27 @@ body.pdf-exporting #capability {
   </div>
 </details>
 
+<div id="chartTypeAvailabilityHint" class="hint small-hint" style="margin-top:0.35rem;" aria-live="polite"></div>
 
-<!-- MR options (only relevant to XmR; JS can hide/show mrToggleRow) -->
+<div style="display:flex; gap:0.4rem; flex-wrap:wrap; margin-top:0.5rem; margin-bottom:0.5rem;">
+  <button id="helpChooseChartBtn" type="button" class="help-btn">
+    Help me choose
+  </button>
+
+  <button id="chartSetupBtn" type="button" class="help-btn">
+    Chart setup
+  </button>
+</div>
+
+<!-- Secondary chart options (MR for XmR, S chart for X̄–S) -->
 <div id="mrToggleRow" class="mr-compact">
   <label class="mr-check">
     <input type="checkbox" id="showMRCheckbox" checked />
-    <span>Show MR</span>
+    <span id="secondaryChartToggleLabel">Show MR</span>
   </label>
 
   <div id="mrDisplayOptions" class="mr-mode">
-    <span class="mr-mode-label">MR display</span>
+    <span id="mrDisplayModeLabel" class="mr-mode-label">MR display</span>
 
     <label class="mr-radio">
       <input type="radio" name="mrDisplayMode" value="last" checked />
@@ -1018,13 +1584,21 @@ body.pdf-exporting #capability {
       <span>All</span>
     </label>
 
-    <span class="mr-subhint">(includes splits)</span>
+    <span id="mrDisplaySubhint" class="mr-subhint">(includes splits)</span>
   </div>
 </div>
 
-
 <hr />
+
 <strong class="field-label">Choose columns:</strong>
+
+<div
+  id="columnCheckWarning"
+  class="column-check-warning"
+  style="display:none;"
+  role="status"
+  aria-live="polite"
+></div>
 
 <label><span id="xLabel">Date / X-axis column</span>:
   <select id="dateColumn"></select>
@@ -1035,14 +1609,13 @@ body.pdf-exporting #capability {
 </label>
 
 <div id="thirdColumnRow" style="display:none; margin-top:0.5rem;">
-  <label><span id="thirdLabel">Denominator / opportunities</span>:
+  <label title="The total number of people, cases, episodes, or opportunities that the numerator comes from. For example: falls divided by occupied bed days, or patients delayed divided by total patients."><span id="thirdLabel">Denominator / opportunities</span>:
     <select id="thirdColumn"></select>
   </label>
   <div id="thirdHint" class="hint small-hint" style="margin-top:0.25rem;"></div>
 </div>
 
 <hr />
-
 
 <strong class="field-label">X-axis type:</strong>
 <div class="radio-row">
@@ -1060,129 +1633,327 @@ body.pdf-exporting #capability {
   Use <em>Date / time</em> for time-series SPC, or <em>Sequence / category</em> to plot rows in their original order.
 </div>
 
- 
-      </div>
-</details>
+<div id="dateFormatRow" style="margin-top:0.6rem;">
+  <label>
+    Date format for numeric dates
+    <select id="dateFormatPreference">
+      <option value="uk" selected>UK / day-first (dd/mm/yyyy)</option>
+      <option value="us">US / month-first (mm/dd/yyyy)</option>
+      <option value="auto">Auto-detect</option>
+      <option value="iso-only">ISO / Excel dates only</option>
+    </select>
+  </label>
 
+  <div class="hint small-hint" style="margin-top:0.2rem;">
+    Applies to ambiguous numeric dates such as 01/02/2024. ISO dates like 2024-02-01 and Excel dates are handled automatically.
+  </div>
 
-	<!-- Section 3: Titles & labels -->
-        <details>
-        <summary>3. Titles & labels</summary>
-        <div class="panel">
-	<div>
-  	<label>
-    	Chart title:
-    	<input type="text" id="chartTitle" placeholder="e.g. X-MR Chart – Demonstration data" style="width: 16rem;" />
-  	</label>
-	</div>
-	<div>
-  	<label>
-    	X-axis label:
-   	 <input type="text" id="xAxisLabel" placeholder="Date" style="width: 16rem;" />
- 	 </label>
-	</div>
-	<div>
-  	<label>
-   	 Y-axis label:
-    	<input type="text" id="yAxisLabel" placeholder="Example metric" style="width: 16rem;" />
- 	 </label>
-	</div>
-	</div>
-      </details>
+  <div id="dateFormatWarning" class="hint" style="display:none; margin-top:0.3rem; color:#8a3b00;"></div>
+</div>
 
-	<!-- Section 4: Baseline and targets -->
-      <details>
-        <summary>4. Baseline &amp; targets</summary>
-        <div class="panel">
-	<strong class="field-label">Set baseline period:</strong>
-	<label>
-  	Use first
-  	<input type="number" id="baselinePoints" min="2" step="1" style="width: 4rem;" />
-  	points as baseline
-	</label>
-	<div class="hint">
- 	 Baseline restricts points used to calculate centre line and limits. Leave blank to use <em>all</em> points to calculate the median/mean and limits.
-	</div>
-	<hr>
+</div>
+</div>
+<!-- TAB 3: LABELS -->
+<div id="tab-labels" class="tab-panel">
 
-	<div>
-	<strong class="field-label">Add target line:</strong>
-	  <label>
-	    Target / goal value:
-	    <input type="number" id="targetValue" step="any" placeholder="e.g. 30" style="width: 10rem;" />
-	  </label>
-	  <div class="hint">
-	    If set, a dashed orange target line will be drawn across the chart.
-	  </div>
-	</div>
-	<div>
-	  <label>
-	    Target direction:
-	    <select id="targetDirection">
-	      <option value="above">At or above target is good</option>
-	      <option value="below">At or below target is good</option>
-	    </select>
-	  </label>
-	</div>
-<label style="display:flex; gap:0.5rem; align-items:center; margin-top:0.25rem;">
-  <button type="button" id="targetToggleBtn" style="margin-top:0.25rem;">
-  Hide target line
-</button>
+<div class="panel">
+
+<h3 style="margin-top:0.8rem;">Chart labels</h3>
+<label>
+Chart title
+<input type="text" id="chartTitle" />
 </label>
 
- 	</div>
-      </details>
+<label>
+X-axis label
+<input type="text" id="xAxisLabel" />
+</label>
 
+<label>
+Y-axis label
+<input type="text" id="yAxisLabel" />
+</label>
 
-<!-- Section 5: Rules & interpretation -->
-<details>
-  <summary>5. Rules &amp; interpretation</summary>
-  <div class="panel">
+</div>
 
-    <div class="hint">
-      Adjust the rule thresholds used in the summary and (optionally) point highlighting.
-    </div>
+</div>
 
-    <div>
+<!-- TAB 4: AXES -->
+<div id="tab-axes" class="tab-panel">
+
+<div class="panel">
+
+<h3 style="margin-top:0.8rem;">Axes</h3>
+
+<details open>
+  <summary>X axis</summary>
+<label>
+  X-axis font family
+  <select id="xAxisFontFamily">
+    <option value="">Auto / default</option>
+    <option value="Arial">Arial</option>
+    <option value="Arial Narrow">Arial Narrow</option>
+    <option value="Aptos">Aptos</option>
+    <option value="Calibri">Calibri</option>
+    <option value="Cambria">Cambria</option>
+    <option value="Century Gothic">Century Gothic</option>
+    <option value="Georgia">Georgia</option>
+    <option value="Helvetica">Helvetica</option>
+    <option value="Segoe UI">Segoe UI</option>
+    <option value="Tahoma">Tahoma</option>
+    <option value="Trebuchet MS">Trebuchet MS</option>
+    <option value="Verdana">Verdana</option>
+    <option value="Gill Sans">Gill Sans</option>
+    <option value="Lucida Sans Unicode">Lucida Sans Unicode</option>
+    <option value="Book Antiqua">Book Antiqua</option>
+    <option value="Garamond">Garamond</option>
+    <option value="Times New Roman">Times New Roman</option>
+    <option value="Courier New">Courier New</option>
+  </select>
+</label>
+
+  <label>
+    X-axis font size
+    <input type="number" id="xAxisFontSize" min="6" step="1" value="11" />
+  </label>
+
+  <div class="font-toggle-row">
+  <button type="button" id="xAxisItalicBtn" class="font-toggle-btn" aria-pressed="false" title="Italic"><em>I</em></button>
+  <button type="button" id="xAxisBoldBtn" class="font-toggle-btn" aria-pressed="false" title="Bold"><strong>B</strong></button>
+</div>
+
+</details>
+
+<hr>
+
+<details open>
+  <summary>Y axis</summary>
       <label>
-        Shift (run) length:
-        <input type="number" id="shiftRulePoints" min="3" step="1" value="8" style="width: 6rem;" />
+        Y-axis minimum
+        <input type="number" id="yAxisMin" step="any" />
       </label>
-      <div class="hint small-hint">Default: 8 points on one side of the centre line.</div>
-    </div>
 
-    <div>
       <label>
-        Trend length:
-        <input type="number" id="trendRulePoints" min="3" step="1" value="6" style="width: 6rem;" />
+        Y-axis maximum
+        <input type="number" id="yAxisMax" step="any" />
       </label>
-      <div class="hint small-hint">Default: 6 consecutive increases or decreases.</div>
-    </div>
 
-    <hr />
+  <label>
+  Y-axis font family
+  <select id="yAxisFontFamily">
+    <option value="">Auto / default</option>
+    <option value="Arial">Arial</option>
+    <option value="Arial Narrow">Arial Narrow</option>
+    <option value="Aptos">Aptos</option>
+    <option value="Calibri">Calibri</option>
+    <option value="Cambria">Cambria</option>
+    <option value="Century Gothic">Century Gothic</option>
+    <option value="Georgia">Georgia</option>
+    <option value="Helvetica">Helvetica</option>
+    <option value="Segoe UI">Segoe UI</option>
+    <option value="Tahoma">Tahoma</option>
+    <option value="Trebuchet MS">Trebuchet MS</option>
+    <option value="Verdana">Verdana</option>
+    <option value="Gill Sans">Gill Sans</option>
+    <option value="Lucida Sans Unicode">Lucida Sans Unicode</option>
+    <option value="Book Antiqua">Book Antiqua</option>
+    <option value="Garamond">Garamond</option>
+    <option value="Times New Roman">Times New Roman</option>
+    <option value="Courier New">Courier New</option>
+  </select>
+</label>
 
-    <label class="radio-pill" style="display:inline-flex; gap:0.5rem; align-items:center;">
-      <input type="checkbox" id="flagSpecialCauseOnChart" checked />
-      Flag special-cause signals on the chart
-    </label>
+<label>
+  Y-axis font size
+  <input type="number" id="yAxisFontSize" min="6" step="1" value="11" />
+</label>
 
-    <!-- Only shown when the current XmR LCL would be below 0 -->
-    <div id="lclClampRow" style="display:none; margin-top:0.5rem;">
+<label>
+  Y-axis format
+  <select id="yAxisFormat">
+    <option value="auto">Auto</option>
+    <option value="decimal">Decimal</option>
+    <option value="integer">Integer</option>
+    <option value="percent">Percent</option>
+  </select>
+</label>
+
+<label>
+  Y-axis decimal places
+  <select id="yAxisDecimals">
+    <option value="auto">Auto</option>
+    <option value="0">0 dp</option>
+    <option value="1">1 dp</option>
+    <option value="2">2 dp</option>
+    <option value="3">3 dp</option>
+  </select>
+</label>
+
+<div class="font-toggle-row">
+  <button type="button" id="yAxisItalicBtn" class="font-toggle-btn" aria-pressed="false" title="Italic"><em>I</em></button>
+  <button type="button" id="yAxisBoldBtn" class="font-toggle-btn" aria-pressed="false" title="Bold"><strong>B</strong></button>
+</div>
+
+</details>
+
+<div class="hint small-hint" style="margin-top:0.25rem;">
+  Leave min/max blank to use the chart's automatic range.
+</div>
+
+</div>
+
+</div>
+
+<!-- TAB 5: BASELINE -->
+<div id="tab-baseline" class="tab-panel">
+
+<div class="panel">
+
+<h3 style="margin-top:0.8rem;">Baseline data</h3>
+
+<label>
+Use first
+<input type="number" id="baselinePoints" min="2" step="1">
+points as baseline<br>
+<i>(leave blank if no baseline period)</i>
+</label>	
+
+<hr>
+
+<h3 style="margin-top:0.8rem;">Target</h3>
+
+<label>
+Target value
+<input type="number" id="targetValue" step="any">
+</label>
+
+<label>
+<select id="targetDirection">
+<option value="above">At or above target is good</option>
+<option value="below">At or below target is good</option>
+</select>
+</label>
+
+<button type="button" id="targetToggleBtn">
+Hide target line
+</button>
+
+</div>
+
+</div>
+
+<!-- TAB 6: RULES -->
+<div id="tab-rules" class="tab-panel">
+
+<div class="panel">
+
+<div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem;">
+  <div class="hint" style="margin:0;">
+    Adjust the rule thresholds used in the summary and (optionally) point highlighting.
+  </div>
+
+  <button id="ruleExplainerBtn" type="button" class="help-btn">
+    Rule explainer
+  </button>
+</div>
+
+<div style="margin-top:0.75rem;">
+  <label>
+    Shift (run) length:
+    <input type="number" id="shiftRulePoints" min="3" step="1" value="8" style="width: 6rem;" />
+  </label>
+  <div class="hint small-hint">Default: 8 points on one side of the centre line.</div>
+</div>
+
+<div>
+  <label>
+    Trend length:
+    <input type="number" id="trendRulePoints" min="3" step="1" value="6" style="width: 6rem;" />
+  </label>
+  <div class="hint small-hint">Default: 6 consecutive increases or decreases. This number is only used when the trend rule is available and turned on.</div>
+</div>
+
+<hr />
+
+<details id="advancedRulesDetails" style="margin-top:0.75rem;">
+  <summary>Advanced detection options</summary>
+
+  <div class="panel" style="margin-top:0.75rem; padding:0.75rem;">
+    <div id="advancedTrendRow" style="display:none; margin-top:0;">
       <label class="radio-pill" style="display:inline-flex; gap:0.5rem; align-items:center;">
-        <input type="checkbox" id="clampLclAtZero" />
-        Fix LCL at 0 (when calculated LCL is below 0)
+        <input type="checkbox" id="enableAdvancedTrend" />
+        Enable trend rule
       </label>
-      <div class="hint small-hint">
-        Useful for measures that cannot go below zero (e.g. counts, times).
+      <div class="hint small-hint" style="margin-top:0.25rem;">
+        Off by default. Trend rules can increase false alerts on some chart types.
       </div>
     </div>
 
+    <div id="rareRulesRow" style="display:none; margin-top:0.75rem;">
+      <label class="radio-pill" style="display:inline-flex; gap:0.5rem; align-items:center;">
+        <input type="checkbox" id="enableRareRunTrend" />
+        Enable run &amp; trend rules for T/G charts (advanced)
+      </label>
+      <div class="hint small-hint" style="margin-top:0.25rem;">
+        This chart type is naturally irregular. Run and trend rules may generate false signals and are off by default.
+      </div>
+    </div>
+
+    <div id="lclClampRow" style="display:none; margin-top:0.75rem;">
+      <label class="radio-pill" style="display:inline-flex; gap:0.5rem; align-items:center;">
+        <input type="checkbox" id="clampLclAtZero" />
+        Clamp LCL at zero
+      </label>
+      <div class="hint small-hint" style="margin-top:0.25rem;">
+        Useful when the calculated lower control limit falls below zero for a measure that cannot realistically be negative.
+      </div>
+    </div>
+
+    <div id="zoneRulesSection" style="display:none; margin-top:0.75rem;">
+      <div class="hint small-hint" style="margin-top:0;">
+        Optional zone rules (off by default). Use only on chart types where they are supported.
+      </div>
+
+      <label class="radio-pill" style="display:inline-flex; gap:0.5rem; align-items:center; margin-top:0.35rem;">
+        <input type="checkbox" id="ruleTwoOfThreeOuterThird" />
+        Apply “2 out of 3 in the outer third” rule
+      </label>
+
+      <label class="radio-pill" style="display:inline-flex; gap:0.5rem; align-items:center; margin-top:0.35rem;">
+        <input type="checkbox" id="ruleFourOfFiveOneSigma" />
+        Apply “4 out of 5 beyond 1-sigma” rule
+      </label>
+
+      <div id="advancedContinuousCaution" class="hint small-hint" style="display:none; margin-top:0.35rem;">
+        Additional pattern rules can increase false alerts on XmR / individuals charts. They are off by default and should only be used when you understand the trade-off.
+      </div>
+    </div>
+
+    <div id="conservativeRulesMessage" class="hint small-hint" style="display:none; margin-top:0.75rem;">
+      This chart uses a conservative rule set designed for reliable interpretation.
+    </div>
   </div>
 </details>
 
+<hr />
 
+<label class="radio-pill" style="display:inline-flex; gap:0.5rem; align-items:center;">
+  <input type="checkbox" id="flagSpecialCauseOnChart" checked />
+  Flag special-cause signals on the chart
+</label>
 
-    </aside>
+<div id="lclClampRow" style="display:none; margin-top:0.5rem;">
+  <label class="radio-pill" style="display:inline-flex; gap:0.5rem; align-items:center;">
+    <input type="checkbox" id="clampLclAtZero" />
+    Fix LCL at 0 (when calculated LCL is below 0)
+  </label>
+  <div class="hint small-hint">
+    Useful for measures that cannot go below zero (e.g. counts, times).
+  </div>
+</div>
+
+</div>
+</div>    </aside>
 
 <!-- MAIN AREA: charts + analysis -->
     <main class="main">
@@ -1203,11 +1974,12 @@ body.pdf-exporting #capability {
 ">
   Quick start:
   <ol style="margin:0.5rem 0 0 1.25rem; padding:0;">
-    <li>Paste data (or upload a csv file)</li>
-    <li>Select your chart type and data columns</li>
-    <li>Click Generate / Recalculate button (if changes don't load automatically) </li>
-    <li>Add title and labels</li>
-    <li>Right click on the chart to see other options</li>
+    <li>Upload a CSV or Excel file, or open the Data editor to paste/type data</li>
+    <li>If needed, clean or trim the data in the Data editor, then click <strong>Apply data</strong></li>
+    <li>Select your chart type and confirm the X and Y columns</li>
+    <li>Click <strong>Generate / Recalculate</strong> if changes do not load automatically</li>
+    <li>Add titles, labels, targets, splits, or annotations as needed</li>
+    <li>Right-click the chart for additional options, and use <strong>Save chart</strong> if you want to return later</li>
   </ol>
 </div>
 
@@ -1231,326 +2003,221 @@ body.pdf-exporting #capability {
 
   </div> <!-- end .layout -->
 
-  <!-- HELP SECTION -->
+ <!-- HELP SECTION -->
 <div id="helpModal" class="modal" aria-hidden="true">
-  <div class="modal-backdrop" aria-hidden="true"></div>
+  <div class="modal-backdrop" aria-hidden="true" onclick="toggleHelpSection(false)"></div>
 
   <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="helpModalTitle">
-    <button type="button" class="modal-close" aria-label="Close help" onclick="toggleHelpSection(false)">×</button>
+    <div class="modal-shell">
+      <div class="modal-header">
+        <div class="modal-header-text">
+          <h2 id="helpModalTitle">Help &amp; guidance</h2>
+          <p class="sub">
+            A practical guide to loading data, building charts, interpreting SPC signals, and saving your work.
+          </p>
+        </div>
 
-    <section id="helpSection" class="panel" style="display:block; margin:0;">
-      <h2 id="helpModalTitle">Help &amp; guidance</h2>
-      <p class="sub">
-        This section explains how to use the Simple SPC Web Tool and how to interpret the charts.
-      </p>
+        <button type="button" class="modal-close" aria-label="Close help" onclick="toggleHelpSection(false)">×</button>
+      </div>
 
-      <details open>
-        <summary><strong>1. What this tool does</strong></summary>
-        <p>
-          This tool helps you create <strong>Statistical Process Control (SPC)</strong> charts directly in your browser.
-          All calculations happen in your browser. The data are <strong>not</strong> uploaded to a server.
-          This tool has been designed for learning, improvement work, and rapid analysis — not as a regulated statistical package.
-          It supports:
-        </p>
-        <ul>
-          <li><strong>Run charts</strong> – values over time with a median line and simple run/trend rules.</li>
-          <li><strong>XmR charts</strong> – Individuals (X) chart with mean and control limits plus a Moving Range (MR) chart.</li>
-          <li><strong>X̄–S charts</strong> – X̄ and S charts for grouped data (multiple measurements per subgroup).</li>
-          <li><strong>P / U charts</strong> – for proportions or rates.</li>
-          <li><strong>T / G charts</strong> – for rare events.</li>
-        </ul>
-        <p>
-          The control panel on the left side of the screen allows you to upload data, select options for how to present it,
-          and use some advanced options for refining your charts.
-        </p>
-      </details>
+      <div class="modal-body">
+        <details open>
+          <summary><strong>1. What this tool does</strong></summary>
+          <p>
+            This tool helps you create <strong>Statistical Process Control (SPC)</strong> charts directly in your browser.
+            All calculations happen locally in your browser. Your data are <strong>not uploaded to a server</strong>.
+          </p>
+          <p>
+            It is designed for learning, improvement work, service monitoring, and rapid analysis. It is not intended to replace
+            a regulated statistical package.
+          </p>
+          <ul>
+            <li><strong>Run charts</strong> – values over time with a median line and simple run/trend rules.</li>
+            <li><strong>XmR charts</strong> – Individuals (X) chart with mean and control limits plus an optional Moving Range (MR) chart.</li>
+            <li><strong>X̄–S charts</strong> – for grouped continuous data with multiple observations per subgroup.</li>
+            <li><strong>P / U charts</strong> – for proportions or rates.</li>
+            <li><strong>T / G charts</strong> – for rare events.</li>
+          </ul>
+        </details>
 
-      <details>
-        <summary><strong>2. Preparing and loading your data</strong></summary>
-        <ul>
-          <li>Your data should have at least two columns:
+        <details>
+          <summary><strong>2. Quick start</strong></summary>
+          <ol>
+            <li>Load data using CSV, Excel, or the Data editor.</li>
+            <li>Select the chart type and choose the relevant columns.</li>
+            <li>Click <strong>Generate / Recalculate</strong> if the chart does not update automatically.</li>
+            <li>Add titles, labels, targets, splits, or annotations if needed.</li>
+            <li>Review the summary text and chart signals.</li>
+            <li>Save the chart if you want to return to it later.</li>
+          </ol>
+        </details>
+
+        <details>
+          <summary><strong>3. Preparing and loading your data</strong></summary>
+          <p>Your data usually need at least:</p>
+          <ul>
+            <li>a <strong>time or order column</strong> (for example month, week, date, or sequence)</li>
+            <li>a <strong>value column</strong> (the measure you want to plot)</li>
+          </ul>
+
+          <div class="modal-note">
+            <strong>You can now load data in three ways:</strong>
             <ul>
-              <li>a <strong>time/order column</strong> (e.g. date, month, or sequence number), and</li>
-              <li>a <strong>numeric column</strong> (e.g. waiting time, rate, count, score).</li>
+              <li><strong>Upload a CSV file</strong></li>
+              <li><strong>Upload an Excel workbook</strong> (<code>.xlsx</code> or <code>.xls</code>)</li>
+              <li><strong>Paste or edit data directly</strong> in the Data editor</li>
             </ul>
-          </li>
-          <li>Click <strong>“Upload CSV file”</strong> to choose a .csv file, or use the
-            <strong>“Open data editor (paste/type data)”</strong> button to paste directly from Excel.</li>
-          <li>Once loaded, use the <strong>“Choose columns”</strong> dropdowns to specify:
-            <ul>
-              <li><strong>Date / X-axis column</strong></li>
-              <li><strong>Value / Y-axis column</strong></li>
-            </ul>
-          </li>
-        </ul>
-        <p class="hint">
-          If the chart does not appear, check that the value column contains valid numbers and that there are no
-          unexpected headers or blank rows in the middle of the data.
-        </p>
-      </details>
+          </div>
 
-      <details>
-  <summary><strong>3. X-axis type &amp; chart type</strong></summary>
+          <p>
+            If you upload an Excel workbook, the tool opens the <strong>Data editor</strong> so you can inspect the worksheet before importing it.
+            You can switch between worksheets, trim unwanted rows or columns, and then click <strong>Apply data</strong>.
+          </p>
 
-  <h3 style="margin-top:0.4rem;">X-axis type</h3>
-  <ul>
-    <li><strong>Date / time</strong> – recommended for usual time-series SPC
-      (e.g. daily, weekly or monthly measures).</li>
-    <li><strong>Sequence / category</strong> – use when you want each row in the
-      order it appears (e.g. individual patients, samples or tests), even if the
-      X-value is not a date.</li>
-  </ul>
+          <p>
+  The tool tries to suggest sensible X and Y columns automatically, but you can change them yourself at any time.
+</p>
 
-  <h3 style="margin-top:0.8rem;">Chart type</h3>
-  <p>
-    The tool supports several SPC chart types. If you are unsure which to use,
-    click <strong>“Help me choose a chart”</strong> to open the chart selection wizard.
-  </p>
+<p>
+  If your date column uses numeric dates such as <strong>01/02/2024</strong>, use the
+  <strong>Date format for numeric dates</strong> setting so the tool interprets them correctly.
+</p>
 
-  <ul>
-    <li><strong>Run chart</strong>
-      <ul>
-        <li>Simple view of data over time using the median.</li>
-        <li>Useful as a first look or when data are limited.</li>
-      </ul>
-    </li>
+<p class="hint">
+  Default: <strong>UK day-first (dd/mm/yyyy)</strong>.
+</p>
+        </details>
 
-    <li><strong>XmR chart</strong>
-      <ul>
-        <li>For continuous data with one observation per time point.</li>
-        <li>Shows a mean with upper and lower control limits.</li>
-        <li>Includes an optional <strong>Moving Range (MR)</strong> chart.</li>
-      </ul>
-    </li>
+        <details>
+          <summary><strong>4. Using the Data editor</strong></summary>
+          <p>The Data editor is useful when:</p>
+          <ul>
+            <li>you want to paste data from Excel</li>
+            <li>your Excel workbook contains multiple sheets</li>
+            <li>your worksheet contains extra rows or columns that need trimming</li>
+          </ul>
 
-    <li><strong>X̄–S chart</strong>
-      <ul>
-        <li>Confirming and understanding variation within and between subgroups.</li>
-        <li>Use when you have multiple measurements per subgroup (e.g. samples per day).</li>
-      </ul>
-    </li>
+          <ul>
+            <li>Use the <strong>Worksheet</strong> selector to switch between sheets in an uploaded Excel file.</li>
+            <li>Tick or untick <strong>First row contains headers</strong> depending on whether the top row is headings or data.</li>
+            <li>Use <strong>Auto-detect</strong> as a quick suggestion, but always sense-check it.</li>
+            <li><strong>Right-click a row number</strong> to delete or insert rows.</li>
+            <li><strong>Right-click a column heading</strong> to delete or insert columns.</li>
+            <li>You can select multiple rows or columns before deleting them.</li>
+          </ul>
 
-    <li><strong>P chart</strong>
-      <ul>
-        <li>For proportions (e.g. percentage of patients with a defect).</li>
-        <li>Requires a numerator and denominator.</li>
-      </ul>
-    </li>
+          <p class="hint">
+            Tip: the Data editor lets you clean a worksheet inside the tool before applying it to the chart.
+          </p>
+        </details>
 
-    <li><strong>U chart</strong>
-      <ul>
-        <li>For rates (e.g. defects per opportunity).</li>
-        <li>Requires a count and a number of opportunities.</li>
-      </ul>
-    </li>
+        <details>
+          <summary><strong>5. X-axis type and chart type</strong></summary>
+          <p>
+            Choose the chart type that matches the kind of data you have:
+          </p>
+          <ul>
+            <li><strong>Run chart</strong> – a simple starting point for values over time.</li>
+            <li><strong>XmR chart</strong> – one continuous observation per time point.</li>
+            <li><strong>X̄–S chart</strong> – grouped continuous measurements with several values per subgroup.</li>
+            <li><strong>P chart</strong> – proportions with numerator and denominator.</li>
+            <li><strong>U chart</strong> – rates with changing opportunity.</li>
+            <li><strong>T / G charts</strong> – rare events.</li>
+          </ul>
+          <p>
+            If you are unsure, use the <strong>Help me choose a chart</strong> option.
+          </p>
+        </details>
 
-    <li><strong>T chart</strong>
-      <ul>
-        <li>For time between rare events.</li>
-      </ul>
-    </li>
+        <details>
+          <summary><strong>6. Baseline, splits, targets and annotations</strong></summary>
+          <ul>
+            <li><strong>Baseline</strong> lets you calculate the initial centre line and limits using an earlier reference period.</li>
+            <li><strong>Splits</strong> let you recalculate the centre line and limits from a chosen point onward.</li>
+            <li><strong>Targets</strong> show the level you want to achieve, but they are not the same as control limits.</li>
+            <li><strong>Annotations</strong> let you mark events that may help explain a change in the pattern.</li>
+          </ul>
+          <p>
+            In general:
+          </p>
+          <ul>
+            <li>use a <strong>baseline</strong> to compare against an earlier period</li>
+            <li>use a <strong>split</strong> when a later period should be treated as a new system</li>
+          </ul>
+        </details>
 
-    <li><strong>G chart</strong>
-      <ul>
-        <li>For opportunities between rare events.</li>
-      </ul>
-    </li>
-  </ul>
+        <details>
+          <summary><strong>7. Interpreting the summary</strong></summary>
+          <p>
+            The summary underneath the chart helps explain what the tool has found.
+          </p>
+          <ul>
+            <li><strong>Common-cause variation</strong> means the process looks stable within its current level of performance.</li>
+            <li><strong>Special-cause variation</strong> means the pattern suggests something may have changed.</li>
+            <li>A process can be <strong>stable but still poor</strong> if the level of performance is consistently below what you need.</li>
+          </ul>
+          <p>
+            Look for sustained changes, not just one good or bad point. Use local knowledge to interpret what was happening at that time.
+          </p>
+        </details>
 
-  <p class="hint">
-    If you are new to SPC, start with a Run chart or XmR chart unless the wizard
-    suggests otherwise.
-  </p>
-</details>
+        <details>
+          <summary><strong>8. Saving and reopening your work</strong></summary>
+          <p>
+            You can now save the whole chart as a <strong>json file</strong>.
+          </p>
+          <ul>
+            <li><strong>Save chart</strong> stores the current data and chart settings together in one <code>.json</code> file.</li>
+            <li><strong>Open saved chart</strong> restores that saved chart so you can continue working on it later.</li>
+          </ul>
+          <p>
+            Chart json files can preserve things like:
+          </p>
+          <ul>
+            <li>selected columns</li>
+            <li>chart type</li>
+            <li>titles and labels</li>
+            <li>rules and targets</li>
+            <li>splits and annotations</li>
+          </ul>
+        </details>
 
+        <details>
+          <summary><strong>9. Copying and downloading charts</strong></summary>
+          <ul>
+            <li>Right clicking on the chart brings up the menu that allows you to export the chart as an image.</li>
+            <li>Use the chart options to adjust appearance before exporting.</li>
+            <li>You can also copy the chart(s) and/or analysis to your clipboard for easy pasting into a report or presentation.</li>
+	    <li>Use the show/hide MR/S chart toggle in the Chart tab to toggle whether that is included in your ouput</li>
+          </ul>
+        </details>
 
-      <details>
-        <summary><strong>4. Baseline, splits and target</strong></summary>
+        <details>
+          <summary><strong>10. Data privacy</strong></summary>
+          <p>The tool runs entirely in your browser:</p>
+          <ul>
+            <li>data are not sent to a server</li>
+            <li>uploaded files are processed locally in your browser session</li>
+            <li>once you close or refresh the page, unsaved work is no longer retained unless you saved a chart json file</li>
+          </ul>
+          <p class="hint">
+            Always follow your local information governance guidance before using real patient-identifiable data.
+          </p>
+        </details>
 
-        <h3 style="margin-top:0.4rem;">Baseline</h3>
-        <p>
-          The <strong>“Use first N points as baseline”</strong> box lets you restrict which points are used to calculate
-          the median (run chart) or mean and limits (XmR).
-          Leave this blank to use all points.
-        </p>
-
-        <h3 style="margin-top:0.8rem;">Splitting control limits</h3>
-        <p>
-          Splits allow you to recalculate the mean and control limits from a chosen point onwards.
-          This is useful when you make a clear change to the system (for example, introducing a new pathway)
-          and want to assess performance after that change.
-        </p>
-        <p>
-          Splits are added from the chart menu by <strong>right-clicking on the chart</strong>.
-        </p>
-        <p class="hint">
-          Use splits sparingly and only when there is good evidence of a real process change.
-          Avoid using splits simply to make a chart appear more stable.
-        </p>
-
-        <h3 style="margin-top:0.8rem;">Target / goal</h3>
-        <p>
-          You can enter a <strong>Target / goal value</strong> and choose whether “at or above” or “at or below”
-          the target is desirable. The chart will show a dashed target line.
-        </p>
-        <p class="hint">
-          In XmR mode, the summary panel will show an approximate process capability against this target
-          <em>if</em> the process looks stable (no obvious special-cause signals).
-        </p>
-      </details>
-
-      <details>
-        <summary><strong>5. Annotations</strong></summary>
-        <p>
-          Annotations are used to mark important events, such as new interventions,
-          policy changes or data definition changes.
-        </p>
-        <p>
-          Annotations are added from the chart menu by <strong>right-clicking on the chart</strong>.
-        </p>
-        <p class="hint">
-          Keep annotation labels short and factual to avoid cluttering the chart.
-        </p>
-      </details>
-
- <details>
-  <summary><strong>6. Interpreting the summary</strong></summary>
-
-  <p>
-    Under the chart, the <strong>Summary</strong> section gives a brief interpretation
-    of the pattern, tailored to the selected chart type.
-  </p>
-
-  <p>
-    Depending on the chart, it may comment on:
-  </p>
-
-  <ul>
-    <li>The number of data points and which points are used as the baseline.</li>
-    <li>The median (run chart), mean and limits (XmR / X̄–S), or centre line
-        appropriate to the chart type.</li>
-    <li>Possible special-cause signals such as:
-      <ul>
-        <li>points beyond control limits,</li>
-        <li>long runs on one side of the centre line,</li>
-        <li>clear upward or downward trends.</li>
-      </ul>
-    </li>
-  </ul>
-
-  <p class="hint">
-    These rules are intended as prompts, not absolute answers.
-    Always interpret the pattern in the context of the clinical or operational system.
-  </p>
-</details>
-
-
-<details >
-    <summary><strong>7. Glossary</strong></summary>
-
-    <ul>
-      <li><strong>Centre line</strong> – indicates the “usual” level of performance the data (using the <strong>mean/average</strong> or <strong>median</strong>).</li>
-      <li><strong>Control limits - Upper (UCL) & Lower(LCL)</strong> – statistical boundaries, calculated from historical data, that estimate the range of <strong>routine (common-cause) variation</strong>.</li>
-      <li><strong>Common-cause variation</strong> – normal, expected ups and downs when the system hasn’t fundamentally changed. This represents the range of variability that you might expect from everyday factors that are inherent in the process/system.</li>
-      <li><strong>Special-cause signal</strong> – a pattern that’s unlikely to be routine variation alone (for example, a point beyond limits or a sustained run). This is usually indicative of something 'unusual' happening. Usually requires investigation to understand the cause.</li>
-      <li><strong>Baseline</strong> – a subset of data points that can be used to calculate and 'fix' the centre line and limits. Setting a baseline is useful when you have implemented a change and want to test whether it has had an effect on 'normal' performance.</li>
-      <li><strong>Run/SPC rules</strong> – a statistically significant pattern rule (e.g. many points in a row on one side of the centre line) used to identify special cause variation.</li>
-      <li><strong>Shift</strong> – an indication of a sustained change in performance that is significantly different to previous performance. If the cause of the change is understood (e.g. it was as a result of improvement work), and it is likely to continue to affect ongoing performance then might trigger a split in calculation of control limits.</li>
-      <li><strong>Split</strong> – recalculation of the centre line and control limits at a specific point in time. Usually triggered by a sustained shift in performance.</li>
-      <li><strong>Trend</strong> – several points increasing or decreasing in a row, suggesting a directional change.</li>
-    </ul>
-
-    <p class="hint">
-      If you’re unsure, treat the rules as prompts and combine them with local knowledge.
-      If decisions are high-stakes, consider specialist statistical support.
-    </p>
-  </details>
-
-
-      <details>
-  <summary><strong>8. Copying and downloading charts</strong></summary>
-  <p>
-    Additional options are available from the chart menu by
-    <strong>right-clicking on the chart</strong>.
-  </p>
-
-  <ul>
-    <li><strong>Copy chart image</strong> – copies the chart to the clipboard
-        for pasting into slides, emails or documents.</li>
-    <li><strong>Copy chart and analysis</strong> – copies the chart together with
-        the summary text.</li>
-    <li><strong>Save chart as PNG</strong> – downloads the chart image to your computer.</li>
-    <li><strong>Download PDF report</strong> – exports the chart and summary into a
-        simple PDF layout.</li>
-  </ul>
-
-  <p class="hint">
-    When copying or exporting charts, make sure axes labels, annotations and context
-    are clear to someone who was not involved in the analysis.
-  </p>
-</details>
-
-<details>
-  <summary><strong>9. Saving and reusing chart settings (optional)</strong></summary>
-
-  <p>
-    You can save your <strong>chart settings</strong> so you can quickly recreate the
-    same chart layout later. This is useful if you update the same chart regularly
-    (for example, weekly or monthly reporting).
-  </p>
-
-  <ul>
-    <li>
-      <strong>Export settings</strong> saves a small <code>.json</code> file containing
-      your chart choices (such as chart type, selected columns, baseline, rules,
-      targets, labels, splits and annotations).
-    </li>
-    <li>
-      <strong>Import settings</strong> reloads a previously saved settings file and
-      reapplies those choices to the tool.
-    </li>
-  </ul>
-
-  <p>
-    <strong>Important:</strong> the settings file does <strong>not</strong> include your data.
-  You still need to load your data as usual — either by uploading a CSV file
-  <strong>or by pasting data from Excel into the data editor</strong>.
-  </p>
-
-  <p class="hint">
-    It doesn’t matter how the data is loaded: as long as the column names match,
-    the saved settings will be applied in the same way.
-    If your data has different column names, the tool may not be able to
-    reselect everything automatically. If this happens, you’ll be prompted to
-    choose the correct columns.
-  </p>
-</details>
-
-      <details>
-        <summary><strong>10. Data privacy</strong></summary>
-        <p>The tool runs entirely in your browser:</p>
-        <ul>
-          <li>Data are not sent to a server.</li>
-          <li>Once you close the page, your data are no longer available to the tool.</li>
-        </ul>
-        <p class="hint">
-          Always follow your local information governance guidance before using real patient-identifiable data.
-        </p>
-      </details>
-
-      <details>
-        <summary><strong>11. About the tool</strong></summary>
-        <p>
-          This tool was developed by Jem Ramazanoglu –
-          <a href="mailto:j.ramazanoglu@nhs.net">j.ramazanoglu@nhs.net</a>
-          as a free resource to support Quality Improvement in the NHS.
-        </p>
-        <p class="hint">
-          Feedback and suggestions are very welcome.
-        </p>
-      </details>
-
-    </section>
+        <details>
+          <summary><strong>11. About the tool</strong></summary>
+          <p>
+            This tool was developed by Jem Ramazanoglu –
+            <a href="mailto:j.ramazanoglu@nhs.net">j.ramazanoglu@nhs.net</a>
+            as a free resource to support Quality Improvement in the NHS.
+          </p>
+          <p class="hint">
+            Feedback and suggestions are very welcome.
+          </p>
+        </details>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -1561,7 +2228,7 @@ body.pdf-exporting #capability {
   <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="chartWizardTitle">
     <button type="button" class="modal-close" aria-label="Close chart wizard" onclick="toggleChartWizard(false)">×</button>
 
-    <section class="panel" style="display:block; margin:0;">
+    <section class="panel chart-wizard-panel">
       <h2 id="chartWizardTitle">Help me choose a chart</h2>
       <p class="sub">
         Answer a couple of questions and the tool will pick a chart type and show the extra columns (if needed).
@@ -1579,29 +2246,119 @@ body.pdf-exporting #capability {
   </div>
 </div>
 
+<!-- CHART SETUP / INSTRUCTIONS MODAL -->
+<div id="chartSetupModal" class="modal" aria-hidden="true">
+  <div class="modal-backdrop" aria-hidden="true" onclick="toggleChartSetupModal(false)"></div>
+
+  <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="chartSetupTitle">
+    <button type="button" class="modal-close" aria-label="Close chart setup" onclick="toggleChartSetupModal(false)">×</button>
+
+    <section class="panel" style="display:block; margin:0;">
+      <h2 id="chartSetupTitle">Chart setup</h2>
+      <p class="sub" id="chartSetupSubtitle">
+        How to structure your data for this chart.
+      </p>
+
+      <div id="chartSetupBody">
+        <!-- Filled by JS -->
+      </div>
+
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-top:1rem;">
+        <label class="hint small-hint" style="display:flex; align-items:center; gap:0.4rem; margin:0;">
+          <input type="checkbox" id="chartSetupDontShow">
+          Don’t automatically show this again
+        </label>
+
+        <div style="display:flex; gap:0.5rem;">
+          <button type="button" onclick="toggleChartSetupModal(false)">Close</button>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<!-- RULE EXPLAINER MODAL -->
+<div id="ruleExplainerModal" class="modal" aria-hidden="true">
+  <div class="modal-backdrop" aria-hidden="true" onclick="toggleRuleExplainerModal(false)"></div>
+
+  <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="ruleExplainerTitle">
+    <button type="button" class="modal-close" aria-label="Close rule explainer" onclick="toggleRuleExplainerModal(false)">×</button>
+
+    <section class="panel" style="display:block; margin:0;">
+      <h2 id="ruleExplainerTitle">SPC rule explainer</h2>
+      <p class="sub" id="ruleExplainerSubtitle">
+        This tool uses a conservative, chart-aware rule policy designed to reduce false alerts.
+      </p>
+
+      <div id="ruleExplainerBody">
+        <!-- Filled by JS -->
+      </div>
+	
+      <div style="display:flex; justify-content:flex-end; margin-top:1rem;">
+        <button type="button" onclick="toggleRuleExplainerModal(false)">Close</button>
+      </div>
+    </section>
+  </div>
+</div>
 
 <div id="dataEditorOverlay">
   <div class="data-editor-dialog">
     <h2>Data editor</h2>
 
-    <p class="hint">
-      Paste data from Excel directly into the grid (you can paste many columns at once).
-      Choose whether the first row contains column headings. When you click
-      <strong>Apply data</strong>, the chart options will update to use this data.
-    </p>
+    <p class="hint data-editor-intro-hint">
+  Paste data directly into the grid, or use this editor to review Excel worksheets before importing.
+  You can switch worksheets, delete unwanted rows/columns, and then click
+  <strong>Apply data</strong>.
+  <span class="data-editor-help-inline">
+    <button
+      id="dataEditorDeleteHelpBtn"
+      type="button"
+      class="data-editor-help-btn"
+      aria-label="How do I delete rows or columns?"
+      aria-expanded="false"
+      aria-controls="dataEditorDeleteHelpPopup">
+      How do I delete rows/columns?
+    </button>
 
-    <div class="data-editor-controls">
-      <label class="data-editor-checkbox">
-        <input type="checkbox" id="dataEditorHasHeaders" checked>
-        First row contains headers
-      </label>
+    <span
+      id="dataEditorDeleteHelpPopup"
+      class="data-editor-help-popup"
+      role="tooltip"
+      aria-hidden="true">
+      <strong>Editing tip</strong><br>
+      • Right-click a <strong>row number</strong> to delete a row<br>
+      • Right-click a <strong>column heading</strong> to delete a column<br>
+      • You can also insert rows/columns the same way
+    </span>
+  </span>
+</p>
 
-      <!-- Optional: only keep this if you implement auto-detect in JS -->
+    <div id="dataEditorWorkbookBar" class="data-editor-workbook-bar" style="display:none;">
+      <div class="data-editor-workbook-row">
+        <label for="dataEditorSheetSelect" class="data-editor-sheet-label">
+          <strong>Worksheet:</strong>
+        </label>
+        <select id="dataEditorSheetSelect"></select>
+      </div>
+
+     <div id="dataEditorWorkbookStatus" class="data-editor-status" aria-live="polite">
+  <span id="dataEditorWorkbookStatusText"></span>
+</div>
+    </div>
+
+        <div class="data-editor-controls">
+      <div class="data-editor-controls-left">
+        <label class="data-editor-checkbox">
+          <input type="checkbox" id="dataEditorHasHeaders" checked>
+          First row contains headers
+        </label>
+      </div>
+
       <button id="dataEditorDetectHeadersButton" type="button" class="data-editor-secondary">
         Auto-detect
       </button>
     </div>
-    
+
     <div id="dataEditorHeaderStatus" class="data-editor-status" aria-live="polite"></div>
 
     <div id="dataEditorGrid" class="data-editor-grid"></div>
@@ -1613,6 +2370,23 @@ body.pdf-exporting #capability {
   </div>
 </div>
 
+<!-- Excel sheet picker modal -->
+<div id="sheetPickerOverlay">
+  <div class="data-editor-dialog" style="max-width:520px;">
+    <h2 style="margin-top:0;">Choose worksheet</h2>
+    <p class="hint" style="margin-bottom:0.75rem;">
+      This Excel file contains more than one worksheet. Choose which one to import.
+    </p>
+
+    <label for="sheetPickerSelect"><strong>Worksheet:</strong></label>
+    <select id="sheetPickerSelect"></select>
+
+    <div class="data-editor-buttons">
+      <button type="button" id="sheetPickerCancelButton" class="data-editor-secondary">Cancel</button>
+      <button type="button" id="sheetPickerConfirmButton">Load sheet</button>
+    </div>
+  </div>
+</div>
 
 <!-- SPC Helper (rule-based "AI") -->
 <div id="spcHelperPanel">
@@ -1642,17 +2416,39 @@ body.pdf-exporting #capability {
   </button>
 
   <!-- Suggested questions area (chips live in here) -->
-  <div id="spcHelperSuggestions">
-    <div class="spc-chip-section">
-      <div class="spc-chip-title">General SPC questions</div>
+<div id="spcHelperSuggestions">
+  <div class="spc-chip-section">
+    <button
+      id="spcHelperToggleGeneral"
+      type="button"
+      class="spc-chip-section-toggle"
+      aria-expanded="true"
+      aria-controls="spcHelperGeneralSection">
+      <span>General SPC questions</span>
+      <span class="spc-chip-section-toggle-icon">▾</span>
+    </button>
+
+    <div id="spcHelperGeneralSection" class="spc-chip-section-body">
       <div id="spcHelperChipsGeneral" class="spc-helper-chips" aria-label="General SPC suggested questions"></div>
     </div>
+  </div>
 
-    <div class="spc-chip-section">
-      <div class="spc-chip-title">My chart questions</div>
+  <div class="spc-chip-section">
+    <button
+      id="spcHelperToggleChart"
+      type="button"
+      class="spc-chip-section-toggle"
+      aria-expanded="true"
+      aria-controls="spcHelperChartSection">
+      <span>My chart questions</span>
+      <span class="spc-chip-section-toggle-icon">▾</span>
+    </button>
+
+    <div id="spcHelperChartSection" class="spc-chip-section-body">
       <div id="spcHelperChipsChart" class="spc-helper-chips" aria-label="My chart suggested questions"></div>
     </div>
   </div>
+</div>
 
   <div id="spcHelperOutput" aria-live="polite"></div>
 
@@ -1663,29 +2459,59 @@ body.pdf-exporting #capability {
 </div>
 
 </div>
-
-  <!-- Chart right-click menu -->
-  <div id="chartContextMenu" class="chart-context-menu" style="display:none;">
-    <button type="button" data-action="addAnnotation" title="Annotations show as a vertical line with a small text box - these enable you to highlight key events on the chart (e.g. 'new change started here')">Add annotation at this point…</button>
-    <button type="button" data-action="clearAnnotations" title="Will remove all annotations from the chart">Clear annotations</button>
-    <div class="menu-sep"></div>
-    <button type="button" data-action="addSplit"
-  title="Splits recalculate the central line and control limits from the chosen point onward. Splitting the control limits should only be done where a sustained shift in performance has been identified, investigated, understood and agreed to be representative of the new normal level of performance for the process.">
-  Add split after this point…
-</button>
-<button type="button" data-action="clearSplits"
-  title="Remove all splits and return to a single set of limits.">
-  Clear splits
-</button>
-
-    <div class="menu-sep"></div>
-    <button type="button" data-action="copyCharts" title="Copy the chart (only) to the clipboard.">Copy chart(s)</button>
-    <button type="button" data-action="copyChartsAndAnalysis" title="Copy the chart and the analysis area to the clipboard">Copy chart(s) + analysis</button>
-    <div class="menu-sep"></div>
-    <button type="button" data-action="saveChartsAs" title="Save a copy of the chart as a PNG image file">Save chart(s) as PNG image</button>
-    <button type="button" data-action="downloadPdf" title="Export the chart and analysis to PDF">Download PDF report</button>
+<!-- Chart right-click menu -->
+<div id="chartContextMenu" class="chart-context-menu" style="display:none;">
+  <div class="context-submenu-wrap">
+    <button type="button" class="submenu-parent" title="Add, edit or delete annotations for the selected point.">
+      Annotations ▸
+    </button>
+    <div class="context-submenu">
+      <button type="button" data-action="addAnnotation" title="Add a new annotation at this point.">Add annotation…</button>
+      <button type="button" data-action="editAnnotation" title="Edit an existing annotation at this point.">Edit annotation…</button>
+      <button type="button" data-action="deleteAnnotation" title="Delete an existing annotation at this point.">Delete annotation…</button>
+      <div class="menu-sep"></div>
+      <button type="button" data-action="clearAnnotations" title="Remove all annotations from the chart.">Clear all annotations</button>
+    </div>
   </div>
 
+  <div class="menu-sep"></div>
+
+  <div class="context-submenu-wrap">
+    <button
+      type="button"
+      class="submenu-parent"
+      data-role="splitsParent"
+      title="Add or remove split points for this chart.">
+      Splits ▸
+    </button>
+
+    <div class="context-submenu" data-role="splitsSubmenu">
+      <button
+        type="button"
+        data-action="addSplit"
+        title="Splits recalculate the central line and control limits from the chosen point onward. Splitting the control limits should only be done where a sustained shift in performance has been identified, investigated, understood and agreed to be representative of the new normal level of performance for the process.">
+        Add split after this point…
+      </button>
+
+      <div class="menu-sep"></div>
+
+      <div data-role="splitDynamicItems">
+        <!-- Filled dynamically in spc.js -->
+      </div>
+    </div>
+  </div>
+
+  <div class="menu-sep"></div>
+  <button type="button" data-action="copyCharts" title="Copy the chart (only) to the clipboard.">Copy chart(s)</button>
+  <button type="button" data-action="copyChartsAndAnalysis" title="Copy the chart and the analysis area to the clipboard">Copy chart(s) + analysis</button>
+
+  <div class="menu-sep"></div>
+
+  <button type="button" data-action="saveChartsAs" title="Save a copy of the chart as a PNG image file">Save chart(s) as PNG image</button>
+  <button type="button" data-action="downloadPdf" class="hidden" title="Export the chart and analysis to PDF">Download PDF report</button>
+</div>
+
+  <script src="spc-helper-library.js"></script>
   <script src="spc.js"></script>
 </body>
 </html>

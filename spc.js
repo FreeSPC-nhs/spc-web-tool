@@ -11,6 +11,11 @@ let dataModelDirty = false;
 let gridHeaders = ["Date", "Value"];
 let lastGridHeadersKey = ""; // track changes
 
+let chartTitleManuallyEdited = false;
+let xAxisLabelManuallyEdited = false;
+let yAxisLabelManuallyEdited = false;
+let yAxisBoundsManuallyEdited = false;
+
 // ------------------------------------------------------------
 // Column intelligence (Levels 1–3):
 // - Profile columns once per dataset
@@ -25,11 +30,18 @@ const fileInput         = document.getElementById("fileInput");
 const columnSelectors   = document.getElementById("columnSelectors");
 const dateSelect        = document.getElementById("dateColumn");
 const valueSelect       = document.getElementById("valueColumn");
+const dateFormatPreferenceSelect = document.getElementById("dateFormatPreference");
+const dateFormatWarning = document.getElementById("dateFormatWarning");
 
 // Settings import/export buttons (Section 1: Data)
 const exportSettingsBtn = document.getElementById("exportSettingsBtn");
 const importSettingsBtn = document.getElementById("importSettingsBtn");
 const importSettingsFileInput = document.getElementById("importSettingsFileInput");
+
+function updateSaveChartButtonState() {
+  if (!exportSettingsBtn) return;
+  exportSettingsBtn.disabled = !currentChart;
+}
 
 // If settings are imported before data is loaded, we store them here and apply after loadRows()
 let pendingImportedSettings = null;
@@ -57,6 +69,41 @@ const SPC_STYLE = {
 
   // target (Run/XmR use this orange)
   targetOrange: "#fdae61"    // matches Run target line 
+};
+
+// -----------------------------
+// Shared legend styling
+// Shows line datasets as line samples in the legend instead of filled boxes
+// -----------------------------
+const SPC_LEGEND = {
+  display: true,
+  position: "bottom",
+  align: "center",
+  labels: {
+    usePointStyle: true,
+    pointStyle: "line",
+    boxWidth: 55,
+    boxHeight: 12,
+    padding: 14,
+
+    generateLabels(chart) {
+      const defaultLabels = Chart.defaults.plugins.legend.labels.generateLabels(chart);
+
+      return defaultLabels.map(label => {
+        const dataset = chart.data.datasets[label.datasetIndex] || {};
+
+        return {
+          ...label,
+          pointStyle: "line",
+          strokeStyle: dataset.borderColor || label.strokeStyle,
+          fillStyle: "transparent",
+          lineWidth: Math.max(dataset.borderWidth || 2, 3),
+          lineDash: dataset.borderDash || [],
+          lineCap: "round"
+        };
+      });
+    }
+  }
 };
 
 // Helper: build point colours from a boolean “flag” array
@@ -135,6 +182,15 @@ const baselineOverlayPlugin = {
 // Register once (Chart.js v3/v4)
 if (typeof Chart !== "undefined" && Chart.register) {
   Chart.register(baselineOverlayPlugin);
+
+  // Give charts a little more headroom/footroom so annotation labels stay visible
+  Chart.defaults.layout = Chart.defaults.layout || {};
+  Chart.defaults.layout.padding = {
+    top: 26,
+    right: 8,
+    bottom: 30,
+    left: 8
+  };
 }
 
 
@@ -150,6 +206,7 @@ const thirdSelect = document.getElementById("thirdColumn");
 
 // Chart chooser / extra columns
 const helpChooseChartBtn   = document.getElementById("helpChooseChartBtn");
+const chartSetupBtn        = document.getElementById("chartSetupBtn");
 const extraColumnsWrap     = document.getElementById("extraColumns");
 const extraColumns_PU      = document.getElementById("extraColumns_PU");
 const extraColumns_XbarS   = document.getElementById("extraColumns_XbarS");
@@ -168,7 +225,24 @@ const baselineInput     = document.getElementById("baselinePoints");
 const chartTitleInput   = document.getElementById("chartTitle");
 const xAxisLabelInput   = document.getElementById("xAxisLabel");
 const yAxisLabelInput   = document.getElementById("yAxisLabel");
+
+const xAxisFontFamilyInput = document.getElementById("xAxisFontFamily");
+const xAxisFontSizeInput   = document.getElementById("xAxisFontSize");
+const xAxisItalicBtn = document.getElementById("xAxisItalicBtn");
+const xAxisBoldBtn   = document.getElementById("xAxisBoldBtn");
+
+const yAxisMinInput        = document.getElementById("yAxisMin");
+const yAxisMaxInput        = document.getElementById("yAxisMax");
+const yAxisFormatInput     = document.getElementById("yAxisFormat");
+const yAxisDecimalsInput = document.getElementById("yAxisDecimals");
+const yAxisFontFamilyInput = document.getElementById("yAxisFontFamily");
+const yAxisFontSizeInput   = document.getElementById("yAxisFontSize");
+const yAxisItalicBtn = document.getElementById("yAxisItalicBtn");
+const yAxisBoldBtn   = document.getElementById("yAxisBoldBtn");
+
 const targetInput       = document.getElementById("targetValue");
+
+
 const targetDirectionInput = document.getElementById("targetDirection");
 const targetDirectionSelect = targetDirectionInput;
 const capabilityDiv     = document.getElementById("capability");
@@ -206,9 +280,47 @@ const spcHelperIntro    = document.getElementById("spcHelperIntro");
 const spcHelperChipsGeneral = document.getElementById("spcHelperChipsGeneral");
 const spcHelperChipsChart   = document.getElementById("spcHelperChipsChart");
 const spcHelperOutput   = document.getElementById("spcHelperOutput");
+const spcHelperToggleGeneral = document.getElementById("spcHelperToggleGeneral");
+const spcHelperToggleChart = document.getElementById("spcHelperToggleChart");
+const spcHelperGeneralSection = document.getElementById("spcHelperGeneralSection");
+const spcHelperChartSection = document.getElementById("spcHelperChartSection");
 
 const shiftRulePointsInput = document.getElementById("shiftRulePoints");
 const trendRulePointsInput = document.getElementById("trendRulePoints");
+const ruleExplainerBtn = document.getElementById("ruleExplainerBtn");
+
+const advancedRulesDetails = document.getElementById("advancedRulesDetails");
+const enableAdvancedTrendCheckbox = document.getElementById("enableAdvancedTrend");
+const advancedTrendRow = document.getElementById("advancedTrendRow");
+
+const ruleTwoOfThreeOuterThirdCheckbox = document.getElementById("ruleTwoOfThreeOuterThird");
+const ruleFourOfFiveOneSigmaCheckbox = document.getElementById("ruleFourOfFiveOneSigma");
+const zoneRulesSection = document.getElementById("zoneRulesSection");
+const advancedContinuousCaution = document.getElementById("advancedContinuousCaution");
+
+const enableRareRunTrendCheckbox = document.getElementById("enableRareRunTrend");
+const rareRulesRow = document.getElementById("rareRulesRow");
+
+if (enableRareRunTrendCheckbox) {
+  enableRareRunTrendCheckbox.addEventListener("change", () => {
+    if (!enableRareRunTrendCheckbox.checked) return;
+
+    const ok = window.confirm(
+      "T and G charts are naturally irregular.\n\n" +
+      "Run and trend rules may create false signals on this chart type and are off by default.\n\n" +
+      "Only enable these rules if you understand this trade-off."
+    );
+
+    if (!ok) {
+      enableRareRunTrendCheckbox.checked = false;
+    }
+  });
+}
+
+const conservativeRulesMessage = document.getElementById("conservativeRulesMessage");
+const chartTypeAvailabilityHint = document.getElementById("chartTypeAvailabilityHint");
+const columnCheckWarning = document.getElementById("columnCheckWarning");
+
 const flagSpecialCauseOnChartCheckbox = document.getElementById("flagSpecialCauseOnChart");
 const lclClampRow = document.getElementById("lclClampRow");
 const clampLclAtZeroCheckbox = document.getElementById("clampLclAtZero");
@@ -218,12 +330,27 @@ let dataEditorGrid = null; // jspreadsheet instance
 const dataEditorHasHeaders = document.getElementById("dataEditorHasHeaders");
 const dataEditorDetectHeadersButton = document.getElementById("dataEditorDetectHeadersButton");
 const dataEditorHeaderStatus = document.getElementById("dataEditorHeaderStatus");
+const dataEditorWorkbookBar = document.getElementById("dataEditorWorkbookBar");
+const dataEditorSheetSelect = document.getElementById("dataEditorSheetSelect");
+const dataEditorWorkbookStatus = document.getElementById("dataEditorWorkbookStatus");
+const dataEditorDeleteHelpBtn = document.getElementById("dataEditorDeleteHelpBtn");
+const dataEditorDeleteHelpPopup = document.getElementById("dataEditorDeleteHelpPopup");
 
+let dataEditorSourceMode = "manual"; // "manual" | "excel"
+let dataEditorWorkbook = null;
+let dataEditorWorkbookSheetNames = [];
+let dataEditorCurrentSheetName = "";
+
+const sheetPickerOverlay = document.getElementById("sheetPickerOverlay");
+const sheetPickerSelect = document.getElementById("sheetPickerSelect");
+const sheetPickerConfirmButton = document.getElementById("sheetPickerConfirmButton");
+const sheetPickerCancelButton = document.getElementById("sheetPickerCancelButton");
 
 
 /* ============================================================
-   SETTINGS EXPORT/IMPORT (settings only — not data)
-   Saves chart configuration so users can reuse it later.
+   PROJECT SAVE/LOAD + SETTINGS
+   - "Project" = data + chart settings in one JSON file
+   - Also remains backward-compatible with old settings-only files
    ============================================================ */
 
 function downloadTextFile(filename, text) {
@@ -250,14 +377,12 @@ function setCheckedRadioValue(name, value) {
 }
 
 function collectToolSettings() {
-  // Core chart choices
   const chartType = (typeof getSelectedChartType_NoSideEffects === "function")
     ? getSelectedChartType_NoSideEffects()
     : (typeof getSelectedChartType === "function" ? getSelectedChartType() : "run");
 
   const axisType = getCheckedRadioValue("axisType");
 
-  // Inputs (safe reads)
   const baselinePoints = baselineInput?.value ?? "";
   const targetValue = targetInput?.value ?? "";
   const targetDirection = targetDirectionSelect?.value ?? "";
@@ -271,7 +396,6 @@ function collectToolSettings() {
   const flagSpecial = flagSpecialCauseOnChartCheckbox?.checked ?? true;
   const clampLcl = clampLclAtZeroCheckbox?.checked ?? false;
 
-  // Column selections
   const selectedColumns = {
     x: dateSelect?.value ?? "",
     y: valueSelect?.value ?? "",
@@ -287,6 +411,7 @@ function collectToolSettings() {
     axisType,
 
     selectedColumns,
+    dateFormatPreference: getDateFormatPreference(),
 
     baselinePoints,
     target: {
@@ -297,14 +422,40 @@ function collectToolSettings() {
 
     labels: { title, xLabel, yLabel },
 
+    axes: {
+      x: {
+        font: {
+          family: xAxisFontFamilyInput?.value ?? "",
+          size: xAxisFontSizeInput?.value ?? "",
+          style: isPressed(xAxisItalicBtn) ? "italic" : "normal",
+          weight: isPressed(xAxisBoldBtn) ? "bold" : "normal"
+        }
+      },
+      y: {
+        min: yAxisMinInput?.value ?? "",
+        max: yAxisMaxInput?.value ?? "",
+        format: yAxisFormatInput?.value ?? "auto",
+	decimals: yAxisDecimalsInput?.value ?? "auto",
+        font: {
+          family: yAxisFontFamilyInput?.value ?? "",
+          size: yAxisFontSizeInput?.value ?? "",
+          style: isPressed(yAxisItalicBtn) ? "italic" : "normal",
+          weight: isPressed(yAxisBoldBtn) ? "bold" : "normal"
+        }
+      }
+    },
+
     rules: {
       shiftRulePoints: shiftRule,
       trendRulePoints: trendRule,
+      enableAdvancedTrend: enableAdvancedTrendCheckbox?.checked ?? false,
+      enableRareRunTrend: enableRareRunTrendCheckbox?.checked ?? false,
+      ruleTwoOfThreeOuterThird: ruleTwoOfThreeOuterThirdCheckbox?.checked ?? false,
+      ruleFourOfFiveOneSigma: ruleFourOfFiveOneSigmaCheckbox?.checked ?? false,
       flagSpecialCauseOnChart: flagSpecial,
       clampLclAtZero: clampLcl
     },
 
-    // Keep user work
     splits: Array.isArray(splits) ? splits.slice() : [],
     annotations: Array.isArray(annotations) ? annotations.slice() : []
   };
@@ -313,27 +464,44 @@ function collectToolSettings() {
 function applyToolSettings(settings, { silent = true } = {}) {
   if (!settings || typeof settings !== "object") return;
 
-  // Chart type + axis type
   if (settings.chartType) setCheckedRadioValue("chartType", settings.chartType);
   if (settings.axisType) setCheckedRadioValue("axisType", settings.axisType);
 
-  // Update UI labels/third-column visibility to match chart type
   if (typeof updateUIForChartType === "function" && settings.chartType) {
     updateUIForChartType(settings.chartType);
   }
 
-  // Rules
-  if (shiftRulePointsInput && settings.rules?.shiftRulePoints !== undefined) shiftRulePointsInput.value = settings.rules.shiftRulePoints;
-  if (trendRulePointsInput && settings.rules?.trendRulePoints !== undefined) trendRulePointsInput.value = settings.rules.trendRulePoints;
+  if (shiftRulePointsInput && settings.rules?.shiftRulePoints !== undefined) {
+    shiftRulePointsInput.value = settings.rules.shiftRulePoints;
+  }
+  if (trendRulePointsInput && settings.rules?.trendRulePoints !== undefined) {
+    trendRulePointsInput.value = settings.rules.trendRulePoints;
+  }
+
+  if (enableAdvancedTrendCheckbox && settings.rules?.enableAdvancedTrend !== undefined) {
+    enableAdvancedTrendCheckbox.checked = !!settings.rules.enableAdvancedTrend;
+  }
+
+  if (enableRareRunTrendCheckbox && settings.rules?.enableRareRunTrend !== undefined) {
+    enableRareRunTrendCheckbox.checked = !!settings.rules.enableRareRunTrend;
+  }
 
   if (flagSpecialCauseOnChartCheckbox && settings.rules?.flagSpecialCauseOnChart !== undefined) {
     flagSpecialCauseOnChartCheckbox.checked = !!settings.rules.flagSpecialCauseOnChart;
   }
+
+  if (ruleTwoOfThreeOuterThirdCheckbox && settings.rules?.ruleTwoOfThreeOuterThird !== undefined) {
+    ruleTwoOfThreeOuterThirdCheckbox.checked = !!settings.rules.ruleTwoOfThreeOuterThird;
+  }
+
+  if (ruleFourOfFiveOneSigmaCheckbox && settings.rules?.ruleFourOfFiveOneSigma !== undefined) {
+    ruleFourOfFiveOneSigmaCheckbox.checked = !!settings.rules.ruleFourOfFiveOneSigma;
+  }
+
   if (clampLclAtZeroCheckbox && settings.rules?.clampLclAtZero !== undefined) {
     clampLclAtZeroCheckbox.checked = !!settings.rules.clampLclAtZero;
   }
 
-  // Baseline + target
   if (baselineInput && settings.baselinePoints !== undefined) baselineInput.value = settings.baselinePoints;
 
   if (targetInput && settings.target?.value !== undefined) targetInput.value = settings.target.value;
@@ -345,17 +513,27 @@ function applyToolSettings(settings, { silent = true } = {}) {
     if (typeof updateTargetToggleVisibility === "function") updateTargetToggleVisibility();
   }
 
-  // Titles/labels
   if (chartTitleInput && settings.labels?.title !== undefined) chartTitleInput.value = settings.labels.title;
   if (xAxisLabelInput && settings.labels?.xLabel !== undefined) xAxisLabelInput.value = settings.labels.xLabel;
   if (yAxisLabelInput && settings.labels?.yLabel !== undefined) yAxisLabelInput.value = settings.labels.yLabel;
 
-  // Splits + annotations
+  if (xAxisFontFamilyInput && settings.axes?.x?.font?.family !== undefined) xAxisFontFamilyInput.value = settings.axes.x.font.family;
+  if (xAxisFontSizeInput && settings.axes?.x?.font?.size !== undefined) xAxisFontSizeInput.value = settings.axes.x.font.size;
+  setPressed(xAxisItalicBtn, settings.axes?.x?.font?.style === "italic");
+  setPressed(xAxisBoldBtn, settings.axes?.x?.font?.weight === "bold");
+
+  if (yAxisMinInput && settings.axes?.y?.min !== undefined) yAxisMinInput.value = settings.axes.y.min;
+  if (yAxisMaxInput && settings.axes?.y?.max !== undefined) yAxisMaxInput.value = settings.axes.y.max;
+  if (yAxisFormatInput && settings.axes?.y?.format !== undefined) yAxisFormatInput.value = settings.axes.y.format;
+  if (yAxisDecimalsInput && settings.axes?.y?.decimals !== undefined) yAxisDecimalsInput.value = settings.axes.y.decimals;
+  if (yAxisFontFamilyInput && settings.axes?.y?.font?.family !== undefined) yAxisFontFamilyInput.value = settings.axes.y.font.family;
+  if (yAxisFontSizeInput && settings.axes?.y?.font?.size !== undefined) yAxisFontSizeInput.value = settings.axes.y.font.size;
+  setPressed(yAxisItalicBtn, settings.axes?.y?.font?.style === "italic");
+  setPressed(yAxisBoldBtn, settings.axes?.y?.font?.weight === "bold");
+
   if (Array.isArray(settings.splits)) splits = settings.splits.slice();
   if (Array.isArray(settings.annotations)) annotations = settings.annotations.slice();
 
-  // Columns: only apply if those columns exist in dropdown options
-  // (this avoids breaking when users import settings before loading data)
   const missing = [];
 
   function setSelectIfOptionExists(selectEl, value, labelForMissing) {
@@ -368,12 +546,15 @@ function applyToolSettings(settings, { silent = true } = {}) {
     }
   }
 
+  if (dateFormatPreferenceSelect && settings.dateFormatPreference) {
+    dateFormatPreferenceSelect.value = settings.dateFormatPreference;
+  }
+
   const cols = settings.selectedColumns || {};
   setSelectIfOptionExists(dateSelect, cols.x, `X-axis column "${cols.x}"`);
   setSelectIfOptionExists(valueSelect, cols.y, `Value column "${cols.y}"`);
   setSelectIfOptionExists(thirdSelect, cols.third, `Third column "${cols.third}"`);
 
-  // Re-run column intelligence for the selected chart type (keeps dropdowns consistent)
   const chartTypeNow = (typeof getSelectedChartType_NoSideEffects === "function")
     ? getSelectedChartType_NoSideEffects()
     : (typeof getSelectedChartType === "function" ? getSelectedChartType() : "run");
@@ -382,29 +563,83 @@ function applyToolSettings(settings, { silent = true } = {}) {
     applyColumnIntelligence(chartTypeNow);
   }
 
-  // If columns were missing, tell the user gently (non-blocking)
   if (missing.length && typeof showError === "function" && !silent) {
     showError(
-      "Imported settings applied, but some saved columns were not found in your current data. " +
+      "Imported settings/project applied, but some saved columns were not found in your current data. " +
       "Please reselect: " + missing.join(", ")
     );
   }
 
-  // Redraw chart (avoid popups by treating as auto regenerate)
+  updateDateFormatWarning();
+  if (typeof updateDateControlsState === "function") updateDateControlsState();
+
   if (rawRows && rawRows.length && generateButton) {
     if (typeof lastGenerateWasManual !== "undefined") lastGenerateWasManual = false;
     generateButton.click();
   }
 }
 
-function exportSettingsNow() {
-  const settings = collectToolSettings();
-  const safeDate = new Date().toISOString().slice(0, 10);
-  const filename = `spc-settings-${safeDate}.json`;
-  downloadTextFile(filename, JSON.stringify(settings, null, 2));
+function collectProjectFile() {
+  return {
+    tool: "Simple SPC Web Tool",
+    projectVersion: 1,
+    savedAt: new Date().toISOString(),
+    data: {
+      rawRows: Array.isArray(rawRows) ? rawRows : []
+    },
+    settings: collectToolSettings()
+  };
 }
 
-function importSettingsFromFile(file) {
+function exportProjectNow() {
+  const project = collectProjectFile();
+  const safeDate = new Date().toISOString().slice(0, 10);
+  const filename = `spc-project-${safeDate}.json`;
+  downloadTextFile(filename, JSON.stringify(project, null, 2));
+}
+
+function resetAnnotationsAndSplitsForNewData() {
+  annotations = [];
+  if (annotationDateInput) annotationDateInput.value = "";
+  if (annotationLabelInput) annotationLabelInput.value = "";
+
+  splits = [];
+  if (splitPointSelect) splitPointSelect.innerHTML = "";
+}
+
+function loadProjectObject(projectObj) {
+  if (!projectObj || typeof projectObj !== "object") {
+    alert("That file could not be read as an SPC project.");
+    return;
+  }
+
+  const rows = projectObj?.data?.rawRows;
+  const settings = projectObj?.settings;
+
+  if (!Array.isArray(rows) || rows.length === 0) {
+    alert("This project file does not contain any saved data.");
+    return;
+  }
+
+  resetAnnotationsAndSplitsForNewData();
+
+  const ok = loadRows(rows);
+  if (!ok) {
+    alert("The project data could not be loaded.");
+    return;
+  }
+
+  if (settings) {
+    applyToolSettings(settings, { silent: false });
+  } else if (generateButton) {
+    if (typeof lastGenerateWasManual !== "undefined") lastGenerateWasManual = false;
+    generateButton.click();
+  }
+
+  markDataModelDirty();
+}
+
+function importSettingsOrProjectFromFile(file) {
   if (!file) return;
 
   const reader = new FileReader();
@@ -413,31 +648,35 @@ function importSettingsFromFile(file) {
       const text = String(reader.result || "");
       const parsed = JSON.parse(text);
 
-      // Basic sanity check
-      if (!parsed || typeof parsed !== "object" || parsed.settingsVersion !== 1) {
-        alert("That file doesn’t look like an SPC settings file (or it’s from an unsupported version).");
+      // New full project file
+      if (parsed && typeof parsed === "object" && parsed.projectVersion === 1 && parsed.data?.rawRows) {
+        loadProjectObject(parsed);
         return;
       }
 
-      // If data is already loaded, apply immediately.
-      // If not, store it and apply after the next loadRows().
-      if (rawRows && rawRows.length) {
-        applyToolSettings(parsed, { silent: false });
-      } else {
-        pendingImportedSettings = parsed;
-        alert("Settings loaded. Now upload your CSV data and the tool will apply these settings automatically.");
+      // Old settings-only file (backward compatibility)
+      if (parsed && typeof parsed === "object" && parsed.settingsVersion === 1) {
+        if (rawRows && rawRows.length) {
+          applyToolSettings(parsed, { silent: false });
+        } else {
+          pendingImportedSettings = parsed;
+          alert("Settings loaded. Now upload your CSV or Excel data and the tool will apply these settings automatically.");
+        }
+        return;
       }
+
+      alert("That file doesn’t look like a supported SPC project or settings file.");
     } catch (e) {
-      alert("Could not read that settings file. Please check it is a valid .json settings export from this tool.");
+      alert("Could not read that JSON file. Please check it is a valid export from this tool.");
     }
   };
   reader.readAsText(file);
 }
 
-// Wire up the buttons (safe no-op if buttons aren't present)
+// Wire up the buttons
 if (exportSettingsBtn) {
   exportSettingsBtn.addEventListener("click", () => {
-    exportSettingsNow();
+    exportProjectNow();
   });
 }
 
@@ -449,10 +688,112 @@ if (importSettingsBtn && importSettingsFileInput) {
 
   importSettingsFileInput.addEventListener("change", () => {
     const file = importSettingsFileInput.files && importSettingsFileInput.files[0];
-    if (file) importSettingsFromFile(file);
+    if (file) importSettingsOrProjectFromFile(file);
   });
 }
 
+function openSheetPicker(sheetNames) {
+  return new Promise((resolve) => {
+    if (!sheetPickerOverlay || !sheetPickerSelect || !sheetPickerConfirmButton || !sheetPickerCancelButton) {
+      resolve(sheetNames[0] || null);
+      return;
+    }
+
+    sheetPickerSelect.innerHTML = "";
+    (sheetNames || []).forEach(name => {
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = name;
+      sheetPickerSelect.appendChild(opt);
+    });
+
+    sheetPickerOverlay.style.display = "flex";
+    sheetPickerSelect.focus();
+
+    function cleanup(result) {
+      sheetPickerOverlay.style.display = "none";
+      sheetPickerConfirmButton.removeEventListener("click", onConfirm);
+      sheetPickerCancelButton.removeEventListener("click", onCancel);
+      sheetPickerOverlay.removeEventListener("click", onOverlayClick);
+      document.removeEventListener("keydown", onKeyDown);
+      resolve(result);
+    }
+
+    function onConfirm() {
+      cleanup(sheetPickerSelect.value || sheetNames[0] || null);
+    }
+
+    function onCancel() {
+      cleanup(null);
+    }
+
+    function onOverlayClick(e) {
+      if (e.target === sheetPickerOverlay) {
+        cleanup(null);
+      }
+    }
+
+    function onKeyDown(e) {
+      if (e.key === "Escape") cleanup(null);
+      if (e.key === "Enter") cleanup(sheetPickerSelect.value || sheetNames[0] || null);
+    }
+
+    sheetPickerConfirmButton.addEventListener("click", onConfirm);
+    sheetPickerCancelButton.addEventListener("click", onCancel);
+    sheetPickerOverlay.addEventListener("click", onOverlayClick);
+    document.addEventListener("keydown", onKeyDown);
+  });
+}
+
+function normalizeWorkbookCellValue(value) {
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10);
+  }
+  return value;
+}
+
+function sheetToRowObjects(worksheet) {
+  if (!worksheet) return [];
+
+  const rows = XLSX.utils.sheet_to_json(worksheet, {
+    defval: "",
+    raw: false
+  });
+
+  return rows.map(row => {
+    const out = {};
+    Object.keys(row).forEach(key => {
+      out[key] = normalizeWorkbookCellValue(row[key]);
+    });
+    return out;
+  });
+}
+
+async function readExcelWorkbook(file) {
+  const buffer = await file.arrayBuffer();
+  const workbook = XLSX.read(buffer, {
+    type: "array",
+    cellDates: true
+  });
+
+  const sheetNames = workbook.SheetNames || [];
+  if (!sheetNames.length) {
+    throw new Error("No worksheets were found in the Excel file.");
+  }
+
+  return workbook;
+}
+
+function resetStateAfterDataLoad() {
+  markDataModelDirty();
+
+  annotations = [];
+  if (annotationDateInput) annotationDateInput.value = "";
+  if (annotationLabelInput) annotationLabelInput.value = "";
+
+  splits = [];
+  if (splitPointSelect) splitPointSelect.innerHTML = "";
+}
 
 function guessColumns(rows) {
   if (!rows || rows.length === 0) return { dateCol: null, valueCol: null, hasDateCandidate: false };
@@ -636,17 +977,31 @@ function updateMrToggleVisibility() {
 
   const chartType = getSelectedChartType_NoSideEffects();
   const mrDisplayOptions = document.getElementById("mrDisplayOptions");
+  const toggleLabel = document.getElementById("secondaryChartToggleLabel");
+  const displayModeLabel = document.getElementById("mrDisplayModeLabel");
+  const displaySubhint = document.getElementById("mrDisplaySubhint");
 
+  const showSecondaryToggle = (chartType === "xmr" || chartType === "xbars");
+  const showMR = !!showMRCheckbox.checked;
+
+  // Show the checkbox row for XmR and X̄–S
   if (mrToggleRow) {
-    mrToggleRow.style.display = (chartType === "xmr") ? "block" : "none";
+    mrToggleRow.style.display = showSecondaryToggle ? "block" : "none";
   }
 
-  if (mrDisplayOptions) {
-    mrDisplayOptions.style.display =
-      (chartType === "xmr" && showMRCheckbox.checked) ? "block" : "none";
-  }
-
-  if (chartType !== "xmr") {
+  // Relabel based on chart type
+  if (chartType === "xmr") {
+    if (toggleLabel) toggleLabel.textContent = "Show MR";
+    if (displayModeLabel) displayModeLabel.textContent = "MR display";
+    if (displaySubhint) displaySubhint.textContent = "(includes splits)";
+    if (mrDisplayOptions) mrDisplayOptions.style.display = showMR ? "flex" : "none";
+  } else if (chartType === "xbars") {
+    if (toggleLabel) toggleLabel.textContent = "Show S chart";
+    if (displayModeLabel) displayModeLabel.textContent = "S chart display";
+    if (displaySubhint) displaySubhint.textContent = "(includes splits)";
+    if (mrDisplayOptions) mrDisplayOptions.style.display = showMR ? "flex" : "none";
+  } else {
+    if (mrDisplayOptions) mrDisplayOptions.style.display = "none";
     hideMrPanelNow();
   }
 }
@@ -670,6 +1025,41 @@ function isProbablyHeaderRow(row) {
 
   // If mostly text labels => header row
   return headerish >= datish && headerish > 0;
+}
+
+if (dataEditorDeleteHelpBtn && dataEditorDeleteHelpPopup) {
+  dataEditorDeleteHelpBtn.addEventListener("mouseenter", showDataEditorDeleteHelp);
+  dataEditorDeleteHelpBtn.addEventListener("mouseleave", hideDataEditorDeleteHelp);
+
+  dataEditorDeleteHelpBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    toggleDataEditorDeleteHelp();
+  });
+
+  dataEditorDeleteHelpBtn.addEventListener("focus", showDataEditorDeleteHelp);
+  dataEditorDeleteHelpBtn.addEventListener("blur", hideDataEditorDeleteHelp);
+
+  dataEditorDeleteHelpPopup.addEventListener("mouseenter", showDataEditorDeleteHelp);
+  dataEditorDeleteHelpPopup.addEventListener("mouseleave", hideDataEditorDeleteHelp);
+
+  document.addEventListener("click", (e) => {
+    const clickedInsideHelp =
+      dataEditorDeleteHelpBtn.contains(e.target) ||
+      dataEditorDeleteHelpPopup.contains(e.target);
+
+    if (!clickedInsideHelp) {
+      hideDataEditorDeleteHelp();
+    }
+  });
+}
+
+if (dataEditorSheetSelect) {
+  dataEditorSheetSelect.addEventListener("change", () => {
+    const nextSheet = dataEditorSheetSelect.value;
+    if (!nextSheet || nextSheet === dataEditorCurrentSheetName) return;
+    loadWorkbookSheetIntoDataEditor(nextSheet);
+  });
 }
 
 function getNonBlankGridRows() {
@@ -717,13 +1107,12 @@ if (showMRCheckbox) {
     updateMrToggleVisibility();
     const chartType = getSelectedChartType_NoSideEffects();
 
-    // If you're not on XmR, MR chart isn't relevant anyway
-    if (chartType !== "xmr") {
+    // Secondary chart only relevant for XmR and X̄–S
+    if (chartType !== "xmr" && chartType !== "xbars") {
       hideMrPanelNow();
       return;
     }
 
-    // If you already have a chart, just regenerate to show/hide MR
     if (currentChart) {
       generateButton.click();
     } else {
@@ -738,8 +1127,8 @@ document.querySelectorAll("input[name='mrDisplayMode']").forEach(r => {
     updateMrToggleVisibility();
     const chartType = getSelectedChartType ? getSelectedChartType_NoSideEffects() : "run";
 
-    // Only relevant for XmR charts
-    if (chartType !== "xmr") return;
+    // Only relevant for XmR and X̄–S charts
+    if (chartType !== "xmr" && chartType !== "xbars") return;
 
     if (rawRows && rawRows.length && currentChart) {
       generateButton.click();
@@ -762,6 +1151,7 @@ function applyPresentationEditsLive() {
   const title = (chartTitleInput?.value || "").trim();
   const xLabel = (xAxisLabelInput?.value || "").trim();
   const yLabel = (yAxisLabelInput?.value || "").trim();
+  const axisSettings = (typeof getAxisSettings === "function") ? getAxisSettings() : null;
 
   // Title
   if (currentChart.options?.plugins?.title) {
@@ -769,17 +1159,43 @@ function applyPresentationEditsLive() {
     currentChart.options.plugins.title.text = title;
   }
 
-  // Axes
-  if (currentChart.options?.scales?.x?.title) {
-    currentChart.options.scales.x.title.display = !!xLabel;
-    currentChart.options.scales.x.title.text = xLabel;
-  }
-  if (currentChart.options?.scales?.y?.title) {
-    currentChart.options.scales.y.title.display = !!yLabel;
-    currentChart.options.scales.y.title.text = yLabel;
+  // X axis
+  if (currentChart.options?.scales?.x) {
+    if (currentChart.options.scales.x.title) {
+      currentChart.options.scales.x.title.display = !!xLabel;
+      currentChart.options.scales.x.title.text = xLabel;
+      if (axisSettings?.x?.font) {
+        currentChart.options.scales.x.title.font = cleanFontOptions(axisSettings.x.font);
+      }
+    }
+
+    if (!currentChart.options.scales.x.ticks) {
+      currentChart.options.scales.x.ticks = {};
+    }
+
+    currentChart.options.scales.x.ticks.font = cleanFontOptions(axisSettings?.x?.font);
   }
 
-  // Update without animation for a crisp “as you type” feel
+  // Y axis
+  if (currentChart.options?.scales?.y) {
+    if (currentChart.options.scales.y.title) {
+      currentChart.options.scales.y.title.display = !!yLabel;
+      currentChart.options.scales.y.title.text = yLabel;
+      if (axisSettings?.y?.font) {
+        currentChart.options.scales.y.title.font = cleanFontOptions(axisSettings.y.font);
+      }
+    }
+
+    if (!currentChart.options.scales.y.ticks) {
+      currentChart.options.scales.y.ticks = {};
+    }
+
+    currentChart.options.scales.y.ticks.font = cleanFontOptions(axisSettings?.y?.font);
+    currentChart.options.scales.y.ticks.callback = buildTickFormatter(axisSettings?.y?.format);
+    currentChart.options.scales.y.min = axisSettings?.y?.min;
+    currentChart.options.scales.y.max = axisSettings?.y?.max;
+  }
+
   currentChart.update("none");
 }
 
@@ -809,8 +1225,8 @@ if (targetInput) {
   targetInput.addEventListener("input", () => {
     updateTargetToggleVisibility();
 
-    // If user clears the target, redraw to remove the line immediately
-    if (!hasValidTargetInput() && currentChart) {
+    if (rawRows && rawRows.length && generateButton) {
+      lastGenerateWasManual = false;
       generateButton.click();
     }
   });
@@ -818,7 +1234,7 @@ if (targetInput) {
 
 // Call once on load
 updateTargetToggleVisibility();
-	
+updateYAxisInputStep();	
 
 function debounce(fn, ms = 80) {
   let t;
@@ -830,11 +1246,115 @@ function debounce(fn, ms = 80) {
 
 const applyPresentationEditsLiveDebounced = debounce(applyPresentationEditsLive, 60);
 
-if (chartTitleInput) chartTitleInput.addEventListener("input", applyPresentationEditsLiveDebounced);
-if (xAxisLabelInput) xAxisLabelInput.addEventListener("input", applyPresentationEditsLiveDebounced);
-if (yAxisLabelInput) yAxisLabelInput.addEventListener("input", applyPresentationEditsLiveDebounced);
+if (chartTitleInput) {
+  chartTitleInput.addEventListener("input", () => {
+    chartTitleManuallyEdited = true;
+    applyPresentationEditsLiveDebounced();
+  });
+}
 
+if (xAxisLabelInput) {
+  xAxisLabelInput.addEventListener("input", () => {
+    xAxisLabelManuallyEdited = true;
+    applyPresentationEditsLiveDebounced();
+  });
+}
 
+if (yAxisLabelInput) {
+  yAxisLabelInput.addEventListener("input", () => {
+    yAxisLabelManuallyEdited = true;
+    applyPresentationEditsLiveDebounced();
+  });
+}
+
+function handleAxisControlChanged({ livePreview = false } = {}) {
+  markDataModelDirty();
+
+  if (!rawRows || !rawRows.length) return;
+
+  if (livePreview && currentChart) {
+    applyPresentationEditsLiveDebounced();
+  }
+}
+
+[
+  yAxisMinInput,
+  yAxisMaxInput
+].forEach(el => {
+  if (!el) return;
+  el.addEventListener("input", () => {
+    yAxisBoundsManuallyEdited = true;
+    handleAxisControlChanged({ livePreview: false });
+  });
+  el.addEventListener("change", () => {
+    yAxisBoundsManuallyEdited = true;
+    handleAxisControlChanged({ livePreview: false });
+  });
+});
+
+[
+  yAxisFormatInput,
+  yAxisDecimalsInput,
+  xAxisFontFamilyInput,
+  yAxisFontFamilyInput,
+  xAxisFontSizeInput,
+  yAxisFontSizeInput,
+  xAxisItalicBtn,
+  xAxisBoldBtn,
+  yAxisItalicBtn,
+  yAxisBoldBtn
+].forEach(el => {
+  if (!el) return;
+  el.addEventListener("input", () => {
+  if (el === yAxisFormatInput && typeof updateYAxisInputStep === "function") {
+  updateYAxisInputStep();
+}
+  handleAxisControlChanged({ livePreview: true });
+});
+
+el.addEventListener("change", () => {
+  if (el === yAxisFormatInput && typeof updateYAxisInputStep === "function") {
+  updateYAxisInputStep();
+}
+  handleAxisControlChanged({ livePreview: true });
+});
+  el.addEventListener("click", () => handleAxisControlChanged({ livePreview: true }));
+});
+
+if (valueSelect) {
+  valueSelect.addEventListener("change", () => {
+    yAxisBoundsManuallyEdited = false;
+    applyDefaultYBoundsForSelectedColumn();
+
+    if (rawRows && rawRows.length) {
+      markDataModelDirty();
+    }
+  });
+}
+
+if (dateSelect) {
+  dateSelect.addEventListener("change", () => {
+    updateDateFormatWarning();
+  });
+}
+
+if (dateFormatPreferenceSelect) {
+  dateFormatPreferenceSelect.addEventListener("change", () => {
+    updateDateFormatWarning();
+
+    if (rawRows && rawRows.length && generateButton) {
+      lastGenerateWasManual = false;
+      generateButton.click();
+    }
+  });
+}
+
+document.querySelectorAll("input[name='axisType']").forEach(r => {
+  r.addEventListener("change", () => {
+    updateDateFormatWarning();
+    updateDateControlsState();
+  });
+});
 
 function loadRows(rows) {
   if (!rows || rows.length === 0) {
@@ -843,6 +1363,7 @@ function loadRows(rows) {
   }
 
   rawRows = rows;
+  applyDefaultYBoundsForSelectedColumn();
 
   const firstRow = rows[0];
   const columns = firstRow ? Object.keys(firstRow) : [];
@@ -855,10 +1376,11 @@ function loadRows(rows) {
   // Ensure global column list is updated (used by column intelligence)
   allColumns = columns.slice();
 
-  // Clear dropdowns safely
-  if (dateSelect) dateSelect.innerHTML = "";
-  if (valueSelect) valueSelect.innerHTML = "";
-  if (thirdSelect) thirdSelect.innerHTML = "";
+// --- Reset dropdowns ---
+if (dateSelect) dateSelect.innerHTML = "";
+if (valueSelect) valueSelect.innerHTML = "";
+if (thirdSelect) thirdSelect.innerHTML = "";
+if (splitPointSelect) splitPointSelect.innerHTML = "";
 
   // (Optional extra selects - keep safe; these may exist in older versions)
   if (typeof numeratorSelect !== "undefined" && numeratorSelect) numeratorSelect.innerHTML = "";
@@ -888,8 +1410,11 @@ function loadRows(rows) {
   // ------------------------------------------------------------
   // LEVELS 1–2: populate dropdowns with filtering + smart defaults
   // ------------------------------------------------------------
-  if (typeof applyColumnIntelligence === "function") {
+    if (typeof applyColumnIntelligence === "function") {
     applyColumnIntelligence(chartTypeNow);
+    if (typeof applyChartTypeAvailability === "function") {
+      applyChartTypeAvailability();
+    }
   } else {
     // Fallback: populate all dropdowns with all columns (old behaviour)
     columns.forEach((col) => {
@@ -913,6 +1438,8 @@ function loadRows(rows) {
       }
     });
   }
+
+
 
   // ------------------------------------------------------------
   // Optional: keep your older "guessColumns" logic ONLY as a fallback
@@ -942,6 +1469,8 @@ function loadRows(rows) {
       if (opts[0]) valueSelect.value = opts[0].value;
     }
   }
+
+  updateDateFormatWarning();
 
   // Optional: if no date-like column, don't nag, but you can keep your tip
   // (only show if you want — comment out if noisy)
@@ -974,15 +1503,89 @@ function loadRows(rows) {
 
 }
 
+function getDefaultYBoundsForSelectedColumn() {
+  return { min: "", max: "" };
+}
 
+function applyDefaultYBoundsForSelectedColumn() {
+  const { min, max } = getDefaultYBoundsForSelectedColumn();
+
+  if (yAxisMinInput) yAxisMinInput.value = min;
+  if (yAxisMaxInput) yAxisMaxInput.value = max;
+}
+
+function updateYAxisInputStep() {
+  if (!yAxisMinInput || !yAxisMaxInput || !yAxisFormatInput) return;
+
+  const format = (yAxisFormatInput.value || "").toLowerCase();
+
+  let stepValue = "1";
+
+  // Percent values are stored as proportions:
+  // 0.01 = 1.0%, 0.001 = 0.1%, 0.05 = 5.0%
+  if (format === "percent") {
+    const minRaw = parseFloat(yAxisMinInput.value);
+    const maxRaw = parseFloat(yAxisMaxInput.value);
+
+    let rangeRaw = NaN;
+
+    if (Number.isFinite(minRaw) && Number.isFinite(maxRaw) && maxRaw > minRaw) {
+      rangeRaw = maxRaw - minRaw;
+    } else if (currentChart?.scales?.y) {
+      const yScale = currentChart.scales.y;
+      if (Number.isFinite(yScale.min) && Number.isFinite(yScale.max) && yScale.max > yScale.min) {
+        rangeRaw = yScale.max - yScale.min;
+      }
+    }
+
+    // Default: 1 percentage point
+    stepValue = "0.01";
+
+    // Small percent ranges: use 0.1 percentage point steps
+    if (Number.isFinite(rangeRaw) && rangeRaw <= 0.05) {
+      stepValue = "0.001";
+    }
+
+    // Large percent ranges: use 5 percentage point steps
+    if (Number.isFinite(rangeRaw) && rangeRaw >= 0.25) {
+      stepValue = "0.05";
+    }
+  }
+
+  yAxisMinInput.step = stepValue;
+  yAxisMaxInput.step = stepValue;
+}
+
+function applyCurrentChartYBoundsToInputs(chart = currentChart) {
+  if (!chart?.scales?.y) return;
+
+  const yScale = chart.scales.y;
+
+  if (yAxisMinInput) yAxisMinInput.value = String(yScale.min);
+  if (yAxisMaxInput) yAxisMaxInput.value = String(yScale.max);
+}
+
+function applyCurrentChartYBoundsToInputs(chart = currentChart) {
+  if (!chart?.scales?.y) return;
+
+  const yScale = chart.scales.y;
+
+  if (yAxisMinInput) yAxisMinInput.value = String(yScale.min);
+  if (yAxisMaxInput) yAxisMaxInput.value = String(yScale.max);
+}
 
 function showError(msg) {
   if (errorMessage) errorMessage.textContent = msg;
 }
+
+function showChartMessage(msg) {
+  // Safe alias used by some newer validation code
+  showError(msg);
+}
+
 function clearError() {
   if (errorMessage) errorMessage.textContent = "";
 }
-
 
 function getTargetValue() {
   if (!targetEnabled) return null;
@@ -1027,6 +1630,19 @@ if (trendRulePointsInput) {
   trendRulePointsInput.addEventListener("input", debouncedRegen);
   trendRulePointsInput.addEventListener("change", debouncedRegen);
 }
+if (enableAdvancedTrendCheckbox) {
+  enableAdvancedTrendCheckbox.addEventListener("change", () => {
+    const chartType = getSelectedChartType_NoSideEffects();
+
+    if (typeof updateRuleUIForChartType === "function") {
+      updateRuleUIForChartType(chartType);
+    }
+
+    if (typeof debouncedRegen === "function") {
+      debouncedRegen();
+    }
+  });
+}
 if (flagSpecialCauseOnChartCheckbox) {
   flagSpecialCauseOnChartCheckbox.addEventListener("change", () => {
     if (rawRows && rawRows.length) generateButton.click();
@@ -1038,7 +1654,33 @@ if (clampLclAtZeroCheckbox) {
   });
 }
 
+if (ruleTwoOfThreeOuterThirdCheckbox) {
+  ruleTwoOfThreeOuterThirdCheckbox.addEventListener("change", debouncedRegen);
+}
+if (ruleFourOfFiveOneSigmaCheckbox) {
+  ruleFourOfFiveOneSigmaCheckbox.addEventListener("change", debouncedRegen);
+}
 
+if (enableRareRunTrendCheckbox) {
+  enableRareRunTrendCheckbox.addEventListener("change", () => {
+    const chartType = getSelectedChartType_NoSideEffects();
+
+    if (!confirmEnableRareRunTrendOnce(chartType)) {
+      if (typeof updateRuleUIForChartType === "function") {
+        updateRuleUIForChartType(chartType);
+      }
+      return;
+    }
+
+    if (typeof updateRuleUIForChartType === "function") {
+      updateRuleUIForChartType(chartType);
+    }
+
+    if (typeof debouncedRegen === "function") {
+      debouncedRegen();
+    }
+  });
+}
 const recalcPrompt = document.getElementById("recalcPrompt");
 const firstRunGuide = document.getElementById("firstRunGuide");
 const FIRST_RUN_KEY = "spc_first_run_done_v1";
@@ -1100,6 +1742,11 @@ function markDataModelDirty() {
 function clearDataModelDirty() {
   dataModelDirty = false;
   setGenerateNeedsRecalc(false);
+
+  if (typeof updateSaveChartButtonState === "function") {
+    updateSaveChartButtonState();
+  }
+
   // don’t clearError() automatically; user may still want to see tips
 }
 
@@ -1169,7 +1816,7 @@ if (toggleSidebarButton) {
   });
 }
 
-// ---- CSV upload & column selection ----
+// ---- CSV / Excel upload & column selection ----
 fileInput.addEventListener("change", async () => {
   const file = fileInput.files[0];
   if (!file) return;
@@ -1178,7 +1825,22 @@ fileInput.addEventListener("change", async () => {
   if (summaryDiv) summaryDiv.innerHTML = "";
   if (capabilityDiv) capabilityDiv.innerHTML = "";
 
+  const lowerName = String(file.name || "").toLowerCase();
+  const isExcel = lowerName.endsWith(".xlsx") || lowerName.endsWith(".xls");
+  const isCsv = lowerName.endsWith(".csv");
+
   try {
+        if (isExcel) {
+      const workbook = await readExcelWorkbook(file);
+      openExcelWorkbookInDataEditor(workbook, workbook.SheetNames[0] || "");
+      return;
+    }
+
+    if (!isCsv) {
+      showError("Please upload a CSV or Excel file (.csv, .xlsx, .xls).");
+      return;
+    }
+
     const text = await file.text();
     const parsed = parseTabularTextWithHeaderDetection(text);
 
@@ -1187,8 +1849,6 @@ fileInput.addEventListener("change", async () => {
       return;
     }
 
-    // If header detection said "no header", but the first two rows are identical header-like rows
-    // (e.g. Date,Value repeated), treat it as header mode and just remove the duplicate header row.
     if (!parsed.hadHeader && parsed.rows2D && parsed.rows2D.length >= 2) {
       const r0 = parsed.rows2D[0];
       const r1 = parsed.rows2D[1];
@@ -1197,7 +1857,6 @@ fileInput.addEventListener("change", async () => {
       const duplicateHeaderRow = rowsEqualNormalized(r0, r1) && score0 <= 0.2;
 
       if (duplicateHeaderRow) {
-        // Parse as headered CSV so fields are created, then strip the duplicate header row
         const results = Papa.parse(text, { header: true, dynamicTyping: true, skipEmptyLines: true });
 
         if (results.errors && results.errors.length > 0) {
@@ -1211,23 +1870,14 @@ fileInput.addEventListener("change", async () => {
         rows = stripDuplicateHeaderRow(rows, headers);
 
         if (!loadRows(rows)) return;
-
-        // Reset annotations/splits because the data changed
-        annotations = [];
-        if (annotationDateInput) annotationDateInput.value = "";
-        if (annotationLabelInput) annotationLabelInput.value = "";
-        splits = [];
-        if (splitPointSelect) splitPointSelect.innerHTML = "";
+        resetStateAfterDataLoad();
         return;
       }
     }
 
     if (parsed.hadHeader) {
-      // Normal case: CSV has headers (already stripped of duplicate header row inside parser)
       if (!loadRows(parsed.rows)) return;
-
     } else {
-      // No headers detected — ask the user
       const ok = confirm(
         "It looks like your CSV does not include column headings.\n\n" +
         "Click OK to treat the first row as DATA (I will create Column1, Column2...).\n" +
@@ -1252,22 +1902,16 @@ fileInput.addEventListener("change", async () => {
       if (!loadRows(objRows)) return;
     }
 
-	markDataModelDirty();
-
-
-    // Reset annotations and splits because the data changed
-    annotations = [];
-    if (annotationDateInput) annotationDateInput.value = "";
-    if (annotationLabelInput) annotationLabelInput.value = "";
-    splits = [];
-    if (splitPointSelect) splitPointSelect.innerHTML = "";
-
+    resetStateAfterDataLoad();
   } catch (err) {
     console.error(err);
-    showError("Unexpected error reading the CSV file.");
+    showError(
+      isExcel
+        ? "Unexpected error reading the Excel file."
+        : "Unexpected error reading the CSV file."
+    );
   }
 });
-
 
 function getMrDisplayMode() {
   const el = document.querySelector("input[name='mrDisplayMode']:checked");
@@ -1398,7 +2042,7 @@ function drawSecondarySPCChart({
           text: title,
           font: { size: 16, weight: "bold" }
         },
-        legend: { display: true, position: "bottom", align: "center" },
+        legend: SPC_LEGEND,
         annotation: {
           annotations: (typeof buildAnnotationConfig === "function")
             ? buildAnnotationConfig(labels)
@@ -1406,18 +2050,16 @@ function drawSecondarySPCChart({
         }
       },
       elements: { point: { radius: 0, hoverRadius: 0 } },
-      scales: {
-        x: {
-          grid: { display: false },
-          title: { display: !!xLabel, text: xLabel }
-        },
-        y: {
-          grid: { display: false },
-          title: { display: !!yLabel, text: yLabel },
-          suggestedMin: isFinite(suggestedMin) ? suggestedMin : undefined,
-          suggestedMax: isFinite(suggestedMax) ? suggestedMax : undefined
-        }
-      }
+            scales: (() => {
+        const axisSettings = getAxisSettings();
+        return {
+          x: buildCategoryXAxisConfig(xLabel, axisSettings.x, labels),
+          y: buildAxisConfig(yLabel, withoutAxisBounds(axisSettings.y), {
+            suggestedMin: isFinite(suggestedMin) ? suggestedMin : undefined,
+            suggestedMax: isFinite(suggestedMax) ? suggestedMax : undefined
+          })
+        };
+      })()
     }
   });
 }
@@ -1450,24 +2092,7 @@ function drawXbarSCombinedChart({
     populateSplitOptions(labels);
   }
 
-  // Helper: prefer user-entered labels, otherwise fall back per-chart
-  function getAxisLabels(defaultTitle, defaultX, defaultY) {
-    const title = (chartTitleInput && chartTitleInput.value.trim())
-      ? chartTitleInput.value.trim()
-      : defaultTitle;
-
-    const xLabel = (xAxisLabelInput && xAxisLabelInput.value.trim())
-      ? xAxisLabelInput.value.trim()
-      : defaultX;
-
-    // IMPORTANT: y-axis label should differ between X̄ and S charts,
-    // so only use the user y-label if they typed one.
-    const yLabel = (yAxisLabelInput && yAxisLabelInput.value.trim())
-      ? yAxisLabelInput.value.trim()
-      : defaultY;
-
-    return { title, xLabel, yLabel };
-  }
+    // Use shared labels helper so defaults are written into the controls
 
   // -------------------------
   // 1) Main chart: X̄ chart
@@ -1477,7 +2102,7 @@ function drawXbarSCombinedChart({
     currentChart = null;
   }
 
-  const mainLabels = getAxisLabels("X̄ chart", "Subgroup", "X̄");
+  const mainLabels = getChartLabels("X̄ chart", "Subgroup", "X̄");
 
   const mainDatasets = [
     {
@@ -1532,7 +2157,7 @@ function drawXbarSCombinedChart({
           text: mainLabels.title,
           font: { size: 16, weight: "bold" }
         },
-        legend: { display: true, position: "bottom", align: "center" },
+        legend: SPC_LEGEND,
         annotation: {
           annotations: (typeof buildAnnotationConfig === "function")
             ? buildAnnotationConfig(labels)
@@ -1540,16 +2165,13 @@ function drawXbarSCombinedChart({
         }
       },
       elements: { point: { radius: 0, hoverRadius: 0 } },
-      scales: {
-        x: {
-          grid: { display: false },
-          title: { display: !!mainLabels.xLabel, text: mainLabels.xLabel }
-        },
-        y: {
-          grid: { display: false },
-          title: { display: !!mainLabels.yLabel, text: mainLabels.yLabel }
-        }
-      }
+            scales: (() => {
+        const axisSettings = getAxisSettings();
+        return {
+          x: buildCategoryXAxisConfig(mainLabels.xLabel, axisSettings.x, labels),
+          y: buildAxisConfig(mainLabels.yLabel, axisSettings.y)
+        };
+      })()
     }
   });
 
@@ -1562,6 +2184,15 @@ function drawXbarSCombinedChart({
     mrChart = null;
   }
 
+  const showSecondary = showMRCheckbox ? showMRCheckbox.checked : true;
+
+  if (!showSecondary) {
+    if (mrPanel) {
+      mrPanel.style.display = "none";
+    }
+    return;
+  }
+
   // Show the panel and rename it (optional but avoids confusion)
   if (mrPanel) {
     mrPanel.style.display = "block";
@@ -1571,7 +2202,7 @@ function drawXbarSCombinedChart({
 
   if (!mrCanvas) return;
 
-  const sLabels = getAxisLabels("S chart", "Subgroup", "S");
+  const sLabels = getChartLabels("S chart", "Subgroup", "S");
 
   // Use your existing helper so the styling matches
   mrChart = drawSecondarySPCChart({
@@ -1605,10 +2236,16 @@ function resetAll() {
   // --- Hide column selectors ---
   if (columnSelectors) columnSelectors.style.display = "none";
 
-  // --- Reset dropdowns ---
+    // --- Reset dropdowns ---
   if (dateSelect) dateSelect.innerHTML = "";
   if (valueSelect) valueSelect.innerHTML = "";
+  if (thirdSelect) thirdSelect.innerHTML = "";
   if (splitPointSelect) splitPointSelect.innerHTML = "";
+
+  // --- Reset optional third-column UI ---
+  if (thirdColumnRow) thirdColumnRow.style.display = "none";
+  if (thirdLabelEl) thirdLabelEl.textContent = "Denominator / opportunities";
+  if (thirdHintEl) thirdHintEl.textContent = "";
 
   // --- Reset text inputs ---
   if (baselineInput) baselineInput.value = "";
@@ -1618,6 +2255,30 @@ function resetAll() {
   if (targetInput) targetInput.value = "";
   if (annotationDateInput) annotationDateInput.value = "";
   if (annotationLabelInput) annotationLabelInput.value = "";
+
+  chartTitleManuallyEdited = false;
+  xAxisLabelManuallyEdited = false;
+  yAxisLabelManuallyEdited = false;
+
+  // --- Reset axis controls ---
+  if (xAxisFontFamilyInput) xAxisFontFamilyInput.value = "";
+  if (xAxisFontSizeInput) xAxisFontSizeInput.value = "11";
+  if (typeof setPressed === "function") {
+    setPressed(xAxisItalicBtn, false);
+    setPressed(xAxisBoldBtn, false);
+  }
+
+  if (yAxisMinInput) yAxisMinInput.value = "";
+  if (yAxisMaxInput) yAxisMaxInput.value = "";
+  if (yAxisFormatInput) yAxisFormatInput.value = "auto";
+  if (yAxisDecimalsInput) yAxisDecimalsInput.value = "auto";
+  if (dateFormatPreferenceSelect) dateFormatPreferenceSelect.selectedIndex = 0;
+  if (yAxisFontFamilyInput) yAxisFontFamilyInput.value = "";
+  if (yAxisFontSizeInput) yAxisFontSizeInput.value = "11";
+  if (typeof setPressed === "function") {
+    setPressed(yAxisItalicBtn, false);
+    setPressed(yAxisBoldBtn, false);
+  }
 
   // --- Reset target direction dropdown ---
   if (targetDirectionInput) targetDirectionInput.value = "above";
@@ -1632,6 +2293,13 @@ function resetAll() {
   const xmrRadio = document.querySelector("input[name='chartType'][value='xmr']");
   if (runRadio) runRadio.checked = true;
   if (xmrRadio) xmrRadio.checked = false;
+
+  if (typeof updateUIForChartType === "function") {
+    updateUIForChartType("run");
+  }
+
+  const moreChartTypesDetails = document.getElementById("moreChartTypesDetails");
+  if (moreChartTypesDetails) moreChartTypesDetails.open = false;
 
   // MR toggle default (match first load)
   const showMRCheckbox = document.getElementById("showMRCheckbox");
@@ -1653,6 +2321,10 @@ function resetAll() {
   // --- Clear any error message ---
   if (errorMessage) errorMessage.textContent = "";
 
+if (typeof updateColumnCheckWarning === "function") {
+  updateColumnCheckWarning("run");
+}
+
   // --- Clear summary & capability output ---
   if (summaryDiv) summaryDiv.innerHTML = "";
   if (capabilityDiv) capabilityDiv.innerHTML = "";
@@ -1662,6 +2334,8 @@ function resetAll() {
     currentChart.destroy();
     currentChart = null;
   }
+
+  updateSaveChartButtonState();
 
   // --- Destroy MR chart ---
   if (mrChart) {
@@ -1698,21 +2372,24 @@ document.body.classList.remove("modal-open");
   const toggleBtn = document.getElementById("toggleSidebarButton");
   if (toggleBtn) toggleBtn.textContent = " Hide controls";
 
-  // --- Collapse sidebar <details> to match first load:
-  // Section 1 open, everything else closed
-  const sidebar = document.querySelector("aside.sidebar");
-  if (sidebar) {
-    const details = Array.from(sidebar.querySelectorAll("details"));
-    details.forEach((d, i) => {
-      d.open = (i === 0);
-    });
-  }
+  const firstTab = document.querySelector(".tab-btn");
+if (firstTab) firstTab.click();
 
   // Keep MR toggle visibility consistent with chart type default
   if (typeof updateMrToggleVisibility === "function") {
     updateMrToggleVisibility();
   }
+  
+if (typeof updateDateFormatWarning === "function") {
+  updateDateFormatWarning();
+}
+
+if (typeof updateDateControlsState === "function") {
+  updateDateControlsState();
+}
+
 clearFirstRunFlag();
+
 if (typeof setGenerateNeedsRecalc === "function") setGenerateNeedsRecalc(false);
 
   console.log("All elements reset.");
@@ -1725,6 +2402,14 @@ function validateBeforeGenerate() {
     return false;
   }
 
+  const chartType = (typeof getSelectedChartType_NoSideEffects === "function")
+    ? getSelectedChartType_NoSideEffects()
+    : "run";
+
+  const axisType = (typeof getAxisType === "function")
+    ? getAxisType()
+    : "date";
+
   const dateCol = dateSelect?.value;
   const valueCol = valueSelect?.value;
 
@@ -1733,14 +2418,16 @@ function validateBeforeGenerate() {
     return false;
   }
 
-  // Check at least 3 valid numeric points
+  // Check at least 3 valid numeric points in the selected value column.
+  // (T chart event-dates mode still uses a value selector in the UI for now,
+  // so keep this behaviour consistent until that workflow is changed.)
   let good = 0;
   for (const row of rawRows) {
     const y = toNumericValue(row[valueCol]);
     if (isFinite(y)) good++;
   }
 
-  if (good < 3) {
+  if (good < 3 && !(chartType === "t" && typeof tChartInputMode !== "undefined" && tChartInputMode === "eventDates")) {
     showError(
       "I can’t create a chart yet: I need at least 3 numeric values in the selected value column. " +
       "Check the column selection and make sure the values are numbers (e.g. 12.3 not '12,3' or text)."
@@ -1748,13 +2435,49 @@ function validateBeforeGenerate() {
     return false;
   }
 
-  clearError();
+  // Safety warning for suspicious selections
+  const safetyResult = validateColumnSelectionSafety({
+    chartType,
+    dateCol,
+    valueCol,
+    axisType
+  });
+
+  if (!handleValidationResult(safetyResult, { manual: lastGenerateWasManual })) {
+    return false;
+  }
+
   return true;
 }
 
 
-
 // ---- Helpers ----
+
+function isPressed(btn) {
+  return btn?.getAttribute("aria-pressed") === "true";
+}
+
+function setPressed(btn, pressed) {
+  if (!btn) return;
+  btn.setAttribute("aria-pressed", pressed ? "true" : "false");
+}
+
+function wireToggleButton(btn) {
+  if (!btn) return;
+  btn.addEventListener("click", () => {
+    const next = !isPressed(btn);
+    setPressed(btn, next);
+    markDataModelDirty();
+    if (rawRows && rawRows.length && currentChart) {
+      applyPresentationEditsLiveDebounced();
+    }
+  });
+}
+
+wireToggleButton(xAxisItalicBtn);
+wireToggleButton(xAxisBoldBtn);
+wireToggleButton(yAxisItalicBtn);
+wireToggleButton(yAxisBoldBtn);
 
 function getSelectedChartType_NoSideEffects() {
   const radios = document.querySelectorAll("input[name='chartType']");
@@ -1771,6 +2494,45 @@ function escapeHtml(str) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 }
+
+function isRareChartType(chartType) {
+  return chartType === "t" || chartType === "g";
+}
+
+function getRareRunTrendEnabled(chartType) {
+  if (!isRareChartType(chartType)) return false;
+  return !!enableRareRunTrendCheckbox?.checked;
+}
+
+function confirmEnableRareRunTrendOnce(chartType) {
+  if (!isRareChartType(chartType)) return true;
+
+  // Only needed if user is trying to enable it
+  if (!enableRareRunTrendCheckbox?.checked) return true;
+
+  const key = `spc_confirmedRareRunTrend_${chartType}`;
+  let alreadyConfirmed = false;
+  try { alreadyConfirmed = localStorage.getItem(key) === "true"; } catch {}
+
+  if (alreadyConfirmed) return true;
+
+  const msg =
+    `Advanced option: Run & trend rules on ${chartType.toUpperCase()} charts\n\n` +
+    `These patterns often happen by chance on T/G charts and can increase false alerts.\n\n` +
+    `Enable anyway?`;
+
+  const ok = confirm(msg);
+
+  if (!ok) {
+    // revert checkbox
+    enableRareRunTrendCheckbox.checked = false;
+    return false;
+  }
+
+  try { localStorage.setItem(key, "true"); } catch {}
+  return true;
+}
+
 
 /* ============================================================
    COLUMN INTELLIGENCE (Levels 1–3)
@@ -2084,24 +2846,92 @@ function chooseDefaultsForChart(chartType) {
     .slice()
     .sort((a, b) => (getProfile(b)?.intFraction ?? 0) - (getProfile(a)?.intFraction ?? 0));
 
+  // Scoring helper for "measure-like" columns
+  function scoreMeasureColumn(col, { preferCounts = false } = {}) {
+    const p = getProfile(col);
+    if (!p || !p.isNumeric || p.looksLikeDate) return -Infinity;
+
+    const name = String(col || "").toLowerCase();
+
+    let score = 0;
+
+    // Prefer columns that are not the chosen x-axis
+    if (col !== xCol) score += 3;
+    else score -= 4;
+
+    // Prefer columns with some variability / not just repeated IDs
+    if (!p.repeatsOften) score += 1;
+    if (p.uniqueRatio >= 0.6 && p.uniqueRatio <= 1) score += 1;
+
+    // Prefer typical outcome/measure names
+    if (
+      name.includes("value") ||
+      name.includes("measure") ||
+      name.includes("metric") ||
+      name.includes("rate") ||
+      name.includes("score") ||
+      name.includes("count") ||
+      name.includes("result") ||
+      name.includes("time")
+    ) {
+      score += 3;
+    }
+
+    // Penalise likely index / identifier columns
+    if (
+      name.includes("id") ||
+      name.includes("index") ||
+      name.includes("seq") ||
+      name.includes("sequence") ||
+      name.includes("week") ||
+      name.includes("day") ||
+      name.includes("number") ||
+      name.includes("row")
+    ) {
+      score -= 4;
+    }
+
+    // For non-count charts, prefer less "pure count-like" columns slightly
+    if (!preferCounts && !p.isMostlyInteger) score += 1;
+
+    // For count charts, prefer integer-like non-negative columns
+    if (preferCounts) {
+      if (p.isMostlyInteger) score += 2;
+      if (!p.hasNeg) score += 1;
+    }
+
+    return score;
+  }
+
   if (chartType === "run" || chartType === "xmr") {
-    // pick first numeric non-date column
-    const yCol = numericCols[0] || "";
+    const yCol =
+      numericCols
+        .slice()
+        .sort((a, b) => scoreMeasureColumn(b) - scoreMeasureColumn(a))[0] || "";
     return { xCol, yCol, thirdCol: "" };
   }
 
   if (chartType === "c") {
-    // prefer integer-like, non-negative
-    const yCol = countLike.find(c => !(getProfile(c)?.hasNeg)) || numericCols[0] || "";
+    const yCol =
+      countLike
+        .slice()
+        .sort((a, b) => scoreMeasureColumn(b, { preferCounts: true }) - scoreMeasureColumn(a, { preferCounts: true }))[0] ||
+      numericCols[0] ||
+      "";
     return { xCol, yCol, thirdCol: "" };
   }
 
   if (chartType === "g") {
-    // prefer integer-like with min >= 1
-    const yCol = countLike.find(c => {
-      const p = getProfile(c);
-      return !p?.hasNeg && Number.isFinite(p?.min) && p.min >= 1;
-    }) || countLike.find(c => !(getProfile(c)?.hasNeg)) || numericCols[0] || "";
+    const yCol =
+      countLike.find(c => {
+        const p = getProfile(c);
+        return !p?.hasNeg && Number.isFinite(p?.min) && p.min >= 1;
+      }) ||
+      countLike
+        .slice()
+        .sort((a, b) => scoreMeasureColumn(b, { preferCounts: true }) - scoreMeasureColumn(a, { preferCounts: true }))[0] ||
+      numericCols[0] ||
+      "";
     return { xCol, yCol, thirdCol: "" };
   }
 
@@ -2118,18 +2948,16 @@ function chooseDefaultsForChart(chartType) {
       }
     }
 
-    // If no good pair found, fall back to first two numeric cols
     let yCol = best.numer || intCols[0] || numericCols[0] || "";
     let thirdCol = best.denom || intCols.find(c => c !== yCol) || numericCols.find(c => c !== yCol) || "";
 
-    // If the chosen pair is reversed (denom smaller), swap by mean magnitude
-    // (very light heuristic)
     if (yCol && thirdCol) {
       const py = getProfile(yCol);
       const pt = getProfile(thirdCol);
-      if (Number.isFinite(py?.max) && Number.isFinite(pt?.max) && py.max > pt.max) {
-        // likely denom is larger, so swap
-        const tmp = yCol; yCol = thirdCol; thirdCol = tmp;
+      const yMeanish = (Number.isFinite(py?.min) && Number.isFinite(py?.max)) ? (py.min + py.max) / 2 : NaN;
+      const tMeanish = (Number.isFinite(pt?.min) && Number.isFinite(pt?.max)) ? (pt.min + pt.max) / 2 : NaN;
+      if (Number.isFinite(yMeanish) && Number.isFinite(tMeanish) && yMeanish > tMeanish) {
+        [yCol, thirdCol] = [thirdCol, yCol];
       }
     }
 
@@ -2137,45 +2965,87 @@ function chooseDefaultsForChart(chartType) {
   }
 
   if (chartType === "u") {
-    // numerator: count-like; denom: positive opportunities-like
-    const yCol = countLike.find(c => !(getProfile(c)?.hasNeg)) || numericCols[0] || "";
+  // choose count/opportunity pair:
+  // numerator = count-like column
+  // denominator = positive integer-like opportunities column, usually larger
+  const intCols = numericCols.filter(c => {
+    const p = getProfile(c);
+    return p?.isMostlyInteger && !p?.hasNeg;
+  });
 
-    const denomCandidates = numericCols
-      .filter(c => c !== yCol && !(getProfile(c)?.hasNeg))
-      .sort((a, b) => {
-        // prefer min > 0 and larger typical scale
-        const pa = getProfile(a), pb = getProfile(b);
-        const posa = (Number.isFinite(pa?.min) && pa.min > 0) ? 1 : 0;
-        const posb = (Number.isFinite(pb?.min) && pb.min > 0) ? 1 : 0;
-        if (posa !== posb) return posb - posa;
-        return (pb?.max ?? 0) - (pa?.max ?? 0);
-      });
+  let yCol =
+    intCols
+      .slice()
+      .sort((a, b) =>
+        scoreMeasureColumn(b, { preferCounts: true }) -
+        scoreMeasureColumn(a, { preferCounts: true })
+      )[0] ||
+    numericCols[0] ||
+    "";
 
-    const thirdCol = denomCandidates[0] || "";
-    return { xCol, yCol, thirdCol };
-  }
+  const positiveOpportunityCols = intCols.filter(c => {
+    const p = getProfile(c);
+    return c !== yCol && Number.isFinite(p?.min) && p.min > 0;
+  });
+
+  let thirdCol =
+    positiveOpportunityCols.find(c =>
+      (getProfile(c)?.max ?? -Infinity) >= (getProfile(yCol)?.max ?? Infinity)
+    ) ||
+    positiveOpportunityCols[0] ||
+    intCols.find(c => c !== yCol && Number.isFinite(getProfile(c)?.min) && getProfile(c).min > 0) ||
+    intCols.find(c => c !== yCol) ||
+    numericCols.find(c => c !== yCol) ||
+    "";
+
+  return { xCol, yCol, thirdCol };
+}
 
   if (chartType === "xbars") {
-    // subgroup: repeatsOften; measurement: numeric
-    const subgroup = allColumns
-      .filter(c => !getProfile(c)?.looksLikeDate)
-      .sort((a, b) => ((getProfile(b)?.repeatsOften ? 1 : 0) - (getProfile(a)?.repeatsOften ? 1 : 0)))[0] || "";
+    // subgroup: prefer repeated non-date columns
+    const subgroup =
+      allColumns
+        .filter(c => c !== xCol)
+        .filter(c => !getProfile(c)?.looksLikeDate)
+        .sort((a, b) => {
+          const pa = getProfile(a), pb = getProfile(b);
+          const ra = pa?.repeatsOften ? 1 : 0;
+          const rb = pb?.repeatsOften ? 1 : 0;
+          if (ra !== rb) return rb - ra;
+          return (pb?.nonEmpty ?? 0) - (pa?.nonEmpty ?? 0);
+        })[0] || "";
 
-    // measurement value: numeric not equal subgroup
-    const yCol = numericCols.find(c => c !== subgroup) || numericCols[0] || "";
+    const yCol =
+      numericCols
+        .filter(c => c !== subgroup)
+        .sort((a, b) => scoreMeasureColumn(b) - scoreMeasureColumn(a))[0] ||
+      numericCols[0] ||
+      "";
+
     return { xCol, yCol, thirdCol: subgroup };
   }
 
-  // t chart: often event date/time; this tool currently labels y as date/time,
-  // but we keep defaults conservative (xCol + first numeric).
   if (chartType === "t") {
-    const yCol = numericCols[0] || "";
+    // Prefer event date/time in xCol; if there is a separate numeric gap column use it as y,
+    // otherwise keep first numeric fallback.
+    const yCol =
+      numericCols
+        .filter(c => c !== xCol)
+        .sort((a, b) => scoreMeasureColumn(b) - scoreMeasureColumn(a))[0] ||
+      numericCols[0] ||
+      "";
     return { xCol, yCol, thirdCol: "" };
   }
 
-  return { xCol, yCol: numericCols[0] || "", thirdCol: "" };
+  return {
+    xCol,
+    yCol:
+      numericCols
+        .slice()
+        .sort((a, b) => scoreMeasureColumn(b) - scoreMeasureColumn(a))[0] || "",
+    thirdCol: ""
+  };
 }
-
 function applyColumnIntelligence(chartType) {
   // Level 2: filter option lists
   if (dateSelect) {
@@ -2223,10 +3093,47 @@ function applyColumnIntelligence(chartType) {
   }
 
   setIfEmptyOrMissing(dateSelect, defaults.xCol);
+
+// For count-style charts, be a bit more proactive:
+// if the current value column is numeric but clearly a poor fit
+// (e.g. mostly decimal or negative), switch to the better default.
+const currentValueProfile = valueSelect ? getProfile(valueSelect.value) : null;
+const currentThirdProfile = thirdSelect ? getProfile(thirdSelect.value) : null;
+
+const currentValuePoorForCountChart =
+  !!(currentValueProfile &&
+     (chartType === "c" || chartType === "p" || chartType === "u") &&
+     (
+       !currentValueProfile.isMostlyInteger ||
+       currentValueProfile.hasNeg
+     ));
+
+const currentThirdPoorForDenominator =
+  !!(currentThirdProfile &&
+     (chartType === "p" || chartType === "u") &&
+     (
+       !currentThirdProfile.isMostlyInteger ||
+       currentThirdProfile.hasNeg ||
+       (Number.isFinite(currentThirdProfile.min) && currentThirdProfile.min <= 0)
+     ));
+
+if (currentValuePoorForCountChart && defaults.yCol) {
+  valueSelect.value = defaults.yCol;
+} else {
   setIfEmptyOrMissing(valueSelect, defaults.yCol);
-  if (chartType === "p" || chartType === "u" || chartType === "xbars") {
+}
+
+if (chartType === "p" || chartType === "u" || chartType === "xbars") {
+  if (chartType === "p" || chartType === "u") {
+    if (currentThirdPoorForDenominator && defaults.thirdCol) {
+      thirdSelect.value = defaults.thirdCol;
+    } else {
+      setIfEmptyOrMissing(thirdSelect, defaults.thirdCol);
+    }
+  } else {
     setIfEmptyOrMissing(thirdSelect, defaults.thirdCol);
   }
+}
 
   // avoid third == y if needed (light UX polish)
   if ((chartType === "p" || chartType === "u" || chartType === "xbars") && thirdSelect && valueSelect) {
@@ -2237,8 +3144,250 @@ function applyColumnIntelligence(chartType) {
       if (alt) thirdSelect.value = alt;
     }
   }
+
+// ---- Auto-adjust axis type if user has not manually chosen ----
+if (!axisTypeManuallyChanged) {
+  const xCol = dateSelect?.value;
+  const p = (typeof getProfile === "function") ? getProfile(xCol) : null;
+
+  const xLooksLikeNumericSequence =
+    !!(p &&
+       p.isNumeric &&
+       p.isMostlyInteger &&
+       p.uniqueRatio >= 0.85 &&
+       !p.repeatsOften &&
+       !p.looksLikeDate);
+
+  const xLooksLikeNonDateLabel =
+    !!(p &&
+       !p.looksLikeDate &&
+       (
+         !p.isNumeric ||
+         p.repeatsOften ||
+         p.uniqueRatio > 0
+       ));
+
+  const shouldUseSequenceAxis =
+    xLooksLikeNumericSequence ||
+    (chartType === "xbars" && xLooksLikeNonDateLabel) ||
+    ((chartType === "run" || chartType === "xmr" || chartType === "c" || chartType === "p" || chartType === "u" || chartType === "g") && xLooksLikeNonDateLabel);
+
+  const seqRadio = document.querySelector("input[name='axisType'][value='sequence']");
+  const dateRadio = document.querySelector("input[name='axisType'][value='date']");
+
+  if (shouldUseSequenceAxis) {
+    if (seqRadio) seqRadio.checked = true;
+  } else if (p && p.looksLikeDate) {
+    if (dateRadio) dateRadio.checked = true;
+  }
 }
 
+}
+
+function getChartTypeRadioInput(chartType) {
+  return document.querySelector(`input[name='chartType'][value='${chartType}']`);
+}
+
+function getChartTypeRadioLabel(chartType) {
+  const input = getChartTypeRadioInput(chartType);
+  return input ? input.closest('label') : null;
+}
+
+function getFirstEnabledChartType() {
+  const radios = Array.from(document.querySelectorAll("input[name='chartType']"));
+  const firstEnabled = radios.find(r => !r.disabled);
+  return firstEnabled ? firstEnabled.value : "run";
+}
+
+function countValidNumericPointsForColumn(colName) {
+  if (!rawRows || !rawRows.length || !colName) return 0;
+  let n = 0;
+  for (const row of rawRows) {
+    const y = toNumericValue(row[colName]);
+    if (Number.isFinite(y)) n++;
+  }
+  return n;
+}
+
+function getSelectedOrSuggestedValueColumn(chartType) {
+  const selected = valueSelect?.value || "";
+  if (selected) return selected;
+  if (typeof chooseDefaultsForChart === "function") {
+    return chooseDefaultsForChart(chartType)?.yCol || "";
+  }
+  return "";
+}
+
+function getChartAvailability() {
+  const out = {};
+  const noDataReason = "Load data to assess which chart types are available.";
+
+  for (const chartType of ["run", "xmr", "c", "p", "u", "xbars", "t", "g"]) {
+    out[chartType] = { enabled: true, reason: "" };
+  }
+
+  if (!rawRows || !rawRows.length) {
+    for (const key of Object.keys(out)) {
+      if (key === "run") continue;
+      out[key] = { enabled: false, reason: noDataReason };
+    }
+    return out;
+  }
+
+  const numericNonDateCols = allColumns.filter(c => {
+    const p = getProfile(c);
+    return p?.isNumeric && !p?.looksLikeDate;
+  });
+
+  const countLikeNonNegCols = numericNonDateCols.filter(c => {
+    const p = getProfile(c);
+    return p?.isMostlyInteger && !p?.hasNeg;
+  });
+
+  const positiveCountLikeCols = countLikeNonNegCols.filter(c => {
+    const p = getProfile(c);
+    return Number.isFinite(p?.min) && p.min > 0;
+  });
+
+  const repeatingSubgroupCols = allColumns.filter(c => {
+    const p = getProfile(c);
+    return p && !p.looksLikeDate && p.repeatsOften;
+  });
+
+  const dateLikeCols = allColumns.filter(c => getProfile(c)?.looksLikeDate);
+  const gapLikeCols = numericNonDateCols.filter(c => countValidNumericPointsForColumn(c) >= 3);
+
+  const xmrValueCol = getSelectedOrSuggestedValueColumn("xmr");
+  const xmrValidPoints = countValidNumericPointsForColumn(xmrValueCol);
+  if (xmrValidPoints < 12) {
+    out.xmr = {
+      enabled: false,
+      reason: `Less than 12 data points available in "${xmrValueCol || "the selected value column"}" — this is a minimum requirement for a valid XmR chart.`
+    };
+  }
+
+  if (!countLikeNonNegCols.length) {
+    out.c = {
+      enabled: false,
+      reason: "No non-negative whole-number count column is available yet — C charts need counts per time period."
+    };
+  }
+
+  let hasValidPPair = false;
+  if (countLikeNonNegCols.length >= 2) {
+    for (const numer of countLikeNonNegCols) {
+      for (const denom of countLikeNonNegCols) {
+        if (numer === denom) continue;
+        if (scorePChartPair(numer, denom) > -Infinity) {
+          hasValidPPair = true;
+          break;
+        }
+      }
+      if (hasValidPPair) break;
+    }
+  }
+  if (!hasValidPPair) {
+    out.p = {
+      enabled: false,
+      reason: "No suitable numerator/denominator pair is available yet — P charts need two whole-number columns where the numerator is part of the denominator."
+    };
+  }
+
+  if (countLikeNonNegCols.length < 2 || !positiveCountLikeCols.length) {
+    out.u = {
+      enabled: false,
+      reason: "No suitable count/opportunities pair is available yet — U charts need a whole-number count column plus a positive opportunities column."
+    };
+  }
+
+  if (!numericNonDateCols.length || !repeatingSubgroupCols.length) {
+    out.xbars = {
+      enabled: false,
+      reason: "X̄–S charts need a numeric measurement column and a subgroup column with repeated subgroup labels."
+    };
+  }
+
+  if (!dateLikeCols.length && !gapLikeCols.length) {
+    out.t = {
+      enabled: false,
+      reason: "T charts need either event dates or a numeric time-between-events column."
+    };
+  }
+
+  if (!positiveCountLikeCols.length) {
+    out.g = {
+      enabled: false,
+      reason: "G charts need a whole-number column where all values are at least 1, because they plot opportunities between rare events."
+    };
+  }
+
+  return out;
+}
+
+function applyChartTypeAvailability() {
+  const availability = getChartAvailability();
+  let selectedInput = document.querySelector("input[name='chartType']:checked");
+  let selectedType = selectedInput?.value || "run";
+
+  Object.entries(availability).forEach(([chartType, state]) => {
+    const input = getChartTypeRadioInput(chartType);
+    const label = getChartTypeRadioLabel(chartType);
+    if (!input || !label) return;
+
+    const reason = state.reason || "";
+    input.disabled = !state.enabled;
+    input.title = reason;
+    label.title = reason;
+    label.classList.toggle("chart-disabled", !state.enabled);
+    label.setAttribute("aria-disabled", state.enabled ? "false" : "true");
+  });
+
+  if (selectedInput && selectedInput.disabled) {
+    const fallbackType = availability.run?.enabled ? "run" : getFirstEnabledChartType();
+    const fallbackInput = getChartTypeRadioInput(fallbackType);
+    if (fallbackInput) {
+      fallbackInput.checked = true;
+      selectedInput = fallbackInput;
+      selectedType = fallbackType;
+    }
+  }
+
+  if (chartTypeAvailabilityHint) {
+    const state = availability[selectedType];
+    chartTypeAvailabilityHint.textContent = state?.enabled
+      ? ""
+      : (state.reason || "This chart type is not available for the current data.");
+  }
+
+  return availability;
+}
+
+function refreshChartTypeAvailability() {
+  const availability = applyChartTypeAvailability();
+  const currentType = getSelectedChartType_NoSideEffects();
+  if (rawRows && rawRows.length) {
+    updateUIForChartType(currentType);
+  }
+  return availability;
+}
+
+function isSelectedChartTypeAvailable() {
+  const availability = getChartAvailability();
+  const currentType = getSelectedChartType_NoSideEffects();
+  return !!availability[currentType]?.enabled;
+}
+
+function getSelectedChartTypeUnavailableReason() {
+  const availability = getChartAvailability();
+  const currentType = getSelectedChartType_NoSideEffects();
+  return availability[currentType]?.reason || "";
+}
+
+function syncChartTypeAvailabilityMessage() {
+  if (!chartTypeAvailabilityHint) return;
+  const reason = getSelectedChartTypeUnavailableReason();
+  chartTypeAvailabilityHint.textContent = reason || "";
+}
 
 function getRuleSettings() {
   const shift = shiftRulePointsInput ? parseInt(shiftRulePointsInput.value, 10) : NaN;
@@ -2246,9 +3395,16 @@ function getRuleSettings() {
 
   return {
     shiftLength: Number.isFinite(shift) && shift >= 3 ? shift : 8,
-    trendLength: Number.isFinite(trend) && trend >= 3 ? trend : 6
+    trendLength: Number.isFinite(trend) && trend >= 3 ? trend : 6,
+
+    enableAdvancedTrend: enableAdvancedTrendCheckbox ? !!enableAdvancedTrendCheckbox.checked : false,
+    enableRareRunTrend: enableRareRunTrendCheckbox ? !!enableRareRunTrendCheckbox.checked : false,
+
+    ruleTwoOfThreeOuterThird: ruleTwoOfThreeOuterThirdCheckbox ? !!ruleTwoOfThreeOuterThirdCheckbox.checked : false,
+    ruleFourOfFiveOneSigma: ruleFourOfFiveOneSigmaCheckbox ? !!ruleFourOfFiveOneSigmaCheckbox.checked : false
   };
 }
+
 
 function shouldFlagSpecialCauseOnChart() {
   return flagSpecialCauseOnChartCheckbox ? !!flagSpecialCauseOnChartCheckbox.checked : true;
@@ -2334,8 +3490,164 @@ function findTrendRanges(values, length) {
   return ranges;
 }
 
+function updateRuleUIForChartType(chartType) {
+  const policy = getRulePolicy(chartType);
+  const isRare = isRareChartType(chartType);
+  const isAdvancedContinuous = isAdvancedContinuousChartType(chartType);
+  const trendRulePointsInput = document.getElementById("trendRulePoints");
+  const enableAdvancedTrendCheckbox = document.getElementById("enableAdvancedTrend");
+  const enableRareRunTrendCheckbox = document.getElementById("enableRareRunTrend");
+
+  // Advanced section is only useful when there is something advanced to show
+  const showAdvancedSection =
+    isRare ||
+    policy.trend === "optional" ||
+    policy.zone23 === "optional" ||
+    policy.zone45 === "optional";
+
+  if (advancedRulesDetails) {
+    advancedRulesDetails.style.display = showAdvancedSection ? "block" : "none";
+    if (!showAdvancedSection) advancedRulesDetails.open = false;
+  }
+
+  // Advanced trend for X-MR / XbarS / Run only
+  if (advancedTrendRow) {
+    advancedTrendRow.style.display = (policy.trend === "optional") ? "block" : "none";
+  }
+
+  if (enableAdvancedTrendCheckbox) {
+    enableAdvancedTrendCheckbox.disabled = !(policy.trend === "optional");
+    if (policy.trend !== "optional") enableAdvancedTrendCheckbox.checked = false;
+    enableAdvancedTrendCheckbox.title =
+      policy.trend === "optional" ? "" : "Trend rule is not offered for this chart type.";
+  }
+
+  if (trendRulePointsInput) {
+  let trendInputEnabled = false;
+  let trendInputTitle = "";
+
+  if (policy.trend === "optional") {
+    // Run / XmR / XbarS: only enabled when user ticks the advanced trend checkbox
+    trendInputEnabled = !!enableAdvancedTrendCheckbox?.checked;
+    trendInputTitle = trendInputEnabled
+      ? ""
+      : "Tick 'Enable trend rule' to use this setting.";
+  } else if (policy.trend === "warn") {
+    // T / G: only enabled when user explicitly enables rare-chart run/trend rules
+    trendInputEnabled = !!enableRareRunTrendCheckbox?.checked;
+    trendInputTitle = trendInputEnabled
+      ? ""
+      : "Enable run & trend rules for this chart type to use this setting.";
+  } else {
+    // P / U / C and any chart type where trend is blocked
+    trendInputEnabled = false;
+    trendInputTitle = "Trend rule is not offered for this chart type.";
+  }
+
+  trendRulePointsInput.disabled = !trendInputEnabled;
+  trendRulePointsInput.title = trendInputTitle;
+}
+
+  // Rare chart advanced row
+  if (rareRulesRow) {
+    rareRulesRow.style.display = isRare ? "block" : "none";
+  }
+
+  if (enableRareRunTrendCheckbox) {
+    enableRareRunTrendCheckbox.disabled = !isRare;
+    if (!isRare) enableRareRunTrendCheckbox.checked = false;
+    enableRareRunTrendCheckbox.title = isRare ? "" : "Only used for T and G charts.";
+  }
+
+  // Zone rules only for X-MR / XbarS
+  const showZoneRules = policy.zone23 === "optional" || policy.zone45 === "optional";
+  if (zoneRulesSection) {
+    zoneRulesSection.style.display = showZoneRules ? "block" : "none";
+  }
+
+  if (ruleTwoOfThreeOuterThirdCheckbox) {
+    const blocked = policy.zone23 === "blocked";
+    ruleTwoOfThreeOuterThirdCheckbox.disabled = blocked;
+    if (blocked) ruleTwoOfThreeOuterThirdCheckbox.checked = false;
+    ruleTwoOfThreeOuterThirdCheckbox.title = blocked
+      ? "Zone rules are not available for this chart type because they may create misleading alerts."
+      : "";
+  }
+
+  if (ruleFourOfFiveOneSigmaCheckbox) {
+    const blocked = policy.zone45 === "blocked";
+    ruleFourOfFiveOneSigmaCheckbox.disabled = blocked;
+    if (blocked) ruleFourOfFiveOneSigmaCheckbox.checked = false;
+    ruleFourOfFiveOneSigmaCheckbox.title = blocked
+      ? "Zone rules are not available for this chart type because they may create misleading alerts."
+      : "";
+  }
+
+  // Show caution text specifically for X-MR
+  if (advancedContinuousCaution) {
+    advancedContinuousCaution.style.display = (chartType === "xmr") ? "block" : "none";
+  }
+
+  // Conservative message for chart types with no advanced offering
+  if (conservativeRulesMessage) {
+    const showConservativeMessage =
+      chartType === "c" || chartType === "p" || chartType === "u";
+    conservativeRulesMessage.style.display = showConservativeMessage ? "block" : "none";
+  }
+}
+
+function updateColumnCheckWarning(chartType) {
+  if (!columnCheckWarning) return;
+
+  const warnings = {
+    c: `
+      <strong>Check your selected columns.</strong>
+      For a C chart, the value column should be a count of events/defects per time period.
+      Do not use a denominator column here.
+    `,
+    p: `
+      <strong>Check your selected columns.</strong>
+      For a P chart, the value column should be the numerator, e.g. number of cases/events,
+      and the third column should be the denominator, e.g. total patients/episodes.
+    `,
+    u: `
+      <strong>Check your selected columns.</strong>
+      For a U chart, the value column should be the numerator, e.g. number of defects/events,
+      and the third column should be the opportunities/denominator, e.g. bed days, attendances, or procedures.
+    `,
+    xbars: `
+      <strong>Check your selected columns.</strong>
+      For an X̄–S chart, the value column should contain the individual measurements,
+      and the third column should identify the subgroup, e.g. day, week, batch, or sample.
+    `,
+     t: `
+      <strong>Check your selected columns.</strong>
+      For a T chart, the event/date column should identify when each event occurred.
+      The tool will use this to calculate time between events, so check the selected date/event column carefully.
+    `,
+    g: `
+      <strong>Check your selected columns.</strong>
+      For a G chart, the value column should usually represent the number of opportunities,
+      cases, or observations between rare events. Check this is not a rate or percentage.
+    `
+  };
+
+  const message = warnings[chartType];
+
+  if (!message) {
+    columnCheckWarning.style.display = "none";
+    columnCheckWarning.innerHTML = "";
+    return;
+  }
+
+  columnCheckWarning.innerHTML = message;
+  columnCheckWarning.style.display = "block";
+}
+
 function updateUIForChartType(chartType) {
   if (!xLabelEl || !yLabelEl || !thirdColumnRow) return;
+
+updateColumnCheckWarning(chartType);
 
   // ---- Default UI state (safe baseline) ----
   xLabelEl.textContent = "Date / X-axis column";
@@ -2381,10 +3693,13 @@ function updateUIForChartType(chartType) {
     },
 
     t: {
-      yLabel: "Event date / time",
-      thirdHint: "T chart plots time between rare events."
-      // no third column required yet
-    },
+          // Labels depend on T chart input mode (event dates vs gaps)
+         yLabel: (tChartInputMode === "gaps") ? "Time between events (e.g. days)" : "Value column not used (T chart uses dates)",
+         thirdHint: (tChartInputMode === "gaps")
+         ? "T chart plots time between rare events (using your numeric gaps)."
+          : "T chart plots time between rare events (calculated from event dates)."
+         },
+
 
     g: {
       yLabel: "Opportunities between events",
@@ -2417,11 +3732,14 @@ function updateUIForChartType(chartType) {
   // Whenever the chart type changes, rebuild dropdown options
   // (filtering) and apply sensible defaults for this chart type.
   // ------------------------------------------------------------
-  if (rawRows && rawRows.length && typeof applyColumnIntelligence === "function") {
+    if (rawRows && rawRows.length && typeof applyColumnIntelligence === "function") {
     applyColumnIntelligence(chartType);
   }
+  if (typeof syncChartTypeAvailabilityMessage === "function") {
+    syncChartTypeAvailabilityMessage();
+  }
 
-  // ---- Optional UX polish: avoid third == y by default ----
+    // ---- Optional UX polish: avoid third == y by default ----
   if (cfg.needsThird && thirdSelect && valueSelect) {
     if (thirdSelect.value && valueSelect.value && thirdSelect.value === valueSelect.value) {
       const alt = Array.from(thirdSelect.options)
@@ -2430,7 +3748,30 @@ function updateUIForChartType(chartType) {
       if (alt) thirdSelect.value = alt;
     }
   }
+
+  // ---- Reset Value column enabled state for non-T charts ----
+  if (valueSelect) {
+    valueSelect.disabled = false;
+    valueSelect.title = "";
+  }
+
+if (typeof updateRuleUIForChartType === "function") {
+  updateRuleUIForChartType(chartType);
 }
+
+
+  // ---- T chart UX: enable/disable Value column depending on input mode ----
+  if (chartType === "t" && valueSelect) {
+    const shouldDisableValue = (tChartInputMode === "eventDates");
+    valueSelect.disabled = shouldDisableValue;
+
+    // Soft hint if disabled
+    if (shouldDisableValue) {
+      valueSelect.title = "Not used for T chart when using event dates.";
+    }
+  }
+}
+
 
 
 
@@ -2928,8 +4269,42 @@ function drawXbarSChart(points, baselineCount, labels) {
     }
   }
 
-  const pointColoursX = xbarVals.map((v, i) => (v > uclXArr[i] || v < lclXArr[i]) ? "#d73027" : "#003f87");
-  const pointColoursS = sVals.map((v, i) => (v > uclSArr[i] || v < lclSArr[i]) ? "#d73027" : "#003f87");
+    const flagOnChart =
+    (typeof shouldFlagSpecialCauseOnChart === "function")
+      ? shouldFlagSpecialCauseOnChart()
+      : true;
+
+  const axX = analyzeAttributeChart({
+    chartType: "xbars",
+    labels: subgroupLabels,
+    values: xbarVals,
+    cl: clX,
+    ucl: uclXArr,
+    lcl: lclXArr
+  });
+
+  const axS = analyzeAttributeChart({
+    chartType: "xbars",
+    labels: subgroupLabels,
+    values: sVals,
+    cl: clS,
+    ucl: uclSArr,
+    lcl: lclSArr
+  });
+
+  const pointColoursX = xbarVals.map((v, i) => {
+    if (!flagOnChart) return "#003f87";
+    if (axX.flags?.beyond?.[i]) return "#d73027";
+    if (axX.flags?.special?.[i]) return "#ff8c00";
+    return "#003f87";
+  });
+
+  const pointColoursS = sVals.map((v, i) => {
+    if (!flagOnChart) return "#003f87";
+    if (axS.flags?.beyond?.[i]) return "#d73027";
+    if (axS.flags?.special?.[i]) return "#ff8c00";
+    return "#003f87";
+  });
 
   // Draw as a combined chart (your existing approach)
   drawXbarSCombinedChart({
@@ -2961,7 +4336,7 @@ function drawXbarSChart(points, baselineCount, labels) {
       lcl: lclXArr.slice(start, end + 1)
     }),
     s: analyzeAttributeChart({
-      chartType: "s",
+      chartType: "xbars",
       labels: subgroupLabels.slice(start, end + 1),
       values: sVals.slice(start, end + 1),
       cl: clS.slice(start, end + 1),
@@ -2977,16 +4352,34 @@ function drawXbarSChart(points, baselineCount, labels) {
   lastXbarSAnalysis.labelStart = subgroupLabels[start];
   lastXbarSAnalysis.labelEnd = subgroupLabels[end];
 
-  if (summaryDiv) {
+   lastXbarSAnalysis.stats = {
+    subgroupSize: nSub,
+    xbarbar: clX[start],
+    sbar: clS[start],
+    uclX: uclXArr[start],
+    lclX: lclXArr[start],
+    uclS: uclSArr[start],
+    lclS: lclSArr[start]
+  };
+
+  if (typeof renderXbarSSummary === "function") {
+    renderXbarSSummary(lastXbarSAnalysis, subgroupLabels.length);
+  } else if (summaryDiv) {
     const xStable = lastXbarSAnalysis.xbar.isStable;
     const sStable = lastXbarSAnalysis.s.isStable;
-    summaryDiv.innerHTML =
-      `<h3>X̄–S summary (latest period)</h3>
-       <ul>
-         <li><strong>X̄ chart:</strong> ${xStable ? "stable (no clear signal of change)." : ("signal(s): " + lastXbarSAnalysis.xbar.signals.join("; "))}</li>
-         <li><strong>S chart:</strong> ${sStable ? "stable (no clear signal of change)." : ("signal(s): " + lastXbarSAnalysis.s.signals.join("; "))}</li>
-         <li><strong>Tip:</strong> If the S chart is unstable, the X̄ limits may not be reliable until the spread settles.</li>
-       </ul>`;
+
+    summaryDiv.innerHTML = `
+      <h3>X̄–S summary (latest period)</h3>
+      <ul>
+        <li><strong>Coverage:</strong> subgroups ${start + 1}–${end + 1}.</li>
+        <li><strong>Typical subgroup size:</strong> ${nSub} measurement${nSub === 1 ? "" : "s"} per subgroup.</li>
+        <li><strong>X̄ chart centre line:</strong> ${Number.isFinite(clX[start]) ? clX[start].toFixed(3) : "not available"}; limits: LCL = ${Number.isFinite(lclXArr[start]) ? lclXArr[start].toFixed(3) : "not available"}, UCL = ${Number.isFinite(uclXArr[start]) ? uclXArr[start].toFixed(3) : "not available"}.</li>
+        <li><strong>S chart centre line:</strong> ${Number.isFinite(clS[start]) ? clS[start].toFixed(3) : "not available"}; limits: LCL = ${Number.isFinite(lclSArr[start]) ? lclSArr[start].toFixed(3) : "not available"}, UCL = ${Number.isFinite(uclSArr[start]) ? uclSArr[start].toFixed(3) : "not available"}.</li>
+        <li><strong>X̄ chart:</strong> ${xStable ? "stable (no clear signal of change)." : ("signal(s): " + lastXbarSAnalysis.xbar.signals.join("; "))}</li>
+        <li><strong>S chart:</strong> ${sStable ? "stable (no clear signal of change)." : ("signal(s): " + lastXbarSAnalysis.s.signals.join("; "))}</li>
+        <li><strong>Tip:</strong> If the S chart is unstable, the X̄ limits may not be reliable until the spread settles.</li>
+      </ul>
+    `;
   }
 }
 
@@ -3061,7 +4454,26 @@ function drawTChart(points, baselineCount, labels) {
     }
   }
 
-  const pointColours = deltas.map((v, i) => (beyond[i] ? "#d73027" : "#003f87"));
+    const flagOnChart =
+    (typeof shouldFlagSpecialCauseOnChart === "function")
+      ? shouldFlagSpecialCauseOnChart()
+      : true;
+
+  const analysisForColour = analyzeRareChart({
+    chartType: "t",
+    labels: tLabels,
+    values: deltas,
+    cl,
+    ucl: uclArr,
+    lcl: lclArr
+  });
+
+  const pointColours = deltas.map((v, i) => {
+    if (!flagOnChart) return "#003f87";
+    if (analysisForColour.flags?.beyond?.[i]) return "#d73027";
+    if (analysisForColour.flags?.special?.[i]) return "#ff8c00";
+    return "#003f87";
+  });
 
   drawSimpleSPCChart({
     labels: tLabels,
@@ -3206,7 +4618,26 @@ function drawGChart(values, baselineCount, labels) {
     }
   }
 
-  const pointColours = gVals.map((v, i) => (beyond[i] ? "#d73027" : "#003f87"));
+  const flagOnChart =
+    (typeof shouldFlagSpecialCauseOnChart === "function")
+      ? shouldFlagSpecialCauseOnChart()
+      : true;
+
+  const analysisForColour = analyzeRareChart({
+    chartType: "g",
+    labels,
+    values: gVals,
+    cl,
+    ucl: uclArr,
+    lcl: lclArr
+  });
+
+  const pointColours = gVals.map((v, i) => {
+    if (!flagOnChart) return "#003f87";
+    if (analysisForColour.flags?.beyond?.[i]) return "#d73027";
+    if (analysisForColour.flags?.special?.[i]) return "#ff8c00";
+    return "#003f87";
+  });
 
   drawSimpleSPCChart({
     labels,
@@ -3276,25 +4707,187 @@ function drawGChart(values, baselineCount, labels) {
   renderRareChartSummary(segmentAnalyses, gVals.length);
 }
 
+function parseOptionalNumber(value) {
+  const s = String(value ?? "").trim();
+  if (s === "") return undefined;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : undefined;
+}
 
+function getAxisSettings() {
+  return {
+    x: {
+      font: {
+        family: (xAxisFontFamilyInput?.value || "").trim(),
+        size: parseOptionalNumber(xAxisFontSizeInput?.value),
+        style: isPressed(xAxisItalicBtn) ? "italic" : "normal",
+        weight: isPressed(xAxisBoldBtn) ? "bold" : "normal"
+      }
+    },
+    y: {
+      min: parseOptionalNumber(yAxisMinInput?.value),
+      max: parseOptionalNumber(yAxisMaxInput?.value),
+      format: (yAxisFormatInput?.value || "auto"),
+      font: {
+        family: (yAxisFontFamilyInput?.value || "").trim(),
+        size: parseOptionalNumber(yAxisFontSizeInput?.value),
+        style: isPressed(yAxisItalicBtn) ? "italic" : "normal",
+        weight: isPressed(yAxisBoldBtn) ? "bold" : "normal"
+      }
+    }
+  };
+}
+
+function cleanFontOptions(font) {
+  const out = {};
+  if (font?.family) out.family = font.family;
+  if (Number.isFinite(font?.size)) out.size = font.size;
+  if (font?.style) out.style = font.style;
+  if (font?.weight) out.weight = font.weight;
+  return out;
+}
+
+function getAutoDecimalPlaces(value) {
+  const n = Math.abs(Number(value));
+
+  if (!Number.isFinite(n)) return 2;
+  if (n > 100) return 0;
+  if (n >= 10) return 1;
+  if (n >= 1) return 2;
+  return 3;
+}
+
+function getConfiguredDecimalPlaces(value) {
+  const choice = yAxisDecimalsInput?.value || "auto";
+
+  if (choice === "auto") {
+    return getAutoDecimalPlaces(value);
+  }
+
+  const dp = Number(choice);
+  return Number.isFinite(dp) ? dp : getAutoDecimalPlaces(value);
+}
+
+function formatSPCNumber(value, fallback = "—") {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+
+  return n.toFixed(getConfiguredDecimalPlaces(n));
+}
+
+function buildTickFormatter(format) {
+  return function(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return value;
+
+    const dp = getConfiguredDecimalPlaces(n);
+
+    if (!format || format === "auto") return n.toFixed(dp);
+    if (format === "integer") return String(Math.round(n));
+    if (format === "decimal") return n.toFixed(dp);
+    if (format === "percent") return `${(n * 100).toFixed(dp)}%`;
+
+    return n.toFixed(dp);
+  };
+}
+
+
+function withoutAxisBounds(settings) {
+  if (!settings) return settings;
+  const copy = { ...settings };
+  delete copy.min;
+  delete copy.max;
+  return copy;
+}
+
+function buildAxisConfig(axisLabel, settings, extra = {}) {
+  const cfg = {
+    grid: { display: false },
+    title: {
+      display: !!axisLabel,
+      text: axisLabel,
+      font: cleanFontOptions(settings?.font)
+    },
+    ticks: {
+      font: cleanFontOptions(settings?.font),
+      callback: buildTickFormatter(settings?.format)
+    },
+    ...extra
+  };
+
+  if (settings && Number.isFinite(settings.min)) {
+    cfg.min = settings.min;
+    delete cfg.suggestedMin;
+  }
+
+  if (settings && Number.isFinite(settings.max)) {
+    cfg.max = settings.max;
+    delete cfg.suggestedMax;
+  }
+
+  return cfg;
+}
+
+function buildCategoryXAxisConfig(axisLabel, settings, labels, extra = {}) {
+  const cfg = buildAxisConfig(axisLabel, settings, {
+    type: "category",
+    ...extra
+  });
+
+  cfg.ticks = {
+    ...(cfg.ticks || {}),
+    callback: function(value, index) {
+      if (Array.isArray(labels) && index >= 0 && index < labels.length) {
+        return labels[index];
+      }
+      if (typeof this.getLabelForValue === "function") {
+        return this.getLabelForValue(value);
+      }
+      return value;
+    }
+  };
+
+  return cfg;
+}
+
+
+function validateAxisSettings() {
+  const s = getAxisSettings();
+
+  if (Number.isFinite(s.y.min) && Number.isFinite(s.y.max) && s.y.min > s.y.max) {
+    if (typeof showError === "function") {
+      showError("Y-axis minimum cannot be greater than Y-axis maximum.");
+    } else if (errorMessage) {
+      errorMessage.textContent = "Y-axis minimum cannot be greater than Y-axis maximum.";
+    }
+    return false;
+  }
+
+  return true;
+}
 	
 
 // Get title / axis labels with fallbacks
 function getChartLabels(defaultTitle, defaultX, defaultY) {
-  const title = chartTitleInput && chartTitleInput.value.trim()
-    ? chartTitleInput.value.trim()
-    : defaultTitle;
+  if (chartTitleInput && !chartTitleManuallyEdited) {
+    chartTitleInput.value = defaultTitle || "";
+  }
 
-  const xLabel = xAxisLabelInput && xAxisLabelInput.value.trim()
-    ? xAxisLabelInput.value.trim()
-    : defaultX;
+  if (xAxisLabelInput && !xAxisLabelManuallyEdited) {
+    xAxisLabelInput.value = defaultX || "";
+  }
 
-  const yLabel = yAxisLabelInput && yAxisLabelInput.value.trim()
-    ? yAxisLabelInput.value.trim()
-    : defaultY;
+  if (yAxisLabelInput && !yAxisLabelManuallyEdited) {
+    yAxisLabelInput.value = defaultY || "";
+  }
+
+  const title = chartTitleInput ? chartTitleInput.value.trim() : (defaultTitle || "");
+  const xLabel = xAxisLabelInput ? xAxisLabelInput.value.trim() : (defaultX || "");
+  const yLabel = yAxisLabelInput ? yAxisLabelInput.value.trim() : (defaultY || "");
 
   return { title, xLabel, yLabel };
 }
+
 
 function populateAnnotationDateOptions(labels) {
   if (!annotationDateInput) return;
@@ -3336,39 +4929,157 @@ function setAxisType(type) {
   }
 }
 
+function getAnnotationsAtDate(xVal) {
+  if (!Array.isArray(annotations)) return [];
+  return annotations
+    .map((a, idx) => ({ ...a, _idx: idx }))
+    .filter(a => a.date === xVal);
+}
+
+function editAnnotationAtIndex(idx) {
+  if (!Array.isArray(annotations)) return false;
+  if (!Number.isInteger(idx) || idx < 0 || idx >= annotations.length) return false;
+
+  const current = annotations[idx];
+  const nextText = prompt(`Edit annotation for ${current.date}:`, current.label);
+  if (nextText === null) return false;
+
+  const trimmed = String(nextText).trim();
+  if (!trimmed) {
+    alert("Annotation text cannot be blank.");
+    return false;
+  }
+
+  annotations[idx].label = trimmed;
+  return true;
+}
+
+function deleteAnnotationAtIndex(idx) {
+  if (!Array.isArray(annotations)) return false;
+  if (!Number.isInteger(idx) || idx < 0 || idx >= annotations.length) return false;
+
+  annotations.splice(idx, 1);
+  return true;
+}
+
+function wrapAnnotationText(text, maxCharsPerLine = 28) {
+  const words = String(text || "").trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return [""];
+
+  const lines = [];
+  let current = words[0];
+
+  for (let i = 1; i < words.length; i++) {
+    const next = words[i];
+    if ((current + " " + next).length <= maxCharsPerLine) {
+      current += " " + next;
+    } else {
+      lines.push(current);
+      current = next;
+    }
+  }
+
+  lines.push(current);
+  return lines;
+}
+
+function getNearestAnnotationAtDate(xVal) {
+  const existing = getAnnotationsAtDate(xVal);
+  return existing.length ? existing[0] : null;
+}
+
+function chooseAnnotationAtDate(xVal, mode) {
+  const existing = getAnnotationsAtDate(xVal);
+  if (!existing.length) return null;
+
+  if (existing.length === 1) return existing[0];
+
+  const numbered = existing
+    .map((a, i) => `${i + 1}. ${a.label}`)
+    .join("\n");
+
+  const answer = prompt(
+    `${mode === "edit" ? "Edit which annotation?" : "Delete which annotation?"}\n\n` +
+    `Annotations at ${xVal}:\n\n${numbered}\n\n` +
+    `Type a number from 1 to ${existing.length}:`,
+    "1"
+  );
+
+  if (answer === null) return null;
+
+  const n = Number(answer);
+  if (!Number.isInteger(n) || n < 1 || n > existing.length) {
+    alert("Please enter a valid number.");
+    return null;
+  }
+
+  return existing[n - 1];
+}
+
 function buildAnnotationConfig(labels) {
   if (!annotations || annotations.length === 0) {
     return {};
   }
 
   const cfg = {};
-  annotations.forEach((a, idx) => {
-    const xVal = a.date; // 'YYYY-MM-DD' from <input type="date">
-    if (!labels.includes(xVal)) {
-      return; // skip if this date isn't on the x-axis
-    }
 
-    cfg["annot" + idx] = {
+  const items = annotations
+    .map((a, idx) => ({
+      ...a,
+      _idx: idx,
+      xIndex: Array.isArray(labels) ? labels.indexOf(a.date) : -1
+    }))
+    .filter(a => a.xIndex >= 0)
+    .sort((a, b) => a.xIndex - b.xIndex);
+
+  const laneLastEnd = [];
+
+  items.forEach((a) => {
+    const wrapped = wrapAnnotationText(a.label, 24);
+    const longest = wrapped.reduce((m, l) => Math.max(m, l.length), 0);
+
+    const span = Math.max(1, Math.ceil(longest / 7));
+
+    let lane = 0;
+    while (laneLastEnd[lane] !== undefined && a.xIndex <= laneLastEnd[lane]) {
+      lane++;
+    }
+    laneLastEnd[lane] = a.xIndex + span;
+
+    const level = Math.floor(lane / 2);
+    const above = lane % 2 === 0;
+
+    // Small offsets only
+    const yAdjust = above
+      ? -(4 + level * 10)
+      : (4 + level * 10);
+
+    cfg["annot" + a._idx] = {
       type: "line",
-      xMin: xVal,
-      xMax: xVal,
+      xMin: a.date,
+      xMax: a.date,
       borderColor: "#000000",
       borderWidth: 1,
       borderDash: [2, 2],
       label: {
         display: true,
-        content: a.label,
-        backgroundColor: "rgba(255,255,255,0.9)",
+        content: wrapped,
+        backgroundColor: "rgba(255,255,255,0.96)",
         color: "#000000",
         borderColor: "#000000",
         borderWidth: 0.5,
+        padding: 4,
+        cornerRadius: 4,
         font: {
           size: 10,
           weight: "bold"
         },
-        position: "end",   // near the top of the line
-        yAdjust: -6        // nudge it up a little
-        // no rotation – keep it horizontal so it's easy to read
+
+        // Keep labels near the ends of the annotation line
+        position: above ? "end" : "start",
+
+        yAdjust: yAdjust,
+        textAlign: "left"
       }
     };
   });
@@ -3376,87 +5087,219 @@ function buildAnnotationConfig(labels) {
   return cfg;
 }
 
-function openDataEditor() {
-  if (!dataEditorOverlay || !dataEditorGridEl) return;
+function showDataEditorDeleteHelp() {
+  if (!dataEditorDeleteHelpBtn || !dataEditorDeleteHelpPopup) return;
+  dataEditorDeleteHelpPopup.classList.add("show");
+  dataEditorDeleteHelpBtn.setAttribute("aria-expanded", "true");
+  dataEditorDeleteHelpPopup.setAttribute("aria-hidden", "false");
+}
 
-  const { headers, data } = objectsToSheet(rawRows);
-  gridHeaders = headers;
+function hideDataEditorDeleteHelp() {
+  if (!dataEditorDeleteHelpBtn || !dataEditorDeleteHelpPopup) return;
+  dataEditorDeleteHelpPopup.classList.remove("show");
+  dataEditorDeleteHelpBtn.setAttribute("aria-expanded", "false");
+  dataEditorDeleteHelpPopup.setAttribute("aria-hidden", "true");
+}
 
-  const headersKey = JSON.stringify(headers);
+function toggleDataEditorDeleteHelp() {
+  if (!dataEditorDeleteHelpPopup) return;
+  if (dataEditorDeleteHelpPopup.classList.contains("show")) {
+    hideDataEditorDeleteHelp();
+  } else {
+    showDataEditorDeleteHelp();
+  }
+}
 
-  // If headers changed (name or count), rebuild the grid
+function updateDataEditorWorkbookUi() {
+  if (!dataEditorWorkbookBar || !dataEditorSheetSelect || !dataEditorWorkbookStatus) return;
+
+  const isExcelMode =
+    dataEditorSourceMode === "excel" &&
+    dataEditorWorkbook &&
+    Array.isArray(dataEditorWorkbookSheetNames) &&
+    dataEditorWorkbookSheetNames.length > 0;
+
+  dataEditorWorkbookBar.style.display = isExcelMode ? "block" : "none";
+
+  const statusText = document.getElementById("dataEditorWorkbookStatusText");
+
+  if (!isExcelMode) {
+    dataEditorSheetSelect.innerHTML = "";
+    if (statusText) statusText.innerHTML = "";
+    return;
+  }
+
+  dataEditorSheetSelect.innerHTML = "";
+  dataEditorWorkbookSheetNames.forEach(name => {
+    const opt = document.createElement("option");
+    opt.value = name;
+    opt.textContent = name;
+    dataEditorSheetSelect.appendChild(opt);
+  });
+
+  if (dataEditorCurrentSheetName && dataEditorWorkbookSheetNames.includes(dataEditorCurrentSheetName)) {
+    dataEditorSheetSelect.value = dataEditorCurrentSheetName;
+  }
+
+  if (statusText) {
+    statusText.innerHTML =
+      `Workbook loaded. You can switch worksheet here, trim rows/columns in the grid, and then click <strong>Apply data</strong>.`;
+  }
+}
+
+function worksheetToEditorGrid(worksheet) {
+  if (!worksheet) {
+    return {
+      headers: ["Column1", "Column2"],
+      data: [["", ""]]
+    };
+  }
+
+  const rows2D = XLSX.utils.sheet_to_json(worksheet, {
+    header: 1,
+    raw: false,
+    defval: "",
+    blankrows: false
+  });
+
+  const maxCols = rows2D.reduce((m, r) => Math.max(m, Array.isArray(r) ? r.length : 0), 0);
+  const safeColCount = Math.max(2, maxCols || 0);
+
+  const headers = Array.from({ length: safeColCount }, (_, i) => `Column${i + 1}`);
+
+  const data = rows2D.length
+    ? rows2D.map(row => {
+        const arr = Array.isArray(row) ? row.slice() : [];
+        while (arr.length < safeColCount) arr.push("");
+        return arr.map(v => normalizeWorkbookCellValue(v));
+      })
+    : [Array.from({ length: safeColCount }, () => "")];
+
+  return { headers, data };
+}
+
+function renderDataEditorGrid(headers, data) {
+  if (!dataEditorGridEl) return;
+
+  gridHeaders = Array.isArray(headers) && headers.length ? headers.slice() : ["Column1", "Column2"];
+  const headersKey = JSON.stringify(gridHeaders);
+
   const mustRebuild = !dataEditorGrid || headersKey !== lastGridHeadersKey;
 
   if (mustRebuild) {
-    // If one already exists, destroy it cleanly
     if (dataEditorGrid) {
       try { dataEditorGrid.destroy(); } catch (e) { console.warn("Grid destroy failed:", e); }
       dataEditorGrid = null;
     }
 
-    // Clear container to avoid duplicated UI remnants
     dataEditorGridEl.innerHTML = "";
 
-dataEditorGrid = jspreadsheet(dataEditorGridEl, {
-  data,
-  columns: headers.map(h => ({ title: h, width: 180 })),
-  minDimensions: [Math.max(headers.length, 10), Math.max(20, data.length + 10)],
+    dataEditorGrid = jspreadsheet(dataEditorGridEl, {
+      data,
+      columns: gridHeaders.map(h => ({ title: h, width: 180 })),
+      minDimensions: [Math.max(gridHeaders.length, 10), Math.max(20, data.length + 10)],
 
-  allowInsertRow: true,
-  allowDeleteRow: true,
-  allowInsertColumn: true,
-  allowDeleteColumn: true,
+      allowInsertRow: true,
+      allowDeleteRow: true,
+      allowInsertColumn: true,
+      allowDeleteColumn: true,
 
-  onpaste: function(instance, pasteData, startCol, startRow) {
-    if (!pasteData || typeof pasteData !== "string") return;
+      onpaste: function(instance, pasteData, startCol, startRow) {
+        if (!pasteData || typeof pasteData !== "string") return;
 
-    const rows = pasteData.split(/\r?\n/).filter(r => r.length > 0);
-    const colCount = rows.reduce((m, r) => Math.max(m, r.split("\t").length), 0);
-    const rowCount = rows.length;
+        const rows = pasteData.split(/\r?\n/).filter(r => r.length > 0);
+        const colCount = rows.reduce((m, r) => Math.max(m, r.split("\t").length), 0);
+        const rowCount = rows.length;
 
-    const currentCols = instance.options.columns.length;
-    const currentRows = instance.getData().length;
+        const currentCols = instance.options.columns.length;
+        const currentRows = instance.getData().length;
 
-    const neededCols = startCol + colCount;
-    const neededRows = startRow + rowCount;
+        const neededCols = startCol + colCount;
+        const neededRows = startRow + rowCount;
 
-    if (neededCols > currentCols) {
-      const addN = neededCols - currentCols;
-      instance.insertColumn(addN, currentCols);
-      for (let i = currentCols; i < neededCols; i++) {
-        instance.setHeader(i, `Column${i + 1}`);
+        if (neededCols > currentCols) {
+          const addN = neededCols - currentCols;
+          instance.insertColumn(addN, currentCols);
+          for (let i = currentCols; i < neededCols; i++) {
+            instance.setHeader(i, `Column${i + 1}`);
+          }
+        }
+
+        if (neededRows > currentRows) {
+          const addN = neededRows - currentRows;
+          instance.insertRow(addN);
+        }
+
+        setTimeout(() => {
+          if (dataEditorHasHeaders) dataEditorHasHeaders.checked = detectHeadersFromGrid();
+          renderHeaderStatus();
+        }, 0);
       }
-    }
-
-    if (neededRows > currentRows) {
-      const addN = neededRows - currentRows;
-      instance.insertRow(addN);
-    }
-
-    // After paste completes, re-run auto-detect + update the status line
-    setTimeout(() => {
-      if (dataEditorHasHeaders) dataEditorHasHeaders.checked = detectHeadersFromGrid();
-      renderHeaderStatus();
-    }, 0);
-  }
-});
-
-if (dataEditorHasHeaders) {
-  dataEditorHasHeaders.checked = detectHeadersFromGrid();
-}
-renderHeaderStatus();
-
-
+    });
 
     lastGridHeadersKey = headersKey;
-  } else {
-    // Headers unchanged: just update data
+  } else if (dataEditorGrid && typeof dataEditorGrid.setData === "function") {
     dataEditorGrid.setData(data);
+
+    if (dataEditorGrid.options && Array.isArray(dataEditorGrid.options.columns)) {
+      gridHeaders.forEach((h, i) => {
+        if (dataEditorGrid.options.columns[i]) {
+          dataEditorGrid.options.columns[i].title = h;
+        }
+        if (typeof dataEditorGrid.setHeader === "function") {
+          dataEditorGrid.setHeader(i, h);
+        }
+      });
+    }
   }
+
+  if (dataEditorHasHeaders) dataEditorHasHeaders.checked = detectHeadersFromGrid();
+  renderHeaderStatus();
+}
+
+function loadWorkbookSheetIntoDataEditor(sheetName) {
+  if (!dataEditorWorkbook || !sheetName) return;
+
+  const worksheet = dataEditorWorkbook.Sheets[sheetName];
+  const { headers, data } = worksheetToEditorGrid(worksheet);
+
+  dataEditorCurrentSheetName = sheetName;
+  updateDataEditorWorkbookUi();
+  renderDataEditorGrid(headers, data);
+}
+
+function openExcelWorkbookInDataEditor(workbook, initialSheetName) {
+  if (!dataEditorOverlay || !dataEditorGridEl || !workbook) return;
+
+  dataEditorSourceMode = "excel";
+  dataEditorWorkbook = workbook;
+  dataEditorWorkbookSheetNames = Array.isArray(workbook.SheetNames) ? workbook.SheetNames.slice() : [];
+  dataEditorCurrentSheetName =
+    initialSheetName && dataEditorWorkbookSheetNames.includes(initialSheetName)
+      ? initialSheetName
+      : (dataEditorWorkbookSheetNames[0] || "");
+
+  updateDataEditorWorkbookUi();
+  loadWorkbookSheetIntoDataEditor(dataEditorCurrentSheetName);
 
   dataEditorOverlay.style.display = "flex";
 }
 
+function openDataEditor() {
+  if (!dataEditorOverlay || !dataEditorGridEl) return;
+
+  dataEditorSourceMode = "manual";
+  dataEditorWorkbook = null;
+  dataEditorWorkbookSheetNames = [];
+  dataEditorCurrentSheetName = "";
+
+  updateDataEditorWorkbookUi();
+
+  const { headers, data } = objectsToSheet(rawRows);
+  renderDataEditorGrid(headers, data);
+
+  dataEditorOverlay.style.display = "flex";
+}
 
 function closeDataEditor() {
   if (dataEditorOverlay) {
@@ -3472,7 +5315,15 @@ if (openDataEditorButton) {
 
 if (dataEditorCancelButton) {
   dataEditorCancelButton.addEventListener("click", () => {
-    closeDataEditor();
+    hideDataEditorDeleteHelp();
+
+    dataEditorSourceMode = "manual";
+    dataEditorWorkbook = null;
+    dataEditorWorkbookSheetNames = [];
+    dataEditorCurrentSheetName = "";
+    updateDataEditorWorkbookUi();
+
+    dataEditorOverlay.style.display = "none";
   });
 }
 
@@ -3634,14 +5485,21 @@ if (useHeaders !== autoGuess) {
       if (!loadRows(rows)) return;
       loadedOk = true;
 
-      clearError();
+            clearError();
 
-      // Reset annotations/splits etc... (keep your existing block)
+      // Reset annotations/splits etc...
       annotations = [];
       if (annotationDateInput) annotationDateInput.value = "";
       if (annotationLabelInput) annotationLabelInput.value = "";
       splits = [];
       if (splitPointSelect) splitPointSelect.innerHTML = "";
+
+      hideDataEditorDeleteHelp();
+      dataEditorSourceMode = "manual";
+      dataEditorWorkbook = null;
+      dataEditorWorkbookSheetNames = [];
+      dataEditorCurrentSheetName = "";
+      updateDataEditorWorkbookUi();
 
       try { closeDataEditor(); } catch (uiErr) { console.warn("closeDataEditor failed:", uiErr); }
 
@@ -3705,10 +5563,245 @@ let lastRareAnalysis = null;
 function getRuleSettingsSafe() {
   const shift = parseInt(shiftRulePointsInput?.value || "8", 10);
   const trend = parseInt(trendRulePointsInput?.value || "6", 10);
+
   return {
-    shiftLength: isFinite(shift) && shift >= 4 ? shift : 8,
-    trendLength: isFinite(trend) && trend >= 4 ? trend : 6
+    shiftLength: Number.isFinite(shift) && shift >= 3 ? shift : 8,
+    trendLength: Number.isFinite(trend) && trend >= 3 ? trend : 6,
+
+    enableAdvancedTrend: !!enableAdvancedTrendCheckbox?.checked,
+    enableRareRunTrend: !!enableRareRunTrendCheckbox?.checked,
+
+    ruleTwoOfThreeOuterThird: !!ruleTwoOfThreeOuterThirdCheckbox?.checked,
+    ruleFourOfFiveOneSigma: !!ruleFourOfFiveOneSigmaCheckbox?.checked
   };
+}
+
+/* ============================================================
+   RULE POLICY (single source of truth)
+   Status values:
+   - "on"       : always applied / default on
+   - "optional" : available only in advanced mode, off by default
+   - "warn"     : available only after explicit warning/confirm
+   - "blocked"  : not available for this chart type
+   ============================================================ */
+
+const RULE_POLICY = {
+  // Attribute charts: conservative defaults only
+  c: {
+    beyondLimits: "on",
+    runShift: "on",
+    trend: "blocked",
+    zone23: "blocked",
+    zone45: "blocked"
+  },
+  p: {
+    beyondLimits: "on",
+    runShift: "on",
+    trend: "blocked",
+    zone23: "blocked",
+    zone45: "blocked"
+  },
+  u: {
+    beyondLimits: "on",
+    runShift: "on",
+    trend: "blocked",
+    zone23: "blocked",
+    zone45: "blocked"
+  },
+
+  // Rare-event charts: beyond limits by default; run/trend only behind warning
+  t: {
+    beyondLimits: "on",
+    runShift: "warn",
+    trend: "warn",
+    zone23: "blocked",
+    zone45: "blocked"
+  },
+  g: {
+    beyondLimits: "on",
+    runShift: "warn",
+    trend: "warn",
+    zone23: "blocked",
+    zone45: "blocked"
+  },
+
+  // Individuals charts: conservative defaults, advanced pattern rules optional
+  xmr: {
+    beyondLimits: "on",
+    runShift: "on",
+    trend: "optional",
+    zone23: "optional",
+    zone45: "optional"
+  },
+
+  // Subgrouped continuous charts: richest defensible advanced rule set
+  xbars: {
+    beyondLimits: "on",
+    runShift: "on",
+    trend: "optional",
+    zone23: "optional",
+    zone45: "optional"
+  },
+
+  // Run chart: no control limits, run on by default, trend optional
+  run: {
+    beyondLimits: "blocked",
+    runShift: "on",
+    trend: "optional",
+    zone23: "blocked",
+    zone45: "blocked"
+  }
+};
+
+function getRulePolicy(chartType) {
+  return RULE_POLICY[chartType] || RULE_POLICY.run;
+}
+
+function isAdvancedContinuousChartType(chartType) {
+  return chartType === "xmr" || chartType === "xbars" || chartType === "run";
+}
+
+
+function getEffectiveRuleSettingsForChart(chartType) {
+  const raw = getRuleSettingsSafe();
+  const policy = getRulePolicy(chartType);
+
+  const rareAdvancedEnabled = isRareChartType(chartType) && !!raw.enableRareRunTrend;
+  const advancedContinuousEnabled = isAdvancedContinuousChartType(chartType) && !!raw.enableAdvancedTrend;
+
+  let allowRunShift = false;
+  if (policy.runShift === "on") {
+    allowRunShift = true;
+  } else if (policy.runShift === "warn") {
+    allowRunShift = rareAdvancedEnabled;
+  } else {
+    allowRunShift = false;
+  }
+
+  let allowTrend = false;
+  if (policy.trend === "on") {
+    allowTrend = true;
+  } else if (policy.trend === "warn") {
+    allowTrend = rareAdvancedEnabled;
+  } else if (policy.trend === "optional") {
+    allowTrend = advancedContinuousEnabled;
+  } else {
+    allowTrend = false;
+  }
+
+  let allowZone23 = false;
+  if (policy.zone23 === "on") {
+    allowZone23 = true;
+  } else if (policy.zone23 === "optional") {
+    allowZone23 = advancedContinuousEnabled && !!raw.ruleTwoOfThreeOuterThird;
+  } else if (policy.zone23 === "warn") {
+    allowZone23 = rareAdvancedEnabled && !!raw.ruleTwoOfThreeOuterThird;
+  } else {
+    allowZone23 = false;
+  }
+
+  let allowZone45 = false;
+  if (policy.zone45 === "on") {
+    allowZone45 = true;
+  } else if (policy.zone45 === "optional") {
+    allowZone45 = advancedContinuousEnabled && !!raw.ruleFourOfFiveOneSigma;
+  } else if (policy.zone45 === "warn") {
+    allowZone45 = rareAdvancedEnabled && !!raw.ruleFourOfFiveOneSigma;
+  } else {
+    allowZone45 = false;
+  }
+
+  return {
+    ...raw,
+    allowRunShift,
+    allowTrend,
+    allowZone23,
+    allowZone45,
+    warnRunShift: policy.runShift === "warn",
+    warnTrend: policy.trend === "warn"
+  };
+}
+
+function findShiftWindow(values, cl, shiftLength) {
+  let run = 0;
+  let side = 0;
+
+  for (let i = 0; i < values.length; i++) {
+    const v = values[i];
+    if (!isFinite(v) || !isFinite(cl)) {
+      run = 0;
+      side = 0;
+      continue;
+    }
+
+    const s = v > cl ? 1 : (v < cl ? -1 : 0);
+    if (s === 0) {
+      run = 0;
+      side = 0;
+      continue;
+    }
+
+    if (s === side) run += 1;
+    else {
+      side = s;
+      run = 1;
+    }
+
+    if (run >= shiftLength) {
+      return {
+        start: i - shiftLength + 1,
+        end: i,
+        side
+      };
+    }
+  }
+
+  return null;
+}
+
+function findTrendWindow(values, trendLength) {
+  let inc = 1;
+  let dec = 1;
+
+  for (let i = 1; i < values.length; i++) {
+    const a = values[i - 1];
+    const b = values[i];
+
+    if (!isFinite(a) || !isFinite(b)) {
+      inc = 1;
+      dec = 1;
+      continue;
+    }
+
+    if (b > a) {
+      inc += 1;
+      dec = 1;
+    } else if (b < a) {
+      dec += 1;
+      inc = 1;
+    } else {
+      inc = 1;
+      dec = 1;
+    }
+
+    if (inc >= trendLength) {
+      return {
+        start: i - trendLength + 1,
+        end: i,
+        direction: "up"
+      };
+    }
+
+    if (dec >= trendLength) {
+      return {
+        start: i - trendLength + 1,
+        end: i,
+        direction: "down"
+      };
+    }
+  }
+
+  return null;
 }
 
 function findShiftSignals(values, cl, shiftLength) {
@@ -3757,6 +5850,71 @@ function findTrendSignals(values, trendLength) {
   return null;
 }
 
+function zoneThresholdsFromBand(cl, ucl, lcl) {
+  if (!isFinite(cl) || !isFinite(ucl) || !isFinite(lcl)) {
+    return {
+      oneUp: NaN,
+      oneDown: NaN,
+      twoUp: NaN,
+      twoDown: NaN
+    };
+  }
+
+  const oneUp = cl + (ucl - cl) / 3;
+  const twoUp = cl + 2 * (ucl - cl) / 3;
+  const oneDown = cl - (cl - lcl) / 3;
+  const twoDown = cl - 2 * (cl - lcl) / 3;
+
+  return { oneUp, oneDown, twoUp, twoDown };
+}
+
+function detectKofNRule(values, upperThreshArr, lowerThreshArr, windowSize, minCount) {
+  const n = values.length;
+  const flags = new Array(n).fill(false);
+  const hits = [];
+
+  for (let start = 0; start <= n - windowSize; start++) {
+    const end = start + windowSize - 1;
+
+    let aboveIdx = [];
+    for (let i = start; i <= end; i++) {
+      const v = values[i];
+      const thr = upperThreshArr[i];
+      if (isFinite(v) && isFinite(thr) && v > thr) {
+        aboveIdx.push(i);
+      }
+    }
+
+    if (aboveIdx.length >= minCount) {
+      aboveIdx.forEach(i => { flags[i] = true; });
+      hits.push({ start, end, side: "above", indices: aboveIdx.slice() });
+    }
+
+    let belowIdx = [];
+    for (let i = start; i <= end; i++) {
+      const v = values[i];
+      const thr = lowerThreshArr[i];
+      if (isFinite(v) && isFinite(thr) && v < thr) {
+        belowIdx.push(i);
+      }
+    }
+
+    if (belowIdx.length >= minCount) {
+      belowIdx.forEach(i => { flags[i] = true; });
+      hits.push({ start, end, side: "below", indices: belowIdx.slice() });
+    }
+  }
+
+  return { flags, hits };
+}
+
+function detectTwoOfThreeOuterThird(values, twoUpArr, twoDownArr) {
+  return detectKofNRule(values, twoUpArr, twoDownArr, 3, 2);
+}
+
+function detectFourOfFiveOneSigma(values, oneUpArr, oneDownArr) {
+  return detectKofNRule(values, oneUpArr, oneDownArr, 5, 4);
+}
 
 function analyzeLimits({ labels, values, cl, ucl, lcl }) {
   const out = [];
@@ -3773,77 +5931,136 @@ function analyzeLimits({ labels, values, cl, ucl, lcl }) {
 }
 
 function analyzeAttributeChart({ chartType, labels, values, cl, ucl, lcl }) {
-  const { shiftLength, trendLength } = getRuleSettingsSafe();
+  const rs = (typeof getEffectiveRuleSettingsForChart === "function")
+    ? getEffectiveRuleSettingsForChart(chartType)
+    : {
+        shiftLength: 8,
+        trendLength: 6,
+        allowRunShift: true,
+        allowTrend: false,
+        allowZone23: false,
+        allowZone45: false
+      };
+
   const signals = [];
+  const n = values.length;
 
-  const clScalar = Array.isArray(cl) ? cl[0] : cl;
+  // Normalize limits to arrays
+  const clArr = Array.isArray(cl) ? cl : new Array(n).fill(cl);
+  const uclArr = Array.isArray(ucl) ? ucl : new Array(n).fill(ucl);
+  const lclArr = Array.isArray(lcl) ? lcl : new Array(n).fill(lcl);
 
-  // 1) Points beyond limits (already supported)
-  const outOfControl = analyzeLimits({ labels, values, cl, ucl, lcl });
-  const hasAbove = outOfControl.some(o => o.type === "aboveUCL");
-  const hasBelow = outOfControl.some(o => o.type === "belowLCL");
-  if (hasAbove) signals.push("One or more points above the upper limit");
-  if (hasBelow) signals.push("One or more points below the lower limit");
+  const clScalar = clArr.find(v => Number.isFinite(v));
 
-  // 2) Shift + Trend (now with “where to look”)
-  function findShiftWindow(values, cl, shiftLength) {
-    let run = 0;
-    let side = 0;
-    for (let i = 0; i < values.length; i++) {
-      const v = values[i];
-      if (!isFinite(v) || !isFinite(cl)) { run = 0; side = 0; continue; }
-      const s = v > cl ? 1 : (v < cl ? -1 : 0);
-      if (s === 0) { run = 0; side = 0; continue; }
+  // 1) Beyond limits
+  let outOfControl = [];
+  if (ucl !== undefined && lcl !== undefined) {
+    outOfControl = analyzeLimits({ labels, values, cl: clArr, ucl: uclArr, lcl: lclArr });
 
-      if (s === side) run += 1;
-      else { side = s; run = 1; }
+    const hasAbove = outOfControl.some(o => o.type === "aboveUCL");
+    const hasBelow = outOfControl.some(o => o.type === "belowLCL");
 
-      if (run >= shiftLength) {
-        const start = i - shiftLength + 1;
-        const end = i;
-        return { start, end, side };
+    if (hasAbove) signals.push("One or more points above the upper limit");
+    if (hasBelow) signals.push("One or more points below the lower limit");
+  }
+
+  // 2) Shift / run
+  let shiftWindow = null;
+  if (rs.allowRunShift && Number.isFinite(clScalar)) {
+    shiftWindow = findShiftWindow(values, clScalar, rs.shiftLength);
+    if (shiftWindow) {
+      const sideText = shiftWindow.side > 0 ? "above" : "below";
+      const aLab = labels?.[shiftWindow.start] ?? `point ${shiftWindow.start + 1}`;
+      const bLab = labels?.[shiftWindow.end] ?? `point ${shiftWindow.end + 1}`;
+      signals.push(`Shift: ${rs.shiftLength}+ points in a row ${sideText} the centre line (from ${aLab} to ${bLab})`);
+    }
+  }
+
+   // 3) Trend
+  let trendWindow = null;
+  if (rs.allowTrend) {
+    trendWindow = findTrendWindow(values, rs.trendLength);
+    if (trendWindow) {
+      const dirText = trendWindow.direction === "up" ? "increasing" : "decreasing";
+      const aLab = labels?.[trendWindow.start] ?? `point ${trendWindow.start + 1}`;
+      const bLab = labels?.[trendWindow.end] ?? `point ${trendWindow.end + 1}`;
+      signals.push(`Trend: ${rs.trendLength}+ points steadily ${dirText} (from ${aLab} to ${bLab})`);
+    }
+  }
+
+  // 4) Zone rules
+  let zone23Flags = new Array(n).fill(false);
+  let zone45Flags = new Array(n).fill(false);
+
+  if ((rs.allowZone23 || rs.allowZone45) && ucl !== undefined && lcl !== undefined) {
+    const oneUp = new Array(n).fill(NaN);
+    const oneDown = new Array(n).fill(NaN);
+    const twoUp = new Array(n).fill(NaN);
+    const twoDown = new Array(n).fill(NaN);
+
+    for (let i = 0; i < n; i++) {
+      const z = zoneThresholdsFromBand(clArr[i], uclArr[i], lclArr[i]);
+      oneUp[i] = z.oneUp;
+      oneDown[i] = z.oneDown;
+      twoUp[i] = z.twoUp;
+      twoDown[i] = z.twoDown;
+    }
+
+    if (rs.allowZone23) {
+      const res23 = detectTwoOfThreeOuterThird(values, twoUp, twoDown);
+      zone23Flags = res23.flags || zone23Flags;
+
+      if (res23.hits && res23.hits.length) {
+        const h = res23.hits[0];
+        const aLab = labels?.[h.start] ?? `point ${h.start + 1}`;
+        const bLab = labels?.[h.end] ?? `point ${h.end + 1}`;
+        signals.push(`Zone: 2 of 3 points in the outer third (from ${aLab} to ${bLab})`);
       }
     }
-    return null;
-  }
 
-  function findTrendWindow(values, trendLength) {
-    let inc = 1, dec = 1;
-    for (let i = 1; i < values.length; i++) {
-      const a = values[i - 1], b = values[i];
-      if (!isFinite(a) || !isFinite(b)) { inc = 1; dec = 1; continue; }
+    if (rs.allowZone45) {
+      const res45 = detectFourOfFiveOneSigma(values, oneUp, oneDown);
+      zone45Flags = res45.flags || zone45Flags;
 
-      if (b > a) { inc += 1; dec = 1; }
-      else if (b < a) { dec += 1; inc = 1; }
-      else { inc = 1; dec = 1; }
-
-      if (inc >= trendLength) return { start: i - trendLength + 1, end: i, direction: "up" };
-      if (dec >= trendLength) return { start: i - trendLength + 1, end: i, direction: "down" };
+      if (res45.hits && res45.hits.length) {
+        const h = res45.hits[0];
+        const aLab = labels?.[h.start] ?? `point ${h.start + 1}`;
+        const bLab = labels?.[h.end] ?? `point ${h.end + 1}`;
+        signals.push(`Zone: 4 of 5 points beyond 1-sigma (from ${aLab} to ${bLab})`);
+      }
     }
-    return null;
   }
 
-  const shiftWindow = findShiftWindow(values, clScalar, shiftLength);
+  // Flags for chart colouring
+  const beyondFlags = new Array(n).fill(false);
+  outOfControl.forEach(o => {
+    if (typeof o.i === "number" && o.i >= 0 && o.i < n) {
+      beyondFlags[o.i] = true;
+    }
+  });
+
+  const shiftFlags = new Array(n).fill(false);
   if (shiftWindow) {
-    const sideText = shiftWindow.side > 0 ? "above" : "below";
-    const aLab = labels?.[shiftWindow.start] ?? `point ${shiftWindow.start + 1}`;
-    const bLab = labels?.[shiftWindow.end] ?? `point ${shiftWindow.end + 1}`;
-    signals.push(`Shift: ${shiftLength}+ points in a row ${sideText} the centre line (from ${aLab} to ${bLab})`);
-  } else {
-    // Keep existing (short) signal as fallback (rarely used now)
-    const shift = findShiftSignals(values, clScalar, shiftLength);
-    if (shift) signals.push(shift);
+    for (let i = shiftWindow.start; i <= shiftWindow.end; i++) {
+      shiftFlags[i] = true;
+    }
   }
 
-  const trendWindow = findTrendWindow(values, trendLength);
+  const trendFlags = new Array(n).fill(false);
   if (trendWindow) {
-    const dirText = trendWindow.direction === "up" ? "increasing" : "decreasing";
-    const aLab = labels?.[trendWindow.start] ?? `point ${trendWindow.start + 1}`;
-    const bLab = labels?.[trendWindow.end] ?? `point ${trendWindow.end + 1}`;
-    signals.push(`Trend: ${trendLength}+ points steadily ${dirText} (from ${aLab} to ${bLab})`);
-  } else {
-    const trend = findTrendSignals(values, trendLength);
-    if (trend) signals.push(trend);
+    for (let i = trendWindow.start; i <= trendWindow.end; i++) {
+      trendFlags[i] = true;
+    }
+  }
+
+  const specialFlags = new Array(n).fill(false);
+  for (let i = 0; i < n; i++) {
+    specialFlags[i] =
+      beyondFlags[i] ||
+      shiftFlags[i] ||
+      trendFlags[i] ||
+      zone23Flags[i] ||
+      zone45Flags[i];
   }
 
   return {
@@ -3851,20 +6068,32 @@ function analyzeAttributeChart({ chartType, labels, values, cl, ucl, lcl }) {
     isStable: signals.length === 0,
     signals,
     outOfControl,
-    // Handy to display in summaries / helper if you want
-    shiftLength,
-    trendLength,
+    shiftLength: rs.shiftLength,
+    trendLength: rs.trendLength,
+    rulePolicy: {
+      allowRunShift: rs.allowRunShift,
+      allowTrend: rs.allowTrend,
+      allowZone23: rs.allowZone23,
+      allowZone45: rs.allowZone45
+    },
+    flags: {
+      beyond: beyondFlags,
+      shift: shiftFlags,
+      trend: trendFlags,
+      zone23: zone23Flags,
+      zone45: zone45Flags,
+      special: specialFlags
+    },
     firstOutOfControl: outOfControl.length ? outOfControl[0] : null
   };
 }
 
 
 function analyzeRareChart({ chartType, labels, values, cl, ucl, lcl }) {
-  // Same engine, but we’ll word it differently in the summary
-  const a = analyzeAttributeChart({ chartType, labels, values, cl, ucl, lcl });
-  return a;
+  // Rare charts use the same engine, but the policy layer decides
+  // whether run/trend are actually allowed.
+  return analyzeAttributeChart({ chartType, labels, values, cl, ucl, lcl });
 }
-
 
 function renderAttributeMultiSummary(segmentAnalyses, totalPoints) {
   if (!summaryDiv) return;
@@ -4329,11 +6558,17 @@ function updateXmRMultiSummary(segments, totalPoints) {
   const target = getTargetValue();
   const direction = targetDirectionInput ? targetDirectionInput.value : "above";
 
-  // Use configured thresholds if available (defaults stay 8 and 6)
-  const { shiftLength, trendLength } =
-    (typeof getRuleSettings === "function")
-      ? getRuleSettings()
-      : { shiftLength: 8, trendLength: 6 };
+  // Use configured thresholds + effective rule policy for XmR
+  const rs = (typeof getEffectiveRuleSettingsForChart === "function")
+    ? getEffectiveRuleSettingsForChart("xmr")
+    : {
+        shiftLength: 8,
+        trendLength: 6,
+        allowRunShift: true,
+        allowTrend: false
+      };
+
+  const { shiftLength, trendLength } = rs;
 
   let html = `<h3>Summary (XmR chart)</h3>`;
   html += `<p>Total number of points: <strong>${totalPoints}</strong>. `;
@@ -4373,12 +6608,15 @@ function updateXmRMultiSummary(segments, totalPoints) {
 
     // 3) Trend
     let trendRanges = [];
-    if (typeof findTrendRanges === "function") {
-      trendRanges = findTrendRanges(values, trendLength) || [];
-    } else {
-      const hasTrend = detectTrend(values, trendLength);
-      if (hasTrend) trendRanges = [{ start: 0, end: 0 }]; // placeholder
-    }
+
+if (rs.allowTrend) {
+  if (typeof findTrendRanges === "function") {
+    trendRanges = findTrendRanges(values, trendLength) || [];
+  } else {
+    const hasTrend = detectTrend(values, trendLength);
+    if (hasTrend) trendRanges = [{ start: 0, end: 0 }];
+  }
+}
 
     // 4) Astronomical point (robust outlier)
     // Use baseline of this *period* to set the reference for outlier detection where possible.
@@ -4400,9 +6638,9 @@ function updateXmRMultiSummary(segments, totalPoints) {
       signals.push("a sustained shift (many points on the same side of the mean)");
     }
 
-    if (trendRanges.length > 0) {
-      signals.push("a sustained trend (steady increase or decrease)");
-    }
+    if (rs.allowTrend && trendRanges.length > 0) {
+  signals.push("a sustained trend (steady increase or decrease)");
+}
 
     if (astro.indices && astro.indices.length > 0) {
       signals.push("an unusual outlier (an ‘astronomical’ point)");
@@ -4583,13 +6821,115 @@ const rangeText =
         border-radius:0.25rem;
         max-width:32rem;
       ">
-        <strong>Process not stable in the last period:</strong> special-cause signals are present.
+        <strong>Special-cause signals detected in the last period:</strong> capability estimates may be unreliable until these signals are understood.
         Focus on understanding and addressing these causes before relying on capability estimates.
       </div>
     `;
   } else {
     capabilityDiv.innerHTML = "";
   }
+}
+
+function renderXbarSSummary(latestAnalysis, totalSubgroups) {
+  if (!summaryDiv || !latestAnalysis) return;
+
+  const x = latestAnalysis.xbar;
+  const s = latestAnalysis.s;
+
+  const xStable = !!x?.isStable;
+  const sStable = !!s?.isStable;
+
+  const periodIndex = latestAnalysis.periodIndex || 1;
+  const periodCount = latestAnalysis.periodCount || 1;
+  const startIndex = latestAnalysis.startIndex ?? 0;
+  const endIndex = latestAnalysis.endIndex ?? 0;
+  const labelStart = latestAnalysis.labelStart;
+  const labelEnd = latestAnalysis.labelEnd;
+
+  const stats = latestAnalysis.stats || {};
+  const subgroupSizeText = Number.isFinite(stats.subgroupSize)
+    ? `${stats.subgroupSize}`
+    : "not stated";
+
+  const xbarbarText = Number.isFinite(stats.xbarbar)
+    ? stats.xbarbar.toFixed(3)
+    : "not available";
+
+  const sbarText = Number.isFinite(stats.sbar)
+    ? stats.sbar.toFixed(3)
+    : "not available";
+
+  const uclXText = Number.isFinite(stats.uclX)
+    ? stats.uclX.toFixed(3)
+    : "not available";
+
+  const lclXText = Number.isFinite(stats.lclX)
+    ? stats.lclX.toFixed(3)
+    : "not available";
+
+  const uclSText = Number.isFinite(stats.uclS)
+    ? stats.uclS.toFixed(3)
+    : "not available";
+
+  const lclSText = Number.isFinite(stats.lclS)
+    ? stats.lclS.toFixed(3)
+    : "not available";
+
+  const base = `subgroups ${startIndex + 1}–${endIndex + 1}`;
+  const rangeText =
+    (typeof getAxisType === "function" &&
+      getAxisType() === "date" &&
+      labelStart !== undefined &&
+      labelEnd !== undefined)
+      ? `${base} (${formatDateOnlyLabel(labelStart)} to ${formatDateOnlyLabel(labelEnd)})`
+      : base;
+
+  const xSignals = Array.isArray(x?.signals) ? x.signals : [];
+  const sSignals = Array.isArray(s?.signals) ? s.signals : [];
+
+  let overallInterpretation = "";
+  if (xStable && sStable) {
+    overallInterpretation =
+      "Both the subgroup averages (X̄) and within-subgroup variation (S) look stable in the latest period. No clear special-cause signals were detected in the latest X̄–S period. This suggests the process may be behaving consistently, but it should still be monitored and interpreted with local context.";
+  } else if (!xStable && sStable) {
+    overallInterpretation =
+      "The subgroup averages (X̄) show special-cause signals, but the within-subgroup variation (S) looks stable. This suggests that the process level may have shifted while within-group variation stayed broadly consistent.";
+  } else if (xStable && !sStable) {
+    overallInterpretation =
+      "The subgroup averages (X̄) look stable, but the within-subgroup variation (S) shows special-cause signals. This suggests the average level may be steady while consistency within subgroups has changed.";
+  } else {
+    overallInterpretation =
+      "Both the subgroup averages (X̄) and the within-subgroup variation (S) show special-cause signals. This suggests the process level and its consistency may both have changed.";
+  }
+
+  let html = `<h3>X̄–S summary (latest period)</h3>`;
+  html += `<p>Total number of subgroups: <strong>${totalSubgroups}</strong>. `;
+  html += `Showing interpretation for <strong>period ${periodIndex} of ${periodCount}</strong>.</p>`;
+
+  html += `<div class="pdf-avoid-break">`;
+  html += `<ul>`;
+  html += `<li><strong>Coverage:</strong> ${rangeText}.</li>`;
+  html += `<li><strong>Typical subgroup size:</strong> ${subgroupSizeText} measurement${subgroupSizeText === "1" ? "" : "s"} per subgroup.</li>`;
+  html += `<li><strong>X̄ chart centre line:</strong> ${xbarbarText}; limits: LCL = ${lclXText}, UCL = ${uclXText}.</li>`;
+  html += `<li><strong>S chart centre line:</strong> ${sbarText}; limits: LCL = ${lclSText}, UCL = ${uclSText}.</li>`;
+
+  if (xStable) {
+    html += `<li><strong>X̄ chart:</strong> stable (no clear signal of change in subgroup averages).</li>`;
+  } else {
+    html += `<li><strong>X̄ chart:</strong> signal(s): ${xSignals.join("; ")}.</li>`;
+  }
+
+  if (sStable) {
+    html += `<li><strong>S chart:</strong> stable (no clear signal of change in within-subgroup variation).</li>`;
+  } else {
+    html += `<li><strong>S chart:</strong> signal(s): ${sSignals.join("; ")}.</li>`;
+  }
+
+  html += `<li><strong>Interpretation:</strong> ${overallInterpretation}</li>`;
+  html += `</ul>`;
+  html += `</div>`;
+
+  summaryDiv.innerHTML = html;
 }
 
 // Approximate standard normal CDF Φ(z)
@@ -4623,6 +6963,138 @@ function computeTargetCapability(mean, sigma, target, direction) {
   return { prob: p, z };
 }
 
+function getDateFormatPreference() {
+  return (dateFormatPreferenceSelect?.value || "uk").toLowerCase();
+}
+
+function isAmbiguousNumericDateToken(s) {
+  const m = String(s || "").trim().match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+  if (!m) return false;
+
+  const a = Number(m[1]);
+  const b = Number(m[2]);
+
+  return a >= 1 && a <= 12 && b >= 1 && b <= 12;
+}
+
+function detectNumericDateStyle(values) {
+  let seenUkOnly = false;
+  let seenUsOnly = false;
+  let ambiguousCount = 0;
+
+  for (const raw of values || []) {
+    const s = String(raw ?? "").trim();
+    if (!s) continue;
+
+    const m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+    if (!m) continue;
+
+    const a = Number(m[1]);
+    const b = Number(m[2]);
+
+    if (!(a >= 1 && a <= 31 && b >= 1 && b <= 31)) continue;
+
+    if (a > 12 && b <= 12) seenUkOnly = true;   // e.g. 25/01/2024
+    else if (b > 12 && a <= 12) seenUsOnly = true; // e.g. 01/25/2024
+    else if (a <= 12 && b <= 12) ambiguousCount++;
+  }
+
+  if (seenUkOnly && !seenUsOnly) {
+    return { style: "uk", ambiguousCount };
+  }
+  if (seenUsOnly && !seenUkOnly) {
+    return { style: "us", ambiguousCount };
+  }
+  if (seenUkOnly && seenUsOnly) {
+    return { style: "mixed", ambiguousCount };
+  }
+  return { style: "unknown", ambiguousCount };
+}
+
+function updateDateFormatWarning() {
+  if (!dateFormatWarning) return;
+
+  dateFormatWarning.style.display = "none";
+  dateFormatWarning.textContent = "";
+
+  if (!rawRows || !rawRows.length) return;
+  if (!dateSelect || !dateSelect.value) return;
+
+  const col = dateSelect.value;
+  const axisType = getCheckedRadioValue("axisType");
+  if (axisType !== "date") return;
+
+  const values = rawRows
+    .map(r => r?.[col])
+    .filter(v => v !== null && v !== undefined && String(v).trim() !== "");
+
+  if (!values.length) return;
+
+  const result = detectNumericDateStyle(values);
+  const pref = getDateFormatPreference();
+
+  if (result.style === "mixed") {
+    dateFormatWarning.textContent =
+      "Warning: this column appears to contain a mixture of UK-style and US-style numeric dates. Please standardise the dates if possible.";
+    dateFormatWarning.style.display = "block";
+    return;
+  }
+
+  if (pref === "uk" && result.style === "us") {
+    dateFormatWarning.textContent =
+      "Warning: these dates look like US month-first dates (mm/dd/yyyy), but UK day-first is selected. Some rows may be ignored. Try switching to US month-first or Auto-detect.";
+    dateFormatWarning.style.display = "block";
+    return;
+  }
+
+  if (pref === "us" && result.style === "uk") {
+    dateFormatWarning.textContent =
+      "Warning: these dates look like UK day-first dates (dd/mm/yyyy), but US month-first is selected. Some rows may be ignored. Try switching to UK day-first or Auto-detect.";
+    dateFormatWarning.style.display = "block";
+    return;
+  }
+
+  if (result.ambiguousCount > 0) {
+    if (pref === "uk") {
+      dateFormatWarning.textContent =
+        "This column contains ambiguous numeric dates. They will currently be interpreted as UK day-first dates (dd/mm/yyyy).";
+      dateFormatWarning.style.display = "block";
+      return;
+    }
+
+    if (pref === "us") {
+      dateFormatWarning.textContent =
+        "This column contains ambiguous numeric dates. They will currently be interpreted as US month-first dates (mm/dd/yyyy).";
+      dateFormatWarning.style.display = "block";
+      return;
+    }
+
+    if (pref === "auto" && result.style === "unknown") {
+      dateFormatWarning.textContent =
+        "This column contains ambiguous numeric dates and the tool cannot confidently auto-detect the style. It will fall back to UK day-first dates unless you choose another option.";
+      dateFormatWarning.style.display = "block";
+      return;
+    }
+
+    if (pref === "iso-only") {
+      dateFormatWarning.textContent =
+        "This column contains numeric slash/hyphen dates. In 'ISO / Excel dates only' mode, ambiguous numeric dates may not be interpreted as dates.";
+      dateFormatWarning.style.display = "block";
+      return;
+    }
+  }
+}
+
+function updateDateControlsState() {
+  const axisType = document.querySelector("input[name='axisType']:checked")?.value;
+
+  const isDateMode = axisType === "date";
+
+  if (dateFormatPreferenceSelect) {
+    dateFormatPreferenceSelect.disabled = !isDateMode;
+  }
+}
+
 // Parse dates safely, supporting NHS-style dd/mm/yyyy as well as ISO yyyy-mm-dd
 function parseDateValue(xRaw) {
   if (xRaw instanceof Date && !isNaN(xRaw)) {
@@ -4636,27 +7108,72 @@ function parseDateValue(xRaw) {
   const s = String(xRaw).trim();
   if (!s) return new Date(NaN);
 
+  // --- Excel serial date support ---
+  const asNumber = Number(s);
+  if (Number.isFinite(asNumber) && asNumber > 20000 && asNumber < 60000) {
+    const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+    return new Date(excelEpoch.getTime() + asNumber * 86400000);
+  }
+
   // ISO style: 2025-10-02 or 2025-10-02T...
-  const isoMatch = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
-  if (isoMatch) {
-    const y = Number(isoMatch[1]);
-    const m = Number(isoMatch[2]);
-    const d = Number(isoMatch[3]);
-    return new Date(y, m - 1, d);
+  if (/^\d{4}-\d{2}-\d{2}(?:[T\s].*)?$/.test(s)) {
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? new Date(NaN) : d;
   }
 
-  // NHS-style day-first: dd/mm/yyyy or dd-mm-yyyy
-  const dmMatch = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
-  if (dmMatch) {
-    let day   = Number(dmMatch[1]);
-    let month = Number(dmMatch[2]);
-    let year  = Number(dmMatch[3]);
-    if (year < 100) year += 2000; // e.g. 25 -> 2025
-    return new Date(year, month - 1, day);
+  // Numeric slash or hyphen dates
+  const m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})(?:\s+.*)?$/);
+  if (m) {
+    let a = Number(m[1]);
+    let b = Number(m[2]);
+    let y = Number(m[3]);
+
+    if (y < 100) {
+      y += (y >= 50 ? 1900 : 2000);
+    }
+
+    const pref = getDateFormatPreference();
+
+    let styleToUse = pref;
+
+    if (pref === "auto") {
+      if (a > 12 && b <= 12) styleToUse = "uk";
+      else if (b > 12 && a <= 12) styleToUse = "us";
+      else styleToUse = "uk"; // safe fallback for ambiguous cases
+    }
+
+    if (pref === "iso-only") {
+      return new Date(NaN);
+    }
+
+    let day, month;
+    if (styleToUse === "us") {
+      month = a;
+      day = b;
+    } else {
+      day = a;
+      month = b;
+    }
+
+    if (!(month >= 1 && month <= 12 && day >= 1 && day <= 31)) {
+      return new Date(NaN);
+    }
+
+    const d = new Date(y, month - 1, day);
+    if (
+      d.getFullYear() !== y ||
+      d.getMonth() !== month - 1 ||
+      d.getDate() !== day
+    ) {
+      return new Date(NaN);
+    }
+
+    return d;
   }
 
-  // Fallback: let the browser try
-  return new Date(s);
+  // Fallback: native parsing for named-month strings like "02 Jan 2025"
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? new Date(NaN) : d;
 }
 
 
@@ -4695,6 +7212,50 @@ function toNumericValue(raw) {
   return isFinite(num) ? num : NaN;
 }
 
+function formatColumnName(colName, fallbackLabel = "this column") {
+  return colName ? `"${colName}"` : fallbackLabel;
+}
+
+function getSuggestedAlternativeColumn(currentCol, candidates = []) {
+  const filtered = (candidates || []).filter(c => c && c !== currentCol);
+  return filtered.length ? filtered[0] : "";
+}
+
+function buildAlternativeSuggestionText(alternativeCol, purposeText) {
+  if (!alternativeCol) return "";
+  return ` Try ${formatColumnName(alternativeCol)} instead${purposeText ? ` as the ${purposeText}` : ""}.`;
+}
+
+function getCountLikeColumnCandidates({ requirePositive = false } = {}) {
+  return allColumns.filter(col => {
+    const p = getProfile(col);
+    if (!p || !p.isNumeric || p.looksLikeDate || !p.isMostlyInteger || p.hasNeg) return false;
+    if (requirePositive) {
+      return Number.isFinite(p.min) && p.min > 0;
+    }
+    return true;
+  });
+}
+
+function getContinuousMeasureCandidates(excludeCols = []) {
+  return allColumns.filter(col => {
+    const p = getProfile(col);
+    if (!p || !p.isNumeric || p.looksLikeDate) return false;
+    if (excludeCols.includes(col)) return false;
+    if (p.looksIndexLike) return false;
+    return true;
+  });
+}
+
+function getRepeatingSubgroupCandidates(excludeCols = []) {
+  return allColumns.filter(col => {
+    const p = getProfile(col);
+    if (!p || p.looksLikeDate) return false;
+    if (excludeCols.includes(col)) return false;
+    return !!p.repeatsOften;
+  });
+}
+
 /* ============================================================
    VALIDATION HELPERS (P / U / C charts)
    - "error" => block chart generation
@@ -4705,56 +7266,120 @@ function isIntegerish(n) {
   return Number.isFinite(n) && Math.abs(n - Math.round(n)) < 1e-9;
 }
 
-function validateNonNegativeNumbers(arr, label) {
+function validateNonNegativeNumbers(arr, label, options = {}) {
+  const {
+    columnName = "",
+    alternativeColumn = "",
+    purposeText = ""
+  } = options;
+
   for (let i = 0; i < arr.length; i++) {
     const v = Number(arr[i]);
     if (!Number.isFinite(v)) {
-      return { level: "error", message: `${label} has a non-numeric value at row ${i + 1}.` };
+      return {
+        level: "error",
+        message:
+          `${label} uses ${formatColumnName(columnName, "the selected column")}, ` +
+          `but it contains a non-numeric value at row ${i + 1}.` +
+          buildAlternativeSuggestionText(alternativeColumn, purposeText)
+      };
     }
     if (v < 0) {
-      return { level: "error", message: `${label} has a negative value at row ${i + 1}.` };
-    }
-  }
-  return null;
-}
-
-function warnIfNonInteger(arr, label) {
-  for (let i = 0; i < arr.length; i++) {
-    const v = Number(arr[i]);
-    if (Number.isFinite(v) && !isIntegerish(v)) {
       return {
-        level: "warn",
+        level: "error",
         message:
-          `${label} has a non-integer value at row ${i + 1} (${v}). ` +
-          `Counts/denominators are usually whole numbers.\n\nGenerate the chart anyway?`
+          `${label} uses ${formatColumnName(columnName, "the selected column")}, ` +
+          `but it contains a negative value at row ${i + 1}.` +
+          buildAlternativeSuggestionText(alternativeColumn, purposeText)
       };
     }
   }
   return null;
 }
 
-function validateDenominatorPositive(arr, label) {
+function warnIfNonInteger(arr, label, options = {}) {
+  const {
+    columnName = "",
+    alternativeColumn = "",
+    purposeText = ""
+  } = options;
+
   for (let i = 0; i < arr.length; i++) {
     const v = Number(arr[i]);
-    if (!Number.isFinite(v)) {
-      return { level: "error", message: `${label} has a non-numeric value at row ${i + 1}.` };
-    }
-    if (v <= 0) {
-      return { level: "error", message: `${label} must be > 0 at row ${i + 1}.` };
+    if (Number.isFinite(v) && !isIntegerish(v)) {
+      return {
+        level: "warn",
+        message:
+          `${label} uses ${formatColumnName(columnName, "the selected column")}, ` +
+          `but row ${i + 1} has a non-integer value (${v}). ` +
+          `Counts and denominators are usually whole numbers.` +
+          buildAlternativeSuggestionText(alternativeColumn, purposeText) +
+          `\n\nGenerate the chart anyway?`
+      };
     }
   }
   return null;
 }
 
-function validateNumeratorNotGreaterThanDenom(numerArr, denomArr) {
-  for (let i = 0; i < numerArr.length; i++) {
-    const d = Number(numerArr[i]);
-    const n = Number(denomArr[i]);
-    if (Number.isFinite(d) && Number.isFinite(n) && d > n) {
+function validateDenominatorPositive(arr, label, options = {}) {
+  const {
+    columnName = "",
+    alternativeColumn = "",
+    purposeText = ""
+  } = options;
+
+  for (let i = 0; i < arr.length; i++) {
+    const v = Number(arr[i]);
+    if (!Number.isFinite(v)) {
       return {
         level: "error",
         message:
-          `P chart invalid at row ${i + 1}: numerator (d=${d}) is greater than denominator (n=${n}).`
+          `${label} uses ${formatColumnName(columnName, "the selected column")}, ` +
+          `but it contains a non-numeric value at row ${i + 1}.` +
+          buildAlternativeSuggestionText(alternativeColumn, purposeText)
+      };
+    }
+    if (v <= 0) {
+      return {
+        level: "error",
+        message:
+          `${label} uses ${formatColumnName(columnName, "the selected column")}, ` +
+          `but row ${i + 1} has value ${v}. Denominators/opportunities must be greater than 0.` +
+          buildAlternativeSuggestionText(alternativeColumn, purposeText)
+      };
+    }
+  }
+  return null;
+}
+
+function validateNumeratorNotGreaterThanDenom(numArr, denomArr, options = {}) {
+  const {
+    numeratorColumn = "",
+    denominatorColumn = "",
+    alternativeNumerator = "",
+    alternativeDenominator = ""
+  } = options;
+
+  for (let i = 0; i < numArr.length; i++) {
+    const num = Number(numArr[i]);
+    const den = Number(denomArr[i]);
+
+    if (Number.isFinite(num) && Number.isFinite(den) && num > den) {
+      let suggestion = "";
+      if (alternativeNumerator || alternativeDenominator) {
+        const parts = [];
+        if (alternativeNumerator) parts.push(`numerator ${formatColumnName(alternativeNumerator)}`);
+        if (alternativeDenominator) parts.push(`denominator ${formatColumnName(alternativeDenominator)}`);
+        suggestion = ` Try ${parts.join(" and ")} instead.`;
+      }
+
+      return {
+        level: "error",
+        message:
+          `P chart setup uses numerator ${formatColumnName(numeratorColumn, "the selected numerator column")} ` +
+          `and denominator ${formatColumnName(denominatorColumn, "the selected denominator column")}, ` +
+          `but row ${i + 1} has numerator ${num} greater than denominator ${den}.` +
+          suggestion
       };
     }
   }
@@ -4762,6 +7387,87 @@ function validateNumeratorNotGreaterThanDenom(numerArr, denomArr) {
 }
 
 let lastGenerateWasManual = false;
+
+let axisTypeManuallyChanged = false;
+
+function validateColumnSelectionSafety({ chartType, dateCol, valueCol, axisType }) {
+  if (!dateCol || !valueCol) return null;
+
+  // Hard stop: same column chosen for X and Y
+  if (dateCol === valueCol) {
+    return {
+      level: "error",
+      message: "Please choose different columns for the X-axis and the value."
+    };
+  }
+
+  const xProf = (typeof getProfile === "function") ? getProfile(dateCol) : null;
+  const yProf = (typeof getProfile === "function") ? getProfile(valueCol) : null;
+
+  const warnings = [];
+
+  const xLooksLikeSequence =
+    !!(xProf &&
+       xProf.isNumeric &&
+       xProf.isMostlyInteger &&
+       xProf.uniqueRatio >= 0.85 &&
+       !xProf.repeatsOften &&
+       !xProf.looksLikeDate);
+
+  const yLooksLikeIndex =
+    !!(yProf &&
+       yProf.isNumeric &&
+       yProf.isMostlyInteger &&
+       yProf.uniqueRatio >= 0.85 &&
+       !yProf.repeatsOften &&
+       !yProf.looksLikeDate);
+
+  // T chart (event dates mode): value column is ignored, so only check X
+  if (chartType === "t" && typeof tChartInputMode !== "undefined" && tChartInputMode === "eventDates") {
+    if (xProf && !xProf.looksLikeDate) {
+      return {
+        level: "warning",
+        message:
+          "T chart (event dates mode): the selected X-axis column does not look like a date/time column.\n\n" +
+          "Generate the chart anyway?"
+      };
+    }
+    return null;
+  }
+
+  if (axisType === "date" && xLooksLikeSequence) {
+    warnings.push(
+      "The selected X-axis column looks more like a numeric sequence than a date/time column. " +
+      "Consider switching X-axis type to Sequence / category."
+    );
+  }
+
+  if (yProf && yProf.looksLikeDate) {
+    warnings.push(
+      "The selected value column looks like a date/time field rather than a measurement."
+    );
+  }
+
+  if (yLooksLikeIndex && (xProf?.looksLikeDate || xLooksLikeSequence)) {
+    warnings.push(
+      "The selected value column looks more like an ID / sequence column than an outcome measure. " +
+      "Please check that you have chosen the column you want to chart."
+    );
+  }
+
+  if ((chartType === "run" || chartType === "xmr") && axisType === "date" && xLooksLikeSequence && yLooksLikeIndex) {
+    warnings.push(
+      "Both selected columns look like numeric sequences. This can create a plausible-looking but misleading chart."
+    );
+  }
+
+  if (!warnings.length) return null;
+
+  return {
+    level: "warning",
+    message: warnings.join("\n\n") + "\n\nGenerate the chart anyway?"
+  };
+}
 
 function handleValidationResult(result, { manual = true } = {}) {
   if (!result) return true;
@@ -4797,6 +7503,7 @@ generateButton.addEventListener("click", () => {
   if (summaryDiv) summaryDiv.innerHTML = "";
   if (capabilityDiv) capabilityDiv.innerHTML = "";
 
+  if (typeof validateAxisSettings === "function" && !validateAxisSettings()) return;
   if (!validateBeforeGenerate()) return;
 
   try {
@@ -4804,37 +7511,85 @@ generateButton.addEventListener("click", () => {
     const valueCol = valueSelect.value;
     const axisType = getAxisType();
 
-    // --- 1) Build points depending on axis type ---
+        const chartType = getSelectedChartType_NoSideEffects();
+
+    // --- 1) Build points depending on axis type and chart type ---
     let parsedPoints;
 
-    if (axisType === "date") {
-      parsedPoints = rawRows
-        .map((row,idx) => {
-          const d = parseDateValue(row[dateCol]);
-          const y = toNumericValue(row[valueCol]);
-          if (!d || !isFinite(d.getTime()) || !isFinite(y)) return null;
-          return { x: d, y, _rowIndex: idx  };
-        })
-        .filter(Boolean);
+    // Special handling: T chart
+    if (chartType === "t") {
+      // If using event dates, we require date axis and we IGNORE the value column.
+      if (tChartInputMode === "eventDates") {
+        if (axisType !== "date") {
+          showError("T chart (event dates mode) needs Date / time axis.");
+          return;
+        }
+
+        parsedPoints = rawRows
+          .map((row, idx) => {
+            const d = parseDateValue(row[dateCol]);
+            if (!d || !isFinite(d.getTime())) return null;
+
+            // y is not used for event-date mode; keep a harmless constant
+            const labelRaw = row[dateCol];
+            const label =
+              labelRaw !== undefined && labelRaw !== null && String(labelRaw).trim() !== ""
+                ? String(labelRaw)
+                : `Event ${idx + 1}`;
+
+            return { x: d, y: 1, label, _rowIndex: idx };
+          })
+          .filter(Boolean);
+      } else {
+        // gaps mode: use numeric gaps directly from the value column (sequence axis is fine)
+        parsedPoints = rawRows
+          .map((row, idx) => {
+            const gap = toNumericValue(row[valueCol]);
+            if (!isFinite(gap)) return null;
+
+            const rawLabel = row[dateCol];
+            const label =
+              rawLabel !== undefined && rawLabel !== null && String(rawLabel).trim() !== ""
+                ? String(rawLabel)
+                : `Point ${idx + 1}`;
+
+            // Keep x as sequence index; draw step will treat y as the gap value
+            return { x: idx, y: gap, label, _rowIndex: idx };
+          })
+          .filter(Boolean);
+      }
     } else {
-      // sequence/category axis
-      parsedPoints = rawRows
-        .map((row, idx) => {
-          const y = toNumericValue(row[valueCol]);
-          if (!isFinite(y)) return null;
+      // Normal behaviour for non-T charts
+      if (axisType === "date") {
+        parsedPoints = rawRows
+          .map((row,idx) => {
+            const d = parseDateValue(row[dateCol]);
+            const y = toNumericValue(row[valueCol]);
+            if (!d || !isFinite(d.getTime()) || !isFinite(y)) return null;
+            return { x: d, y, _rowIndex: idx  };
+          })
+          .filter(Boolean);
+      } else {
+        // sequence/category axis
+        parsedPoints = rawRows
+          .map((row, idx) => {
+            const y = toNumericValue(row[valueCol]);
+            if (!isFinite(y)) return null;
 
-          const rawLabel = row[dateCol];
-          const label =
-            rawLabel !== undefined &&
-            rawLabel !== null &&
-            String(rawLabel).trim() !== ""
-              ? String(rawLabel)
-              : `Point ${idx + 1}`;
+            const rawLabel = row[dateCol];
+            const label =
+              rawLabel !== undefined &&
+              rawLabel !== null &&
+              String(rawLabel).trim() !== ""
+                ? String(rawLabel)
+                : `Point ${idx + 1}`;
 
-          return { x: idx, y, label,  _rowIndex: idx };
-        })
-        .filter(Boolean);
+            return { x: idx, y, label,  _rowIndex: idx };
+          })
+          .filter(Boolean);
+      }
     }
+
 
     // You can lower this if you want charts from fewer points
     if (parsedPoints.length < 3) {
@@ -4860,8 +7615,6 @@ generateButton.addEventListener("click", () => {
       if (!isNaN(n) && n >= 2) baselineCount = Math.min(n, points.length);
     }
 
-    const chartType = getSelectedChartType_NoSideEffects();
-
 // Guard: chart not implemented yet
 if (!IMPLEMENTED_CHARTS.has(chartType)) {
   showChartMessage(`"${chartType.toUpperCase()}" charts are not available yet. Please use Run or XmR for now.`);
@@ -4874,11 +7627,11 @@ if (thirdColumnRow && thirdColumnRow.style.display !== "none") {
   const thirdCol = thirdSelect ? thirdSelect.value : "";
 
   if (!thirdCol) {
-    showChartMessage("Please choose the required third column for this chart type.");
+    showChartMessage(`Please choose the required third column for this ${getChartTypeDisplayName(chartType)}. For example, use a denominator for a P chart or opportunities for a U chart.`);
     return;
   }
   if (thirdCol === yCol) {
-    showChartMessage("The third column should be different from the main value column.");
+    showChartMessage(`The third column is currently set to ${formatColumnName(thirdCol)} but it should be different from the main value column ${formatColumnName(yCol)}.`);
     return;
   }
 }
@@ -4907,17 +7660,33 @@ if (chartType === "run") {
   // VALIDATION: C chart (counts)
   // -----------------------------
   const cValues = points.map(p => p.y);
+  const cColumn = valueSelect?.value || "";
+  const cAlternative = getSuggestedAlternativeColumn(cColumn, getCountLikeColumnCandidates());
 
- if (!handleValidationResult(validateNonNegativeNumbers(cValues, "C chart count"), { manual: lastGenerateWasManual })) return;
- if (!handleValidationResult(warnIfNonInteger(cValues, "C chart count"), { manual: lastGenerateWasManual })) return;
+ if (!handleValidationResult(
+      validateNonNegativeNumbers(cValues, "C chart count", {
+        columnName: cColumn,
+        alternativeColumn: cAlternative,
+        purposeText: "count column"
+      }),
+      { manual: lastGenerateWasManual }
+    )) return;
 
+ if (!handleValidationResult(
+      warnIfNonInteger(cValues, "C chart count", {
+        columnName: cColumn,
+        alternativeColumn: cAlternative,
+        purposeText: "count column"
+      }),
+      { manual: lastGenerateWasManual }
+    )) return;
 
   drawCChart(points, baselineCount, labels);
 
 } else if (chartType === "p" || chartType === "u") {
   // P/U require a third column (denominator/opportunities)
   if (!thirdSelect || !thirdSelect.value) {
-    showError("This chart type needs a third column (denominator/opportunities).");
+    showError(`The ${getChartTypeDisplayName(chartType)} needs a third column. Please choose ${chartType === "p" ? "a denominator (total)" : "an opportunities column"} before generating the chart.`);
     return;
   }
 
@@ -4945,20 +7714,137 @@ if (chartType === "run") {
   const denomArr = pointsWithNOrdered.map(p => p.n);
 
   // Block: non-numeric or negative numerator
-  if (!handleValidationResult(validateNonNegativeNumbers(numerArr, chartType === "p" ? "P chart numerator (d)" : "U chart numerator (c)"))) return;
+    const currentNumer = valueSelect?.value || "";
+  const currentDenom = thirdSelect?.value || "";
+  const fallback = (typeof chooseDefaultsForChart === "function")
+    ? chooseDefaultsForChart(chartType)
+    : null;
 
-  // Block: denominator must be > 0
-  if (!handleValidationResult(validateDenominatorPositive(denomArr, chartType === "p" ? "P chart denominator (n)" : "U chart denominator/opportunities (n)"))) return;
+  const fallbackNumer = fallback?.yCol || "";
+  const fallbackDenom = fallback?.thirdCol || "";
 
-  // Extra rule for P: numerator must not exceed denominator
-  if (chartType === "p") {
-    if (!handleValidationResult(validateNumeratorNotGreaterThanDenom(numerArr, denomArr))) return;
+  if (!handleValidationResult(
+    validateNonNegativeNumbers(
+      numerArr,
+      chartType === "p" ? "P chart numerator (d)" : "U chart numerator (c)",
+      {
+        columnName: currentNumer,
+        alternativeColumn: fallbackNumer && fallbackNumer !== currentNumer ? fallbackNumer : "",
+        purposeText: chartType === "p" ? "numerator column" : "count column"
+      }
+    )
+  )) return;
+
+  // Extra UX recovery for P / U:
+  // if the current pair is poor for the chosen chart type,
+  // try the tool's preferred default pair before showing a hard error.
+  if (chartType === "p" || chartType === "u") {
+    
+
+    const canTryFallback =
+      fallbackNumer &&
+      fallbackDenom &&
+      fallbackNumer !== fallbackDenom &&
+      (fallbackNumer !== currentNumer || fallbackDenom !== currentDenom);
+
+    let shouldFallback = false;
+
+    if (chartType === "p") {
+      const pPairValidation = validateNumeratorNotGreaterThanDenom(numerArr, denomArr, {
+  numeratorColumn: currentNumer,
+  denominatorColumn: currentDenom,
+  alternativeNumerator: fallbackNumer && fallbackNumer !== currentNumer ? fallbackNumer : "",
+  alternativeDenominator: fallbackDenom && fallbackDenom !== currentDenom ? fallbackDenom : ""
+});
+      if (pPairValidation) {
+        if (canTryFallback && valueSelect && thirdSelect) {
+          valueSelect.value = fallbackNumer;
+          thirdSelect.value = fallbackDenom;
+
+          showChartMessage(
+            "I changed the numerator and denominator columns to a more suitable pair for a P chart."
+          );
+
+          if (generateButton) {
+            lastGenerateWasManual = false;
+            generateButton.click();
+          }
+          return;
+        }
+
+        if (!handleValidationResult(pPairValidation)) return;
+      }
+    }
+
+    if (chartType === "u") {
+      const invalidDenominator =
+        denomArr.some(d => !Number.isFinite(d) || d <= 0);
+
+      const sameColumnChosen =
+        currentNumer &&
+        currentDenom &&
+        currentNumer === currentDenom;
+
+      if (invalidDenominator || sameColumnChosen) {
+        shouldFallback = true;
+      }
+
+      if (shouldFallback && canTryFallback && valueSelect && thirdSelect) {
+        valueSelect.value = fallbackNumer;
+        thirdSelect.value = fallbackDenom;
+
+        showChartMessage(
+          "I changed the count and opportunities columns to a more suitable pair for a U chart."
+        );
+
+        if (generateButton) {
+          lastGenerateWasManual = false;
+          generateButton.click();
+        }
+        return;
+      }
+    }
   }
 
+  // Block: denominator must be > 0
+    if (!handleValidationResult(
+    validateDenominatorPositive(
+      denomArr,
+      chartType === "p"
+        ? "P chart denominator (n)"
+        : "U chart denominator/opportunities (n)",
+      {
+        columnName: currentDenom,
+        alternativeColumn: fallbackDenom && fallbackDenom !== currentDenom ? fallbackDenom : "",
+        purposeText: chartType === "p" ? "denominator column" : "opportunities column"
+      }
+    )
+  )) return;
+
   // Warn: non-integers (allow user to continue)
-  // (Useful for QA cases like 12.5 denominators, etc.)
-  if (!handleValidationResult(warnIfNonInteger(numerArr, chartType === "p" ? "P chart numerator (d)" : "U chart numerator (c)"))) return;
-  if (!handleValidationResult(warnIfNonInteger(denomArr, chartType === "p" ? "P chart denominator (n)" : "U chart denominator/opportunities (n)"))) return;
+    if (!handleValidationResult(
+    warnIfNonInteger(
+      numerArr,
+      chartType === "p" ? "P chart numerator (d)" : "U chart numerator (c)",
+      {
+        columnName: currentNumer,
+        alternativeColumn: fallbackNumer && fallbackNumer !== currentNumer ? fallbackNumer : "",
+        purposeText: chartType === "p" ? "numerator column" : "count column"
+      }
+    )
+  )) return;
+
+  if (!handleValidationResult(
+    warnIfNonInteger(
+      denomArr,
+      chartType === "p" ? "P chart denominator (n)" : "U chart denominator/opportunities (n)",
+      {
+        columnName: currentDenom,
+        alternativeColumn: fallbackDenom && fallbackDenom !== currentDenom ? fallbackDenom : "",
+        purposeText: chartType === "p" ? "denominator column" : "opportunities column"
+      }
+    )
+  )) return;
 
   // Draw chart
   if (chartType === "p") {
@@ -4971,12 +7857,128 @@ if (chartType === "run") {
   drawXbarSChart(points, baselineCount, labels);
 
 } else if (chartType === "t") {
-  // T chart needs date axis (uses event dates)
-  if (document.querySelector("input[name='axisType']:checked")?.value !== "date") {
-    showError("T chart needs Date / time axis (it uses event dates).");
-    return;
+  if (tChartInputMode === "eventDates") {
+    // T chart needs date axis (uses event dates)
+    if (document.querySelector("input[name='axisType']:checked")?.value !== "date") {
+      showError("T chart needs Date / time axis (it uses event dates).");
+      return;
+    }
+    drawTChart(points, baselineCount, labels);
+    } else {
+    // Gaps mode: values are already "time between events"
+    const gaps = points.map(p => p.y);
+    if (gaps.length < 3) {
+      showError("T chart (gaps mode) needs at least 3 valid gap values.");
+      return;
+    }
+
+    // ---- Segment definition from splits ----
+    let effectiveSplits = Array.isArray(splits) ? splits.slice() : [];
+    effectiveSplits = effectiveSplits
+      .filter(i => Number.isInteger(i) && i >= 0 && i < gaps.length - 1)
+      .sort((a, b) => a - b);
+
+    const segmentStarts = [0];
+    const segmentEnds = [];
+    effectiveSplits.forEach(idx => {
+      segmentEnds.push(idx);
+      segmentStarts.push(idx + 1);
+    });
+    segmentEnds.push(gaps.length - 1);
+
+    const clArr = new Array(gaps.length).fill(NaN);
+    const uclArr = new Array(gaps.length).fill(NaN);
+    const lclArr = new Array(gaps.length).fill(NaN);
+
+    // Build period-specific limits
+    for (let s = 0; s < segmentStarts.length; s++) {
+      const start = segmentStarts[s];
+      const end = segmentEnds[s];
+
+      const segGaps = gaps.slice(start, end + 1);
+
+      const segBaselineCountUsed =
+        (s === 0 && baselineCount && baselineCount >= 2)
+          ? Math.min(baselineCount, segGaps.length)
+          : segGaps.length;
+
+      const base = segGaps.slice(0, segBaselineCountUsed);
+      const cl = base.reduce((a, b) => a + b, 0) / base.length;
+
+      const qHigh = 0.99865;
+      const ucl = -cl * Math.log(1 - qHigh);
+      const lcl = 0;
+
+      for (let i = start; i <= end; i++) {
+        clArr[i] = cl;
+        uclArr[i] = ucl;
+        lclArr[i] = lcl;
+      }
+    }
+
+    const pointColours = gaps.map((v, i) =>
+      (v > uclArr[i] || v < lclArr[i]) ? "#d73027" : "#003f87"
+    );
+
+    drawSimpleSPCChart({
+      labels,
+      values: gaps,
+      pointColours,
+      cl: clArr,
+      ucl: uclArr,
+      lcl: lclArr,
+      yAxisSuggestedMin: 0,
+      yAxisSuggestedMax: Math.max(...gaps, ...uclArr.filter(isFinite)),
+      chartTitleFallback: chartTitleInput?.value || "T chart (gaps)",
+      yAxisLabelFallback: yAxisLabelInput?.value || "Time between events",
+      showUCL: true,
+      showLCL: false
+    });
+
+    // ---- Build per-period analyses for summary ----
+    const segmentAnalyses = [];
+
+    for (let s = 0; s < segmentStarts.length; s++) {
+      const start = segmentStarts[s];
+      const end = segmentEnds[s];
+
+      const segBaselineCountUsed =
+        (s === 0 && baselineCount && baselineCount >= 2)
+          ? Math.min(baselineCount, (end - start + 1))
+          : (end - start + 1);
+
+      const a = analyzeRareChart({
+        chartType: "t",
+        labels: labels.slice(start, end + 1),
+        values: gaps.slice(start, end + 1),
+        cl: clArr.slice(start, end + 1),
+        ucl: uclArr.slice(start, end + 1),
+        lcl: lclArr.slice(start, end + 1)
+      });
+
+      a.periodIndex = s + 1;
+      a.periodCount = segmentStarts.length;
+      a.startIndex = start;
+      a.endIndex = end;
+      a.labelStart = labels[start];
+      a.labelEnd = labels[end];
+      a.nPoints = (end - start + 1);
+      a.baselineCountUsed = segBaselineCountUsed;
+
+      a.stats = {
+        cl: Number(clArr[start]),
+        ucl: Number(uclArr[start]),
+        lcl: Number(lclArr[start])
+      };
+
+      a.totalPoints = gaps.length;
+
+      segmentAnalyses.push(a);
+    }
+
+    lastRareAnalysis = segmentAnalyses[segmentAnalyses.length - 1];
+    renderRareChartSummary(segmentAnalyses, gaps.length);
   }
-  drawTChart(points, baselineCount, labels);
 
 } else if (chartType === "g") {
   // drawGChart expects a numeric array of values (not {x,y} point objects)
@@ -4987,6 +7989,15 @@ if (chartType === "run") {
   showError(`Chart type "${chartType}" is not implemented yet.`);
   return;
 }
+
+    // Keep Y-axis inputs blank when the user has not manually set bounds.
+// Blank inputs mean "automatic range", which prevents old auto-bounds
+// from becoming fixed limits on the next redraw.
+if (yAxisBoundsManuallyEdited) {
+  applyCurrentChartYBoundsToInputs(currentChart);
+}
+
+updateYAxisInputStep();
 
     // optional: clear dirty flag after successful draw
     if (typeof clearDataModelDirty === "function") clearDataModelDirty();
@@ -5171,20 +8182,17 @@ function drawRunChart(points, baselineCount, labels) {
           text: title,
           font: { size: 16, weight: "bold" }
         },
-        legend: { display: true, position: "bottom", align: "center" },
+        legend: SPC_LEGEND,
         annotation: { annotations: buildAnnotationConfig(labels) }
       },
       elements: { point: { radius: 0, hoverRadius: 0 } },
-      scales: {
-        x: {
-          grid: { display: false },
-          title: { display: !!xLabel, text: xLabel }
-        },
-        y: {
-          grid: { display: false },
-          title: { display: !!yLabel, text: yLabel }
-        }
-      }
+            scales: (() => {
+        const axisSettings = getAxisSettings();
+        return {
+          x: buildCategoryXAxisConfig(xLabel, axisSettings.x, labels),
+          y: buildAxisConfig(yLabel, axisSettings.y)
+        };
+      })()
     }
   });
 
@@ -5664,9 +8672,10 @@ function drawSimpleSPCChart({
     currentChart = null;
   }
 
-  const title = (chartTitleInput?.value || "").trim() || chartTitleFallback;
-  const xLabel = (xAxisLabelInput?.value || "").trim() || "Date";
-  const yLabel = (yAxisLabelInput?.value || "").trim() || yAxisLabelFallback;
+  const labelSet = getChartLabels(chartTitleFallback, "Date", yAxisLabelFallback);
+  const title = labelSet.title;
+  const xLabel = labelSet.xLabel;
+  const yLabel = labelSet.yLabel;
 
   const datasets = [
     {
@@ -5745,7 +8754,7 @@ function drawSimpleSPCChart({
           text: title,
           font: { size: 16, weight: "bold" }
         },
-        legend: { display: true, position: "bottom", align: "center" },
+        legend: SPC_LEGEND,
         annotation: {
           annotations: (typeof buildAnnotationConfig === "function")
             ? buildAnnotationConfig(labels)
@@ -5753,18 +8762,16 @@ function drawSimpleSPCChart({
         }
       },
       elements: { point: { radius: 0, hoverRadius: 0 } },
-      scales: {
-        x: {
-          grid: { display: false },
-          title: { display: !!xLabel, text: xLabel }
-        },
-        y: {
-          grid: { display: false },
-          title: { display: !!yLabel, text: yLabel },
-          suggestedMin: isFinite(yAxisSuggestedMin) ? yAxisSuggestedMin : undefined,
-          suggestedMax: isFinite(yAxisSuggestedMax) ? yAxisSuggestedMax : undefined
-        }
-      }
+            scales: (() => {
+        const axisSettings = getAxisSettings();
+        return {
+          x: buildCategoryXAxisConfig(xLabel, axisSettings.x, labels),
+          y: buildAxisConfig(yLabel, axisSettings.y, {
+            suggestedMin: isFinite(yAxisSuggestedMin) ? yAxisSuggestedMin : undefined,
+            suggestedMax: isFinite(yAxisSuggestedMax) ? yAxisSuggestedMax : undefined
+          })
+        };
+      })()
     }
   });
 }
@@ -5835,7 +8842,7 @@ function drawXmRChart(points, baselineCount, labels) {
   // Track whether any raw LCL would be below 0 (so we can show the option conditionally)
   let anyRawLclBelowZero = false;
 
-  // ----- Per-segment XmR -----
+    // ----- Per-segment XmR -----
   for (let s = 0; s < segmentStarts.length; s++) {
     const start = segmentStarts[s];
     const end   = segmentEnds[s];
@@ -5858,47 +8865,44 @@ function drawXmRChart(points, baselineCount, labels) {
       anyRawLclBelowZero = true;
     }
 
+    // Rule-aware analysis for this segment
+    const segValues = segPts.map(p => p.y);
+
+    const segAnalysis = analyzeAttributeChart({
+      chartType: "xmr",
+      labels: labels.slice(start, end + 1),
+      values: segValues,
+      cl: new Array(segValues.length).fill(mean),
+      ucl: new Array(segValues.length).fill(ucl),
+      lcl: new Array(segValues.length).fill(lcl)
+    });
+
     // Store for multi-period summary
     segmentSummaries.push({
       startIndex: start,
       endIndex: end,
       labelStart: labels[start],
       labelEnd: labels[end],
-      result: segResult
+      result: segResult,
+      analysis: segAnalysis
     });
 
-    // Extra rule detection for colouring (shift/trend relative to MEAN within this segment)
-    const segValues = segPts.map(p => p.y);
-
-    const runRanges = (typeof findLongRunRanges === "function")
-      ? findLongRunRanges(segValues, mean, shiftLength)
-      : [];
-
-    const trendRanges = (typeof findTrendRanges === "function")
-      ? findTrendRanges(segValues, trendLength)
-      : [];
-
-    const runFlags = (typeof flagFromRanges === "function")
-      ? flagFromRanges(segValues.length, runRanges)
-      : new Array(segValues.length).fill(false);
-
-    const trendFlags = (typeof flagFromRanges === "function")
-      ? flagFromRanges(segValues.length, trendRanges)
-      : new Array(segValues.length).fill(false);
-
-    for (let i = 0; i < segPts.length; i++) {
+    // Fill chart arrays for this segment
+    for (let i = 0; i < segValues.length; i++) {
       const globalIdx = start + i;
 
       // Colouring:
       // - beyond limits = red
-      // - shift/trend = orange
+      // - other special-cause signals = orange
       // - otherwise blue
-      if (flagOnChart) {
-        if (segPts[i].beyondLimits) {
-          pointColours[globalIdx] = "#d73027";
-        } else if (runFlags[i] || trendFlags[i]) {
-          pointColours[globalIdx] = "#ff8c00";
-        }
+      if (!flagOnChart) {
+        pointColours[globalIdx] = SPC_STYLE.pointNormal;
+      } else if (segAnalysis.flags?.beyond?.[i]) {
+        pointColours[globalIdx] = "#d73027";
+      } else if (segAnalysis.flags?.special?.[i]) {
+        pointColours[globalIdx] = "#ff8c00";
+      } else {
+        pointColours[globalIdx] = SPC_STYLE.pointNormal;
       }
 
       // Centre line & limits
@@ -6021,11 +9025,7 @@ function drawXmRChart(points, baselineCount, labels) {
           text: title,
           font: { size: 16, weight: "bold" }
         },
-        legend: {
-          display: true,
-          position: "bottom",
-          align: "center"
-        },
+        legend: SPC_LEGEND,
         annotation: {
           annotations: buildAnnotationConfig(labels)
         }
@@ -6033,18 +9033,33 @@ function drawXmRChart(points, baselineCount, labels) {
       elements: {
         point: { radius: 0, hoverRadius: 0 }
       },
-      scales: {
-        x: {
-          grid: { display: false },
-          title: { display: !!xLabel, text: xLabel }
-        },
-        y: {
-          grid: { display: false },
-          title: { display: !!yLabel, text: yLabel }
-        }
-      }
+            scales: (() => {
+        const axisSettings = getAxisSettings();
+        return {
+          x: buildCategoryXAxisConfig(xLabel, axisSettings.x, labels),
+          y: buildAxisConfig(yLabel, axisSettings.y)
+        };
+      })()
     }
   });
+
+    // Expose all XmR periods to the helper so it can talk about the whole chart,
+  // not just the latest segment.
+  window.lastXmRPeriods = segmentSummaries.map((seg, idx) => ({
+    periodIndex: idx + 1,
+    periodCount: segmentSummaries.length,
+    startIndex: seg.startIndex,
+    endIndex: seg.endIndex,
+    labelStart: seg.labelStart,
+    labelEnd: seg.labelEnd,
+    mean: seg.result?.mean,
+    ucl: seg.result?.ucl,
+    lcl: seg.result?.lcl,
+    sigma: seg.result?.sigma,
+    isStable: Array.isArray(seg.analysis?.signals) ? seg.analysis.signals.length === 0 : false,
+    signals: Array.isArray(seg.analysis?.signals) ? seg.analysis.signals.slice() : []
+  }));
+
 
   // ----- Summary -----
   if (segmentSummaries.length > 0) {
@@ -6102,6 +9117,9 @@ function drawMrChart(allPoints, labels, segments) {
   if (!mrCanvas || !mrPanel) return;
   mrPanel.style.display = "block";
 
+  const strong = mrPanel.querySelector("strong");
+  if (strong) strong.textContent = "Moving Range chart:";
+
   const showAll = (typeof getMrDisplayMode === "function") && (getMrDisplayMode() === "all");
 
   // House style colours (match main chart)
@@ -6128,7 +9146,7 @@ function drawMrChart(allPoints, labels, segments) {
     const lastSeg = segments && segments.length ? segments[segments.length - 1] : null;
     if (!lastSeg) return;
 
-    const pts = (lastSeg.result && lastSeg.result.points) ? lastSeg.result.points : [];
+    const pts = allPoints.slice(lastSeg.startIndex, lastSeg.endIndex + 1);
     const values = pts.map(p => p.y);
     const mr = mrForValues(values);
 
@@ -6139,72 +9157,7 @@ function drawMrChart(allPoints, labels, segments) {
     const uclMR = 3.268 * avgMR;
     const mrLabels = labels.slice(lastSeg.startIndex, lastSeg.endIndex + 1);
 
-    // Keep your dedicated renderer if you have it (ensures consistent layout)
-    if (typeof renderMrChart === "function") {
-      renderMrChart(mrLabels, mr, avgMR, uclMR);
-      return;
-    }
-
-    // Fallback render (if renderMrChart not present)
-    if (mrChart) { mrChart.destroy(); mrChart = null; }
-
-    const datasets = [
-      {
-        label: "Moving range",
-        data: mr,
-        borderColor: BLUE,
-        backgroundColor: BLUE,
-        borderWidth: 2,
-        pointRadius: 3,
-        pointHoverRadius: 4,
-        pointBackgroundColor: BLUE,
-        pointBorderColor: "#ffffff",
-        pointBorderWidth: 1,
-        spanGaps: false,
-        fill: false,
-        tension: 0
-      },
-      {
-        label: "MR average",
-        data: mr.map(() => avgMR),
-        borderColor: RED,
-        borderDash: [6, 4],
-        borderWidth: 2,
-        pointRadius: 0,
-        fill: false,
-        tension: 0
-      },
-      {
-        label: "MR UCL",
-        data: mr.map(() => uclMR),
-        borderColor: GREEN,
-        borderDash: [4, 4],
-        borderWidth: 2,
-        pointRadius: 0,
-        fill: false,
-        tension: 0
-      }
-    ];
-
-    mrChart = new Chart(mrCanvas, {
-      type: "line",
-      data: { labels: mrLabels, datasets },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          title: { display: true, text: "Moving Range (MR)", font: { size: 14, weight: "bold" } },
-          legend: { display: true, position: "bottom" },
-          annotation: { annotations: (typeof buildAnnotationConfig === "function") ? buildAnnotationConfig(mrLabels) : {} }
-        },
-        elements: { point: { radius: 0, hoverRadius: 0 } },
-        scales: {
-          x: { grid: { display: false } },
-          y: { grid: { display: false }, beginAtZero: true }
-        }
-      }
-    });
-
+    renderMrChart(mrLabels, mr, avgMR, uclMR);
     return;
   }
 
@@ -6237,7 +9190,7 @@ function drawMrChart(allPoints, labels, segments) {
 
   // One pair of lines per period
   (segments || []).forEach((seg, idx) => {
-    const pts = (seg.result && seg.result.points) ? seg.result.points : [];
+    const pts = allPoints.slice(seg.startIndex, seg.endIndex + 1);
     const values = pts.map(p => p.y);
     const mr = mrForValues(values);
 
@@ -6299,18 +9252,21 @@ function drawMrChart(allPoints, labels, segments) {
           text: "Moving Range (MR)",
           font: { size: 14, weight: "bold" }
         },
-        legend: { display: true, position: "bottom" },
+        legend: SPC_LEGEND,
         annotation: {
           annotations: (typeof buildAnnotationConfig === "function")
             ? buildAnnotationConfig(labels)
             : {}
         }
       },
-      elements: { point: { radius: 0, hoverRadius: 0 } },
-      scales: {
-        x: { grid: { display: false } },
-        y: { grid: { display: false }, beginAtZero: true }
-      }
+            elements: { point: { radius: 0, hoverRadius: 0 } },
+      scales: (() => {
+        const axisSettings = getAxisSettings();
+        return {
+          x: buildCategoryXAxisConfig("", axisSettings.x, labels),
+          y: buildAxisConfig("", withoutAxisBounds(axisSettings.y), { beginAtZero: true })
+        };
+      })()
     }
   });
 }
@@ -6319,6 +9275,11 @@ function drawMrChart(allPoints, labels, segments) {
 // Helper used by "last period only" mode — uses your existing MR canvas/chart variables
 function renderMrChart(mrLabels, mrValues, avgMR, uclMR) {
   if (!mrCanvas) return;
+
+  if (mrPanel) {
+    const strong = mrPanel.querySelector("strong");
+    if (strong) strong.textContent = "Moving Range chart:";
+  }
 
   if (mrChart) {
     mrChart.destroy();
@@ -6373,20 +9334,23 @@ function renderMrChart(mrLabels, mrValues, avgMR, uclMR) {
           text: "Moving Range (MR)",
           font: { size: 14, weight: "bold" }
         },
-        legend: { display: true, position: "bottom" },
+        legend: SPC_LEGEND,
         annotation: {
           annotations: (typeof buildAnnotationConfig === "function")
             ? buildAnnotationConfig(mrLabels)
             : {}
         }
       },
-      elements: {
+            elements: {
         point: { radius: 0, hoverRadius: 0 }
       },
-      scales: {
-        x: { grid: { display: false } },
-        y: { grid: { display: false }, beginAtZero: true }
-      }
+            scales: (() => {
+        const axisSettings = getAxisSettings();
+        return {
+          x: buildCategoryXAxisConfig("", axisSettings.x, mrLabels),
+          y: buildAxisConfig("", withoutAxisBounds(axisSettings.y), { beginAtZero: true })
+        };
+      })()
     }
   });
 }
@@ -6394,518 +9358,33 @@ function renderMrChart(mrLabels, mrValues, avgMR, uclMR) {
 
 // ---- AI helper function  -----
 
+function setHelperSectionExpanded(toggleEl, bodyEl, expanded) {
+  if (!toggleEl || !bodyEl) return;
+  toggleEl.setAttribute("aria-expanded", expanded ? "true" : "false");
+  bodyEl.classList.toggle("is-collapsed", !expanded);
+}
+
+function toggleHelperSection(toggleEl, bodyEl) {
+  if (!toggleEl || !bodyEl) return;
+  const isExpanded = toggleEl.getAttribute("aria-expanded") === "true";
+  setHelperSectionExpanded(toggleEl, bodyEl, !isExpanded);
+}
+
+function updateHelperSectionDefaults(hasChart) {
+  // Default behavior:
+  // - no chart: General open, My chart collapsed
+  // - has chart: General collapsed, My chart open
+  setHelperSectionExpanded(spcHelperToggleGeneral, spcHelperGeneralSection, !hasChart);
+  setHelperSectionExpanded(spcHelperToggleChart, spcHelperChartSection, !!hasChart);
+}
+
 function answerSpcQuestion(question) {
-  const qRaw = (question || "").trim();
-  const q = qRaw.toLowerCase();
-
-  if (!q) {
-    return "Please type a question about SPC or your chart (for example: “Is my process stable?”, “What is a run chart?”, or “How do control limits work?”).";
+  if (window.SPC_HELPER_LIBRARY && typeof window.SPC_HELPER_LIBRARY.answerQuestion === "function") {
+    return window.SPC_HELPER_LIBRARY.answerQuestion(question);
   }
 
-  // --- Safe chart type detection ---
-  const chartType =
-    (typeof getSelectedChartType_NoSideEffects === "function")
-      ? (getSelectedChartType_NoSideEffects() || "run")
-      : ((typeof getSelectedChartType === "function") ? (getSelectedChartType() || "run") : "run");
-
-  // --- Keyword matching helper (simple + predictable) ---
-  function matchFaq(items, text) {
-    for (const item of items) {
-      const hit = item.keywords.some(k =>
-        Array.isArray(k)
-          ? k.every(word => text.includes(word))
-          : (typeof k === "string" && text.includes(k))
-      );
-      if (hit) return item.answer;
-    }
-    return null;
-  }
-
-  // Convert internal signal labels into plain English
-  function humaniseSignals(signals) {
-    if (!Array.isArray(signals) || signals.length === 0) return [];
-    return signals.map(s => {
-      if (s === "Point(s) above UCL") return "one or more points above the upper limit";
-      if (s === "Point(s) below LCL") return "one or more points below the lower limit";
-      return s;
-    });
-  }
-
-  // ============================================================
-  // 1) General SPC FAQ responses FIRST (prevents mis-routing)
-  // ============================================================
-
-  const generalFaq = [
-    {
-  keywords: ["what is spc", "define spc", ["what", "spc"]],
-  answer:
-    "Statistical Process Control (SPC) helps you use time-ordered data to understand whether a process is behaving as usual, or whether something has changed.\n\n" +
-    "A control chart shows:\n" +
-    "• your measure over time\n" +
-    "• a centre line (the usual level, often the mean or median)\n" +
-    "• control limits (the range you’d expect from routine/common-cause variation)\n\n" +
-    "If the pattern breaks simple rules (for example, a point outside the limits or a long run on one side), that’s treated as a **special-cause signal** — a prompt to investigate what changed in the real world."
-},
-
-    {
-  keywords: ["common cause", "special cause", ["common", "special"]],
-  answer:
-    "**Common-cause variation** = the normal ups and downs you expect when the system hasn’t fundamentally changed.\n\n" +
-    "**Special-cause variation** = a signal that something different may be happening (for example, a change in process, staffing, demand, coding/definitions, or measurement).\n\n" +
-    "SPC helps you:\n" +
-    "• avoid over-reacting to normal noise\n" +
-    "• spot real change earlier\n" +
-    "• decide whether you need investigation (special cause) or system redesign (common cause)."
-},
-
-    {
-  keywords: ["what does stable mean", "what is stable", ["stable", "mean"]],
-  answer:
-    "**Stable** means the chart shows routine (common-cause) variation — no clear special-cause signal that the system has changed.\n\n" +
-    "If a chart is stable:\n" +
-    "• avoid reacting to individual high/low points (“tampering”)\n" +
-    "• if performance isn’t good enough, the usual answer is to **change the system** (process design), not chase noise\n\n" +
-    "If a chart is not stable, treat that as a prompt to investigate what changed (process, staffing, demand, definitions/coding, measurement)."
-},
-
-    {
-  keywords: ["control limits", "how do control limits work", ["control", "limits"]],
-  answer:
-    "Control limits are statistical boundaries calculated from your data. They estimate the range you would normally expect from **routine (common-cause) variation**.\n\n" +
-    "Control limits are **not**:\n" +
-    "• targets\n" +
-    "• pass/fail thresholds\n" +
-    "• the same as a clinical standard\n\n" +
-    "A point outside the limits (or a clear run/trend) is a **special-cause signal** — a prompt to investigate what changed."
-},
-
-	{
-  keywords: ["split", "splits", ["when", "split"], ["should", "split"], ["control", "limit", "split"], ["new", "normal"]],
-  answer:
-    "A **split** tells the tool to recalculate the centre line and control limits from a chosen point onward. This lets you compare the *latest* performance to a new baseline (“the new normal”).\n\n" +
-    "Use a split when:\n" +
-    "• you have good evidence of a real process change (e.g., redesigned pathway, policy change, sustained change in circumstances)\n" +
-    "• you expect the change to continue\n\n" +
-    "Avoid splitting just to “make the chart look stable”. If the process is unstable, the first step is usually to investigate and understand local context.\n\n" +
-    "Once the cause is understood and agreed to represent the new normal, recalculating limits can help you monitor the process going forward."
-},
-
-    {
-      keywords: ["how do i choose the right chart", "choose chart", ["choose", "chart"], ["which", "chart"]],
-      answer:
-        "Pick the chart based on what you’re measuring:\n" +
-        "• A single number each time (like average waiting time): usually XmR.\n" +
-        "• A count of events each time (and time periods are comparable): C chart.\n" +
-        "• A percentage/proportion (a number out of a total): P chart.\n" +
-        "• A rate where the ‘out of how many’ changes (per 1,000 bed days etc.): U chart.\n" +
-        "• Measurements collected in small groups at each time point: X̄–S.\n" +
-        "• Rare events where you care about time/opportunities between events: T or G chart."
-    },
-    {
-  keywords: ["what is a run chart", "what is run chart", "run chart", ["what", "run chart"]],
-  answer:
-    "A **run chart** plots your data over time with a **median** line. It’s a simple first step for spotting non-random patterns.\n\n" +
-    "Common run-chart signals include:\n" +
-    "• a **shift** (many points in a row on one side of the median)\n" +
-    "• a **trend** (several points going up or down in a row)\n\n" +
-    "Run charts are often a good starting point early in improvement work, or when you have limited data. If you have enough data, an XmR chart adds control limits for stronger signals."
-},
-
- 	   {
-  keywords: ["what is an xmr chart", "xmr chart", "moving range chart", ["what", "xmr"]],
-  answer:
-    "Use an **XmR chart** when you record **one number each time** (for example, a weekly average waiting time).\n\n" +
-    "What you see:\n" +
-    "• The **X chart** shows your values over time.\n" +
-    "• The **moving range (MR)** looks at the change between consecutive points and helps estimate routine variation.\n\n" +
-    "Using this, the chart draws a **centre line (mean)** and **control limits** (statistical boundaries for expected routine/common-cause variation).\n\n" +
-    "Points or patterns beyond the limits may be a **special-cause signal** — a prompt to investigate what changed in the real world (process, staffing, demand, coding/definitions, measurement). These rules are guides, not proof."
-},
-
-
-
-    // Chart type explainers (keywords tightened to reduce false matches)
-    {
-  keywords: ["c chart", "c-chart", ["count", "chart"], ["counts", "chart"]],
-  answer:
-    "**C chart (counts)** — use this when you are counting how many times something happened in each time period (e.g., incidents per week).\n\n" +
-    "Good fit when:\n" +
-    "• each time period is broadly comparable (similar time window and similar “volume of opportunity”)\n\n" +
-    "If the amount of work/opportunity varies a lot (e.g., bed-days, inspections, patient-days change), a **U chart (rate)** is often a better choice.\n\n" +
-    "Signals:\n" +
-    "• points beyond control limits (or clear runs/trends) suggest a possible **special-cause signal** and are prompts to investigate."
-},
-
-    {
-  keywords: ["p chart", "p-chart", ["percentage", "chart"], ["proportion", "chart"], ["out of", "total"]],
-  answer:
-    "**P chart (proportion)** — use this when you have a **numerator out of a denominator** each time (e.g., % compliant, 5 out of 100 patients).\n\n" +
-    "You provide:\n" +
-    "• **Numerator (d):** how many had the characteristic (e.g., number compliant)\n" +
-    "• **Denominator (n):** how many in total (e.g., total patients)\n\n" +
-    "A P chart adjusts the limits when totals change, so weeks with small or large denominators are handled fairly.\n\n" +
-    "If you are counting multiple defects per item (e.g., multiple errors per record), a **U chart (rate of defects per opportunity)** may be a better fit."
-},
-
-    {
-  keywords: ["u chart", "u-chart", ["rate", "chart"], ["per", "1000"], ["per", "bed day"]],
-  answer:
-    "**U chart (rate)** — use this when you are counting events/defects but the amount of opportunity varies over time (e.g., falls per 1,000 bed-days; errors per 100 records).\n\n" +
-    "You provide:\n" +
-    "• **Count (c):** number of events/defects\n" +
-    "• **Opportunities (n):** size of exposure (e.g., bed-days, patient-days, inspections)\n\n" +
-    "The chart uses both values to calculate a rate and control limits.\n\n" +
-    "Signals (points beyond limits or clear runs/trends) may indicate **special-cause variation** — prompts to investigate what changed."
-},
-
-    {
-  keywords: ["xbar s", "x̄–s", "xbars", "xbar-s", ["xbar", "s"]],
-  answer:
-    "**X̄–S chart (subgroups)** — use this when you collect **several measurements per time point** (a subgroup), e.g. 5 samples each week.\n\n" +
-    "What it shows:\n" +
-    "• The **X̄ chart** looks for changes in the average (centre line + control limits).\n" +
-    "• The **S chart** looks for changes in variation/spread within subgroups.\n\n" +
-    "Data requirements (typical):\n" +
-    "• at least **2 measurements per subgroup**\n" +
-    "• at least **4 subgroups** to estimate limits sensibly\n\n" +
-    "You usually interpret the X̄ and S charts together: changes in spread can affect how you interpret changes in the average."
-},
-
-    {
-  keywords: ["t chart", "t-chart", ["time", "between"], ["days", "between"]],
-  answer:
-    "**T chart (time between events)** — use this for rare events when you measure the **time gap** between events (e.g., days between serious incidents).\n\n" +
-    "Interpretation depends on your aim:\n" +
-    "• If you want to **avoid** the event, **longer gaps** are usually better.\n" +
-    "• If you want to **increase** the event (less common), **shorter gaps** are better.\n\n" +
-    "Signals (points beyond limits or runs/trends) may indicate a **special-cause signal** — a prompt to investigate what changed."
-},
-
-    {
-  keywords: ["g chart", "g-chart", ["opportunit", "between"], ["cases", "between"]],
-  answer:
-    "**G chart (opportunities between events)** — use this for rare events when you measure the **number of opportunities** between events (e.g., patients between pressure ulcers; procedures between harms).\n\n" +
-    "Interpretation depends on your aim:\n" +
-    "• If you want to **avoid** the event, **larger numbers** are usually better.\n" +
-    "• If you want to **increase** the event, **smaller numbers** are better.\n\n" +
-    "Signals (points beyond limits or runs/trends) may indicate a **special-cause signal** — a prompt to investigate what changed."
-},
-
-
-    {
-  keywords: ["target", "what is a target", ["use", "target"]],
-  answer:
-    "A **target** is the performance level you are aiming for.\n\n" +
-    "In SPC, targets are most useful when they support decisions, for example:\n" +
-    "• “Are we reliably meeting the standard?”\n" +
-    "• “If the system stays as it is, how often will we miss?”\n\n" +
-    "Caution:\n" +
-    "• Don’t treat every point above/below target as ‘good’ or ‘bad’.\n" +
-    "• First check whether the system is **stable**. If it isn’t stable, investigation usually comes before judging performance against a target."
-},
-
-    {
-  keywords: ["capability", ["meet", "target"]],
-  answer:
-    "**Capability** is a rough way to estimate how often a stable system is likely to meet a target, given the routine variation you see.\n\n" +
-    "It works best when:\n" +
-    "• the chart looks **stable** (no obvious special-cause signals)\n" +
-    "• measurement is consistent over time\n\n" +
-    "If the system is not stable, capability estimates can be misleading — investigate and understand the signals first."
+  return "The SPC helper library is not available. Please check that spc-helper-library.js is loaded before spc.js.";
 }
-
-  ];
-
-  // IMPORTANT: FAQs get first refusal. This fixes your screenshots.
-  const generalHit = matchFaq(generalFaq, q);
-  if (generalHit) return generalHit;
-
-  // ============================================================
-  // 2) “My chart” interpretation (only after FAQ did NOT match)
-  // ============================================================
-
-  const hasAnyChartAnalysis =
-    !!lastRunAnalysis ||
-    !!lastXmRAnalysis ||
-    !!lastAttributeAnalysis ||
-    !!lastRareAnalysis ||
-    !!lastXbarSAnalysis;
-
-  // If there is no chart yet, don't try to interpret
-  if (!hasAnyChartAnalysis) {
-    return "I can answer general SPC questions now. If you want an interpretation of your chart, generate a chart first, then ask: “What is my chart telling me?”";
-  }
-
-  // Intent detection for My-chart questions
-  const wantsStable = q.includes("stable") || q.includes("stability");
-  const wantsChanged = q.includes("changed") || q.includes("has it changed") || q.includes("has something changed");
-  const wantsDecision = q.includes("what decision") || q.includes("what should i do") || q.includes("what should we do") || q.includes("what action");
-  const wantsTarget = q.includes("target");
-  const wantsCapability = q.includes("capability");
-  const wantsBetterWorse = q.includes("getting better") || q.includes("better or worse") || q.includes("improv") || q.includes("worse");
-  const wantsOverview =
-    q.includes("what is my chart telling") ||
-    q.includes("what's my chart telling") ||
-    q.includes("interpret") ||
-    q.includes("summary") ||
-    q.includes("signal") ||
-    q.includes("special cause") ||   // NOTE: Now safe because FAQs already matched before this point
-    q.includes("shift") ||
-    q.includes("trend") ||
-    q.includes("astronomical") ||
-    q.includes("outlier") ||
-    q.includes("outside limits") ||
-    q.includes("beyond limits");
-
-  const isMyChartQ = wantsStable || wantsChanged || wantsDecision || wantsTarget || wantsCapability || wantsBetterWorse || wantsOverview;
-
-  if (!isMyChartQ) {
-    return "I can help with general SPC questions or with interpreting your chart. Try: “What is my chart telling me?”";
-  }
-
-  // ---------- RUN ----------
-  if (chartType === "run") {
-    if (!lastRunAnalysis) {
-      return "I can interpret your run chart once you generate one. Please create a Run chart first, then ask me about stability, shifts, trends, or unusual points.";
-    }
-
-    const a = lastRunAnalysis;
-    const signals = [];
-    if (a.hasShift) signals.push("a sustained shift (a long run on one side of the median)");
-    if (a.hasTrend) signals.push("a sustained trend (values steadily increasing or decreasing)");
-    if (a.hasAstronomical) signals.push("an unusually extreme point (something that stands out and is worth checking)");
-
-    const stable = !!a.isStable;
-
-    if (wantsStable) {
-      return stable
-        ? "Your run chart looks stable — it shows routine ups and downs with no clear signal of change."
-        : "Your run chart does not look stable — there is at least one signal that something may have changed.";
-    }
-
-    if (wantsDecision) {
-      return stable
-        ? "Because the run chart looks stable, avoid reacting to individual high/low points. If results aren’t good enough, focus on changing the system (process changes) rather than firefighting."
-        : "Because there is a signal of change, the next step is to look for a real-world explanation (a change in process, demand, staffing, measurement, etc.). If the change was planned, consider re-baselining after the change has settled.";
-    }
-
-    // Default overview
-    const stableText = stable
-      ? "Overall, this run chart looks stable (routine variation)."
-      : "Overall, this run chart suggests something has changed (a signal is present).";
-
-    const signalText = (signals.length === 0)
-      ? "I can’t see a clear signal of change using the standard run chart rules."
-      : `Signals I can see: ${signals.join("; ")}.`;
-
-    return `${stableText} ${signalText}`;
-  }
-
-  // ---------- XMR ----------
-  if (chartType === "xmr") {
-    if (!lastXmRAnalysis) {
-      return "I can interpret your XmR chart once you generate one. Please create an XmR chart first, then ask me about stability, signals, control limits, targets, or capability.";
-    }
-
-    const a = lastXmRAnalysis;
-// If the chart has been split, talk explicitly about the latest period
-let latestPeriodPrefix = "";
-if (a && typeof a.periodCount === "number" && a.periodCount > 1) {
-  const ptsText = (typeof a.startIndex === "number" && typeof a.endIndex === "number")
-    ? `points ${a.startIndex + 1}–${a.endIndex + 1}`
-    : "";
-
-  // If x-axis is dates and labels are present, include date range too
-  let dateText = "";
-  if (typeof getAxisType === "function" && getAxisType() === "date" && a.labelStart != null && a.labelEnd != null) {
-    if (typeof formatDateOnlyLabel === "function") {
-      dateText = `${formatDateOnlyLabel(a.labelStart)} to ${formatDateOnlyLabel(a.labelEnd)}`;
-    } else {
-      dateText = `${a.labelStart} to ${a.labelEnd}`;
-    }
-  }
-
-  const bits = [];
-  bits.push(`latest period (Period ${a.periodIndex} of ${a.periodCount})`);
-  if (ptsText) bits.push(ptsText);
-  if (dateText) bits.push(dateText);
-
-  latestPeriodPrefix = `Looking at the ${bits.join(", ")}: `;
-}
-
-
-
-    const stable = !!a.isStable;
-
-    const signalText = stable
-      ? "I can’t see a clear signal of change using the standard SPC rules."
-      : `Signals I can see: ${(a.signals || []).join("; ")}.`;
-
-    // Stable-only
-    if (wantsStable) {
-      return stable
-        ? "Your XmR chart looks stable — it shows routine variation with no clear signal of change."
-        : `Your XmR chart does not look stable — there is at least one signal that something may have changed. ${signalText}`;
-    }
-
-    // Changed-only
-    if (wantsChanged) {
-      return stable
-        ? `${latestPeriodPrefix}Based on SPC rules, there isn’t a clear signal that the system has changed.`
-        : `Yes — there is a signal that something may have changed. ${signalText}`;
-    }
-
-    // Decision / what to do
-    if (wantsDecision) {
-      return stable
-        ? "Because the chart looks stable, avoid reacting to individual high/low points. If performance isn’t good enough, focus on changing the process (the system), then look for a new stable level."
-        : "Because there is a signal, look for a real-world reason (process change, staffing, demand, coding/definition changes). If it was a planned change, you may want to set a new baseline after it settles.";
-    }
-
-    // Better/worse (plain language, cautious)
-    if (wantsBetterWorse) {
-      if (!a.direction) {
-        return "To judge “better or worse” you need to decide which direction is better (for example, lower waiting time is better; higher % compliance is better). Once that’s set, a sustained shift/trend in the right direction suggests improvement.";
-      }
-      const dirText = a.direction === "above" ? "higher is better" : "lower is better";
-      return `To judge improvement, use your chosen direction (${dirText}). If the chart shows a sustained shift or trend in the “better” direction, that suggests improvement. ${signalText}`;
-    }
-
-    // Target / capability
-    if (wantsTarget || wantsCapability) {
-      if (a.target == null || !a.direction) {
-        return "I can comment on a target once a target is set (and whether higher or lower is better). Add a target, then ask again.";
-      }
-
-      const dirText = a.direction === "above" ? "at or above" : "at or below";
-      let cap = "";
-      if (a.capability && typeof a.capability.prob === "number" && isFinite(a.capability.prob)) {
-        const pct = Math.round(a.capability.prob * 100);
-        cap =
-          ` If the system stays stable, a rough estimate is that you would meet the target about ${pct}% of the time. ` +
-          "This is most meaningful when the chart is stable and the usual variation is fairly consistent.";
-      } else {
-        cap = " Capability can’t be estimated right now (usually because there isn’t enough information or the variation estimate isn’t valid).";
-      }
-
-      return `Your target is set to ${dirText} ${a.target}. ${cap}`;
-    }
-
-    // Default overview (for “what is my chart telling me?”)
-    const stableText = stable
-      ? "Overall, this XmR chart looks stable (routine variation)."
-      : "Overall, this XmR chart suggests something has changed (a signal is present).";
-
-    return `${latestPeriodPrefix}${stableText} ${signalText}`;
-  }
-
-  // ---------- C / P / U ----------
-  if (chartType === "c" || chartType === "p" || chartType === "u") {
-    if (!lastAttributeAnalysis) {
-      return "I can interpret your chart once you generate it. Please create the chart first, then ask me what it’s telling you.";
-    }
-
-    const a = lastAttributeAnalysis;
-    const stable = !!a.isStable;
-    const humanSignals = humaniseSignals(a.signals);
-
-    if (wantsStable || wantsChanged) {
-      return stable
-        ? "Your chart looks stable — routine ups and downs with no points outside the expected limits."
-        : `Your chart does not look stable — there is at least one point outside the expected limits (${humanSignals.join("; ")}).`;
-    }
-
-    if (wantsDecision) {
-      return stable
-        ? "Because the chart looks stable, avoid reacting to individual high/low points. If you need better performance, focus on changing the system."
-        : "Because there is a signal, look for a real-world explanation (process, demand, measurement/definition changes). If it was planned, consider a new baseline after it settles.";
-    }
-
-    const stableText = stable
-      ? "Overall, this chart looks stable (routine ups and downs)."
-      : "Overall, this chart suggests something has changed (a signal is present).";
-
-    const signalText = (humanSignals.length === 0)
-      ? "I can’t see any points outside the expected limits."
-      : `What I can see: ${humanSignals.join("; ")}.`;
-
-    return `${stableText} ${signalText}`;
-  }
-
-  // ---------- X̄–S ----------
-  if (chartType === "xbars") {
-    if (!lastXbarSAnalysis || !lastXbarSAnalysis.xbar || !lastXbarSAnalysis.s) {
-      return "I can interpret your X̄–S chart once you generate it. Please create the chart first, then ask me what it’s telling you.";
-    }
-
-    const xbar = lastXbarSAnalysis.xbar;
-    const s = lastXbarSAnalysis.s;
-
-    const xSignals = humaniseSignals(xbar.signals);
-    const sSignals = humaniseSignals(s.signals);
-
-    const anySignals = (xSignals.length + sSignals.length) > 0;
-
-    if (wantsStable || wantsChanged) {
-      return anySignals
-        ? "Your X̄–S chart does not look stable — there is at least one signal on the X̄ chart and/or the S chart."
-        : "Your X̄–S chart looks stable — no points outside expected limits on either chart.";
-    }
-
-    const stableText = anySignals
-      ? "Overall, this X̄–S chart suggests something may have changed (a signal is present)."
-      : "Overall, this X̄–S chart looks stable (routine variation).";
-
-    const xText = (xSignals.length === 0)
-      ? "X̄ chart: no points outside the expected limits."
-      : `X̄ chart: ${xSignals.join("; ")}.`;
-
-    const sText = (sSignals.length === 0)
-      ? "S chart: no points outside the expected limits."
-      : `S chart: ${sSignals.join("; ")}.`;
-
-    return `${stableText} ${xText} ${sText} A quick tip: the X̄ chart shows changes in the average, and the S chart shows changes in how spread-out the data are.`;
-  }
-
-  // ---------- T / G ----------
-  if (chartType === "t" || chartType === "g") {
-    if (!lastRareAnalysis) {
-      return "I can interpret your chart once you generate it. Please create the chart first, then ask me what it’s telling you.";
-    }
-
-    const a = lastRareAnalysis;
-    const stable = !!a.isStable;
-    const humanSignals = humaniseSignals(a.signals);
-
-    if (wantsStable || wantsChanged) {
-      return stable
-        ? "Your chart looks stable — routine variation with no points outside expected limits."
-        : `Your chart does not look stable — there is at least one point outside expected limits (${humanSignals.join("; ")}).`;
-    }
-
-    if (wantsDecision) {
-      return stable
-        ? "Because the chart looks stable, avoid reacting to individual points. If you want better performance, focus on changing the system."
-        : "Because there is a signal, look for a real-world explanation (process change, staffing, measurement changes). If it was planned, consider a new baseline after it settles.";
-    }
-
-    const stableText = stable
-      ? "Overall, this chart looks stable (routine variation)."
-      : "Overall, this chart suggests something has changed (a signal is present).";
-
-    const signalText = (humanSignals.length === 0)
-      ? "I can’t see any points outside the expected limits."
-      : `What I can see: ${humanSignals.join("; ")}.`;
-
-    const directionCaveat =
-      " A note on “better”: if the event is something you want to avoid, longer gaps are usually good. If it’s something you want to happen more often, then shorter gaps are good.";
-
-    return `${stableText} ${signalText}${directionCaveat}`;
-  }
-
-  return "I can interpret your chart, but I’m not sure which chart type is selected. Try generating the chart again, then ask: “What is my chart telling me?”";
-}
-
 
 
 function renderHelperState() {
@@ -6932,17 +9411,15 @@ function renderHelperState() {
     `;
   }
 
-  // 2) General chips (always available)
-  const generalQs = [
-    "What is SPC?",
-    "What is the difference between common and special cause variation?",
-    "How do I choose the right chart?",
-    "What is a run chart?",
-    "What is an XmR chart?",
-    "What does stable mean?",
-    "What is a target and how should I use it?",
-    "How do control limits work?"
-  ];
+  // 2) Suggested questions from external helper library
+  const helperQuestions =
+    (window.SPC_HELPER_LIBRARY &&
+     typeof window.SPC_HELPER_LIBRARY.getSuggestedQuestions === "function")
+      ? window.SPC_HELPER_LIBRARY.getSuggestedQuestions(hasChart)
+      : { general: [], chart: [] };
+
+  const generalQs = helperQuestions.general || [];
+  const chartQs = helperQuestions.chart || [];
 
   if (spcHelperChipsGeneral) {
     spcHelperChipsGeneral.innerHTML = generalQs
@@ -6950,16 +9427,6 @@ function renderHelperState() {
       .join("");
     spcHelperChipsGeneral.classList.remove("is-disabled");
   }
-
-  // 3) My chart chips (available only when a chart exists)
-  const chartQs = [
-    "What is my chart telling me?",
-    "Is my process stable?",
-    "Has something changed?",
-    "Is it getting better or worse?",
-    "What decision should I make?",
-    "What about my target?"
-  ];
 
   if (spcHelperChipsChart) {
     spcHelperChipsChart.innerHTML = chartQs
@@ -6969,32 +9436,9 @@ function renderHelperState() {
     if (!hasChart) spcHelperChipsChart.classList.add("is-disabled");
     else spcHelperChipsChart.classList.remove("is-disabled");
   }
+
+  updateHelperSectionDefaults(hasChart);
 }
-
-
-function updateMrToggleVisibility() {
-  const chartType = getSelectedChartType ? getSelectedChartType_NoSideEffects() : "run";
-  const mrDisplayOptions = document.getElementById("mrDisplayOptions");
-  const showMR = !!(showMRCheckbox && showMRCheckbox.checked);
-
-  // MR controls only relevant to XmR
-  if (mrToggleRow) {
-    mrToggleRow.style.display = (chartType === "xmr") ? "block" : "none";
-  }
-
-  // MR display radios only shown when XmR + MR enabled
-  if (mrDisplayOptions) {
-    mrDisplayOptions.style.display = (chartType === "xmr" && showMR) ? "block" : "none";
-  }
-
-  // If leaving XmR, hide/destroy MR chart
-  if (chartType !== "xmr") {
-    hideMrPanelNow();
-  }
-}
-
-
-
 
 
 // ===============================
@@ -7027,48 +9471,179 @@ function showChartContextMenu(clientX, clientY, pointIndex) {
 
   const supportsSplits = ["run", "xmr", "c", "p", "u", "xbars", "t", "g"].includes(chartType);
 
-  // Enable/disable the split buttons based on chart type and whether a point was clicked
-  const addSplitBtn = chartContextMenu.querySelector('button[data-action="addSplit"]');
-  const clearSplitsBtn = chartContextMenu.querySelector('button[data-action="clearSplits"]');
-
-if (addSplitBtn) {
-  // Remember the original tooltip from HTML once
-  if (!addSplitBtn.dataset.defaultTitle) {
-    addSplitBtn.dataset.defaultTitle = addSplitBtn.getAttribute("title") || "";
-  }
-
+  // Current x-label at the clicked point (if any)
+  const labels = currentChart?.data?.labels || [];
   const noPoint = (pointIndex === null || pointIndex === undefined);
-  addSplitBtn.disabled = !supportsSplits || noPoint;
+  const xLabel = (!noPoint && labels && labels[pointIndex] !== undefined) ? labels[pointIndex] : null;
+  const annsAtPoint = xLabel ? getAnnotationsAtDate(xLabel) : [];
+  const hasAnnotationAtPoint = annsAtPoint.length > 0;
+  const hasAnyAnnotations = Array.isArray(annotations) && annotations.length > 0;
 
-  // Only override tooltip when disabled; otherwise restore the HTML tooltip
-  if (!supportsSplits) {
-    addSplitBtn.title = "Splits are not available for this chart type.";
-  } else if (noPoint) {
-    addSplitBtn.title = "Right-click near a data point to add a split.";
-  } else {
-    addSplitBtn.title = addSplitBtn.dataset.defaultTitle;
-  }
-}
+  // ---------- Annotation buttons ----------
+  const addAnnotationBtn = chartContextMenu.querySelector('button[data-action="addAnnotation"]');
+  const editAnnotationBtn = chartContextMenu.querySelector('button[data-action="editAnnotation"]');
+  const deleteAnnotationBtn = chartContextMenu.querySelector('button[data-action="deleteAnnotation"]');
+  const clearAnnotationsBtn = chartContextMenu.querySelector('button[data-action="clearAnnotations"]');
 
-if (clearSplitsBtn) {
-  // Remember the original tooltip from HTML once
-  if (!clearSplitsBtn.dataset.defaultTitle) {
-    clearSplitsBtn.dataset.defaultTitle = clearSplitsBtn.getAttribute("title") || "";
+  if (addAnnotationBtn) {
+    if (!addAnnotationBtn.dataset.defaultTitle) {
+      addAnnotationBtn.dataset.defaultTitle = addAnnotationBtn.getAttribute("title") || "";
+    }
+
+    addAnnotationBtn.disabled = noPoint;
+
+    if (noPoint) {
+      addAnnotationBtn.title = "Right-click near a data point to add an annotation.";
+    } else {
+      addAnnotationBtn.title = addAnnotationBtn.dataset.defaultTitle;
+    }
   }
+
+  if (editAnnotationBtn) {
+    if (!editAnnotationBtn.dataset.defaultTitle) {
+      editAnnotationBtn.dataset.defaultTitle = editAnnotationBtn.getAttribute("title") || "";
+    }
+
+    editAnnotationBtn.disabled = noPoint || !hasAnnotationAtPoint;
+
+    if (noPoint) {
+      editAnnotationBtn.title = "Right-click near a data point to edit an annotation.";
+    } else if (!hasAnnotationAtPoint) {
+      editAnnotationBtn.title = "There is no annotation at this point to edit.";
+    } else {
+      editAnnotationBtn.title = editAnnotationBtn.dataset.defaultTitle;
+    }
+  }
+
+  if (deleteAnnotationBtn) {
+    if (!deleteAnnotationBtn.dataset.defaultTitle) {
+      deleteAnnotationBtn.dataset.defaultTitle = deleteAnnotationBtn.getAttribute("title") || "";
+    }
+
+    deleteAnnotationBtn.disabled = noPoint || !hasAnnotationAtPoint;
+
+    if (noPoint) {
+      deleteAnnotationBtn.title = "Right-click near a data point to delete an annotation.";
+    } else if (!hasAnnotationAtPoint) {
+      deleteAnnotationBtn.title = "There is no annotation at this point to delete.";
+    } else {
+      deleteAnnotationBtn.title = deleteAnnotationBtn.dataset.defaultTitle;
+    }
+  }
+
+  if (clearAnnotationsBtn) {
+    if (!clearAnnotationsBtn.dataset.defaultTitle) {
+      clearAnnotationsBtn.dataset.defaultTitle = clearAnnotationsBtn.getAttribute("title") || "";
+    }
+
+    clearAnnotationsBtn.disabled = !hasAnyAnnotations;
+
+    if (!hasAnyAnnotations) {
+      clearAnnotationsBtn.title = "There are no annotations to clear.";
+    } else {
+      clearAnnotationsBtn.title = clearAnnotationsBtn.dataset.defaultTitle;
+    }
+  }
+
+   // ---------- Split submenu ----------
+  const splitsParentBtn = chartContextMenu.querySelector('[data-role="splitsParent"]');
+  const splitsSubmenu = chartContextMenu.querySelector('[data-role="splitsSubmenu"]');
+  const splitDynamicItems = chartContextMenu.querySelector('[data-role="splitDynamicItems"]');
+  const addSplitBtn = chartContextMenu.querySelector('button[data-action="addSplit"]');
 
   const hasSplits = Array.isArray(splits) && splits.length > 0;
-  clearSplitsBtn.disabled = !supportsSplits || !hasSplits;
 
-  // Only override tooltip when disabled; otherwise restore the HTML tooltip
-  if (!supportsSplits) {
-    clearSplitsBtn.title = "Splits are not available for this chart type.";
-  } else if (!hasSplits) {
-    clearSplitsBtn.title = "No splits to clear.";
-  } else {
-    clearSplitsBtn.title = clearSplitsBtn.dataset.defaultTitle;
+  if (splitsParentBtn) {
+    if (!splitsParentBtn.dataset.defaultTitle) {
+      splitsParentBtn.dataset.defaultTitle = splitsParentBtn.getAttribute("title") || "";
+    }
+
+    splitsParentBtn.disabled = !supportsSplits;
+
+    if (!supportsSplits) {
+      splitsParentBtn.title = "Splits are not available for this chart type.";
+    } else {
+      splitsParentBtn.title = splitsParentBtn.dataset.defaultTitle;
+    }
   }
-}
 
+  if (addSplitBtn) {
+    if (!addSplitBtn.dataset.defaultTitle) {
+      addSplitBtn.dataset.defaultTitle = addSplitBtn.getAttribute("title") || "";
+    }
+
+    addSplitBtn.disabled = !supportsSplits || noPoint;
+
+    if (!supportsSplits) {
+      addSplitBtn.title = "Splits are not available for this chart type.";
+    } else if (noPoint) {
+      addSplitBtn.title = "Right-click near a data point to add a split.";
+    } else {
+      addSplitBtn.title = addSplitBtn.dataset.defaultTitle;
+    }
+  }
+
+  if (splitDynamicItems) {
+    splitDynamicItems.innerHTML = "";
+
+    if (!supportsSplits) {
+      const noSupportBtn = document.createElement("button");
+      noSupportBtn.type = "button";
+      noSupportBtn.disabled = true;
+      noSupportBtn.textContent = "Splits not available for this chart type";
+      splitDynamicItems.appendChild(noSupportBtn);
+    } else {
+      if (hasSplits) {
+        const labels = currentChart?.data?.labels || [];
+
+        splits
+          .slice()
+          .sort((a, b) => a - b)
+          .forEach((idx) => {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.dataset.action = "removeSplit";
+            btn.dataset.splitIndex = String(idx);
+
+            const label = labels[idx] !== undefined ? labels[idx] : `point ${idx + 1}`;
+            btn.textContent = `Clear split after ${label} (point ${idx + 1})`;
+            btn.title = `Remove the split after ${label}.`;
+
+            splitDynamicItems.appendChild(btn);
+          });
+
+        const sep = document.createElement("div");
+        sep.className = "menu-sep";
+        splitDynamicItems.appendChild(sep);
+
+        const clearAllBtn = document.createElement("button");
+        clearAllBtn.type = "button";
+        clearAllBtn.dataset.action = "clearSplits";
+        clearAllBtn.textContent = "Clear all splits";
+        clearAllBtn.title = "Remove all splits and return to a single set of limits.";
+        splitDynamicItems.appendChild(clearAllBtn);
+      } else {
+        const noSplitsBtn = document.createElement("button");
+        noSplitsBtn.type = "button";
+        noSplitsBtn.disabled = true;
+        noSplitsBtn.textContent = "No splits to clear";
+        noSplitsBtn.title = "There are no splits to clear.";
+        splitDynamicItems.appendChild(noSplitsBtn);
+
+        const sep = document.createElement("div");
+        sep.className = "menu-sep";
+        splitDynamicItems.appendChild(sep);
+
+        const clearAllBtn = document.createElement("button");
+        clearAllBtn.type = "button";
+        clearAllBtn.dataset.action = "clearSplits";
+        clearAllBtn.textContent = "Clear all splits";
+        clearAllBtn.title = "Remove all splits and return to a single set of limits.";
+        clearAllBtn.disabled = true;
+        splitDynamicItems.appendChild(clearAllBtn);
+      }
+    }
+  }
 
   chartContextMenu.style.display = "block";
   chartContextMenu.style.left = "0px";
@@ -7088,7 +9663,6 @@ if (clearSplitsBtn) {
   chartContextMenu.style.left = `${x}px`;
   chartContextMenu.style.top = `${y}px`;
 }
-
 
 // Helper: get the nearest chart point index from a mouse event
 function getNearestPointIndexFromEvent(evt) {
@@ -7134,6 +9708,25 @@ function addSplitAfterIndex(splitAfterIndex) {
 
   // redraw with new split
   if (generateButton) generateButton.click();
+}
+
+function removeSplitAtIndex(splitAfterIndex) {
+  if (!Array.isArray(splits) || !splits.length) return false;
+
+  const i = splits.indexOf(splitAfterIndex);
+  if (i === -1) return false;
+
+  splits.splice(i, 1);
+
+  const labels = currentChart?.data?.labels || [];
+  if (labels && labels.length) {
+    populateSplitOptions(labels);
+  }
+
+  if (splitPointSelect) splitPointSelect.value = "";
+
+  if (generateButton) generateButton.click();
+  return true;
 }
 
 // ---- Export helpers ----
@@ -7367,7 +9960,65 @@ function renderSummaryToCanvas(ctx, x, y, maxWidth) {
   return cursorY - y;
 }
 
+async function prepareChartsForExport() {
+  if (document.fonts && document.fonts.ready) {
+    await document.fonts.ready;
+  }
 
+  const mainContainer = chartCanvas?.parentElement;
+  const mrContainer = mrChartCanvas?.parentElement;
+
+  const backups = {
+    mainWidth: mainContainer?.style.width || "",
+    mainHeight: mainContainer?.style.height || "",
+    mrWidth: mrContainer?.style.width || "",
+    mrHeight: mrContainer?.style.height || ""
+  };
+
+  if (mainContainer) {
+    mainContainer.style.width = "1200px";
+    mainContainer.style.height = "560px";
+  }
+
+  if (mrContainer) {
+    mrContainer.style.width = "1200px";
+    mrContainer.style.height = "360px";
+  }
+
+  if (currentChart) {
+    currentChart.resize(1200, 560);
+    currentChart.update("none");
+  }
+
+  if (mrChart) {
+    mrChart.resize(1200, 360);
+    mrChart.update("none");
+  }
+
+  await new Promise(requestAnimationFrame);
+
+  return function restoreChartsAfterExport() {
+    if (mainContainer) {
+      mainContainer.style.width = backups.mainWidth;
+      mainContainer.style.height = backups.mainHeight;
+    }
+
+    if (mrContainer) {
+      mrContainer.style.width = backups.mrWidth;
+      mrContainer.style.height = backups.mrHeight;
+    }
+
+    if (currentChart) {
+      currentChart.resize();
+      currentChart.update("none");
+    }
+
+    if (mrChart) {
+      mrChart.resize();
+      mrChart.update("none");
+    }
+  };
+}
 
 // Build one combined image from multiple canvases (stacked vertically).
 // Optionally add summary text under the charts.
@@ -7526,6 +10177,501 @@ function toggleChartWizard(forceOpen) {
 }
 
 
+/* ============================================================
+   CHART SETUP MODAL (shared instructions + per-chart options)
+   ============================================================ */
+
+let tChartInputMode = (() => {
+  try {
+    return localStorage.getItem("spc_tChartInputMode") || "eventDates";
+  } catch {
+    return "eventDates";
+  }
+})();
+
+function toggleChartSetupModal(forceOpen) {
+  const modal = document.getElementById("chartSetupModal");
+  if (!modal) return;
+
+  const isOpen = modal.classList.contains("visible");
+  const shouldOpen = typeof forceOpen === "boolean" ? forceOpen : !isOpen;
+
+  modal.classList.toggle("visible", shouldOpen);
+  modal.setAttribute("aria-hidden", shouldOpen ? "false" : "true");
+  document.body.classList.toggle("modal-open", shouldOpen);
+
+  if (shouldOpen) {
+    const closeBtn = modal.querySelector(".modal-close");
+    if (closeBtn) closeBtn.focus();
+  }
+}
+
+function shouldAutoShowChartSetupModal() {
+  try {
+    return localStorage.getItem("spc_hideChartSetupModal") !== "true";
+  } catch {
+    return true;
+  }
+}
+
+function setAutoShowChartSetupModal(shouldShow) {
+  try {
+    localStorage.setItem("spc_hideChartSetupModal", shouldShow ? "false" : "true");
+  } catch {}
+}
+
+function renderChartSetupModal(chartType) {
+  const body = document.getElementById("chartSetupBody");
+  const subtitle = document.getElementById("chartSetupSubtitle");
+  const dontShow = document.getElementById("chartSetupDontShow");
+  if (!body || !subtitle) return;
+
+  if (dontShow) {
+    dontShow.checked = !shouldAutoShowChartSetupModal();
+    dontShow.onchange = () => setAutoShowChartSetupModal(!dontShow.checked);
+  }
+
+  function card(title, innerHtml) {
+    return `
+      <div style="border:1px solid #d8dde0; border-radius:0.5rem; padding:0.75rem; margin:0.75rem 0; background:#fafcfd;">
+        <div style="font-weight:700; color:#003087; margin-bottom:0.4rem;">${title}</div>
+        ${innerHtml}
+      </div>
+    `;
+  }
+
+  function exampleTable(headers, rows) {
+    const head = headers.map(h => `<th style="text-align:left; border-bottom:1px solid #d8dde0; padding:0.35rem 0.5rem;">${h}</th>`).join("");
+    const bodyRows = rows.map(r =>
+      `<tr>${r.map(v => `<td style="padding:0.35rem 0.5rem; border-bottom:1px solid #eef2f6;">${v}</td>`).join("")}</tr>`
+    ).join("");
+
+    return `
+      <div style="overflow-x:auto;">
+        <table style="border-collapse:collapse; width:100%; font-size:0.9rem; margin-top:0.35rem;">
+          <thead><tr>${head}</tr></thead>
+          <tbody>${bodyRows}</tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  subtitle.textContent = "How to structure your data for this chart.";
+
+  if (chartType === "run") {
+    subtitle.textContent = "Run chart: simple view of values over time.";
+    body.innerHTML = `
+      ${card("Use this when...", `
+        <p style="margin:0;">You want a simple chart of a measure over time using a <strong>median</strong>.</p>
+      `)}
+
+      ${card("You need these columns", `
+        <ul style="margin:0;">
+          <li><strong>Date / X-axis column</strong> → time or order</li>
+          <li><strong>Value / Y-axis column</strong> → the measure you want to track</li>
+        </ul>
+      `)}
+
+      ${card("Example layout", exampleTable(
+        ["Week", "Waiting time"],
+        [["1", "12"], ["2", "10"], ["3", "14"]]
+      ))}
+
+      ${card("Common mistake", `
+        <p style="margin:0;">Do not choose a row number or ID column as the value. That can create a chart that looks valid but means nothing.</p>
+      `)}
+    `;
+    return;
+  }
+
+  if (chartType === "xmr") {
+    subtitle.textContent = "XmR chart: individual measurements over time.";
+    body.innerHTML = `
+      ${card("Use this when...", `
+        <p style="margin:0;">You have <strong>one measurement per time point</strong> and want a mean plus control limits.</p>
+      `)}
+
+      ${card("You need these columns", `
+        <ul style="margin:0;">
+          <li><strong>Date / X-axis column</strong> → date, week, month or sequence</li>
+          <li><strong>Value / Y-axis column</strong> → the numeric measurement</li>
+        </ul>
+      `)}
+
+      ${card("Example layout", exampleTable(
+        ["Date", "Length of stay"],
+        [["2024-01-01", "5.2"], ["2024-01-08", "4.8"], ["2024-01-15", "6.1"]]
+      ))}
+
+      ${card("Common mistake", `
+        <p style="margin:0;">Use XmR only when there is one value per time point. If each time point has several measurements, use <strong>X̄–S</strong> instead.</p>
+      `)}
+    `;
+    return;
+  }
+
+  if (chartType === "c") {
+    subtitle.textContent = "C chart: count per time period.";
+    body.innerHTML = `
+      ${card("Use this when...", `
+        <p style="margin:0;">You are plotting a <strong>count</strong> per period and the amount of opportunity is roughly the same each time.</p>
+      `)}
+
+      ${card("You need these columns", `
+        <ul style="margin:0;">
+          <li><strong>Date / X-axis column</strong> → date, week, month or sequence</li>
+          <li><strong>Value / Y-axis column</strong> → count of events</li>
+        </ul>
+      `)}
+
+      ${card("Example layout", exampleTable(
+        ["Week", "Falls"],
+        [["1", "3"], ["2", "4"], ["3", "2"]]
+      ))}
+
+      ${card("Common mistake", `
+        <p style="margin:0;">If the denominator changes a lot between points, use a <strong>U chart</strong> instead of a C chart.</p>
+      `)}
+    `;
+    return;
+  }
+
+  if (chartType === "p") {
+    subtitle.textContent = "P chart: proportion out of a total.";
+    body.innerHTML = `
+      ${card("Use this when...", `
+        <p style="margin:0;">You want to track a <strong>proportion</strong>, such as 5 out of 100 or the percentage meeting a standard.</p>
+      `)}
+
+      ${card("You need these columns", `
+        <ul style="margin:0;">
+          <li><strong>Date / X-axis column</strong> → time or order</li>
+          <li><strong>Value / Y-axis column</strong> → numerator</li>
+          <li><strong>Third column</strong> → denominator</li>
+        </ul>
+      `)}
+
+      ${card("Example layout", exampleTable(
+        ["Week", "Patients with harm", "Patients reviewed"],
+        [["1", "5", "100"], ["2", "7", "110"], ["3", "6", "95"]]
+      ))}
+
+      ${card("Common mistake", `
+        <p style="margin:0;">The numerator must not be larger than the denominator.</p>
+      `)}
+    `;
+    return;
+  }
+
+  if (chartType === "u") {
+    subtitle.textContent = "U chart: rate per opportunity.";
+    body.innerHTML = `
+      ${card("Use this when...", `
+        <p style="margin:0;">You want to track a <strong>rate</strong>, where the denominator changes from point to point.</p>
+      `)}
+
+      ${card("You need these columns", `
+        <ul style="margin:0;">
+          <li><strong>Date / X-axis column</strong> → time or order</li>
+          <li><strong>Value / Y-axis column</strong> → count of events</li>
+          <li><strong>Third column</strong> → opportunities / exposure</li>
+        </ul>
+      `)}
+
+      ${card("Example layout", exampleTable(
+        ["Month", "Infections", "Bed days"],
+        [["Jan", "2", "1200"], ["Feb", "3", "1350"], ["Mar", "1", "980"]]
+      ))}
+
+      ${card("Common mistake", `
+        <p style="margin:0;">Use U when the denominator varies. If the denominator is roughly constant, a <strong>C chart</strong> may be more appropriate.</p>
+      `)}
+    `;
+    return;
+  }
+
+  if (chartType === "xbars") {
+    subtitle.textContent = "X̄–S chart: grouped measurements.";
+    body.innerHTML = `
+      ${card("Use this when...", `
+        <p style="margin:0;">You have <strong>multiple measurements within each subgroup</strong> and want to understand both subgroup averages and within-group variation.</p>
+      `)}
+
+      ${card("You need these columns", `
+        <ul style="margin:0;">
+          <li><strong>Date / X-axis column</strong> → subgroup label or time label</li>
+          <li><strong>Value / Y-axis column</strong> → measurement value</li>
+          <li><strong>Third column</strong> → subgroup ID</li>
+        </ul>
+      `)}
+
+      ${card("Example layout", exampleTable(
+        ["Day", "Reading", "Sample_ID"],
+        [["Mon", "10.2", "A"], ["Mon", "10.5", "A"], ["Tue", "9.8", "B"], ["Tue", "10.1", "B"]]
+      ))}
+
+      ${card("Common mistake", `
+        <p style="margin:0;">Do not use X̄–S if each subgroup only has one reading. Use <strong>XmR</strong> instead.</p>
+      `)}
+    `;
+    return;
+  }
+
+  if (chartType === "t") {
+    subtitle.textContent = "T chart: time between rare events.";
+
+    const checkedDates = tChartInputMode === "eventDates" ? "checked" : "";
+    const checkedGaps  = tChartInputMode === "gaps" ? "checked" : "";
+
+    body.innerHTML = `
+      ${card("Use this when...", `
+        <p style="margin:0;">You want to track the <strong>time between rare events</strong>.</p>
+      `)}
+
+      ${card("Choose your setup", `
+        <label style="display:block; margin:0.25rem 0;">
+          <input type="radio" name="tChartInputMode" value="eventDates" ${checkedDates}>
+          <strong>I have event dates</strong> (one row per event)
+        </label>
+        <div class="hint small-hint" style="margin-top:0.15rem; margin-bottom:0.5rem;">
+          Put the event date/time in <em>Date / X-axis column</em>. The <em>Value / Y-axis column</em> is not used.
+        </div>
+
+        <label style="display:block; margin:0.25rem 0;">
+          <input type="radio" name="tChartInputMode" value="gaps" ${checkedGaps}>
+          <strong>I already have the gaps</strong> (numeric time between events)
+        </label>
+        <div class="hint small-hint" style="margin-top:0.15rem;">
+          Put the gap values in <em>Value / Y-axis column</em>.
+        </div>
+      `)}
+
+      ${card("Example layout", exampleTable(
+        ["Event date"],
+        [["01/01/2024"], ["12/01/2024"], ["20/01/2024"]]
+      ))}
+
+      ${card("Common mistake", `
+        <p style="margin:0;">Do not use a T chart for event counts per month. Use a <strong>C</strong>, <strong>P</strong> or <strong>U</strong> chart instead.</p>
+      `)}
+    `;
+
+    body.querySelectorAll("input[name='tChartInputMode']").forEach(r => {
+      r.addEventListener("change", () => {
+        tChartInputMode = r.value;
+        try { localStorage.setItem("spc_tChartInputMode", tChartInputMode); } catch {}
+
+        if (typeof updateUIForChartType === "function") {
+          updateUIForChartType("t");
+        }
+
+        if (rawRows && rawRows.length && generateButton) {
+          generateButton.click();
+        }
+      });
+    });
+
+    return;
+  }
+
+  if (chartType === "g") {
+    subtitle.textContent = "G chart: opportunities between rare events.";
+    body.innerHTML = `
+      ${card("Use this when...", `
+        <p style="margin:0;">You want to track the <strong>number of opportunities between rare events</strong>.</p>
+      `)}
+
+      ${card("You need these columns", `
+        <ul style="margin:0;">
+          <li><strong>Date / X-axis column</strong> → optional label / order column</li>
+          <li><strong>Value / Y-axis column</strong> → number of opportunities between events</li>
+        </ul>
+      `)}
+
+      ${card("Example layout", exampleTable(
+        ["Week", "Procedures between harms"],
+        [["1", "35"], ["2", "48"], ["3", "27"]]
+      ))}
+
+      ${card("Common mistake", `
+        <p style="margin:0;">Use G when the thing between events is a <strong>count of opportunities</strong>. If it is elapsed time, use a <strong>T chart</strong>.</p>
+      `)}
+    `;
+    return;
+  }
+
+  body.innerHTML = `
+    ${card("Setup guidance", `
+      <p style="margin:0;">Use the column labels shown in <strong>Choose columns</strong>.</p>
+    `)}
+  `;
+}
+
+
+function maybeShowChartSetupModal(chartType) {
+  if (!shouldAutoShowChartSetupModal()) return;
+  renderChartSetupModal(chartType);
+  toggleChartSetupModal(true);
+}
+
+function openChartSetupForCurrentType() {
+  const chartType = (typeof getSelectedChartType_NoSideEffects === "function")
+    ? getSelectedChartType_NoSideEffects()
+    : (document.querySelector("input[name='chartType']:checked")?.value || "run");
+
+  renderChartSetupModal(chartType);
+  toggleChartSetupModal(true);
+}
+
+
+function toggleRuleExplainerModal(forceOpen) {
+  const modal = document.getElementById("ruleExplainerModal");
+  if (!modal) return;
+
+  const isOpen = modal.classList.contains("visible");
+  const shouldOpen = typeof forceOpen === "boolean" ? forceOpen : !isOpen;
+
+  modal.classList.toggle("visible", shouldOpen);
+  modal.setAttribute("aria-hidden", shouldOpen ? "false" : "true");
+  document.body.classList.toggle("modal-open", shouldOpen);
+
+  if (shouldOpen) {
+    const closeBtn = modal.querySelector(".modal-close");
+    if (closeBtn) closeBtn.focus();
+  }
+}
+
+function getChartTypeDisplayName(chartType) {
+  const names = {
+    run: "Run chart",
+    xmr: "X-MR chart",
+    c: "C chart",
+    p: "P chart",
+    u: "U chart",
+    xbars: "X̄-S chart",
+    t: "T chart",
+    g: "G chart"
+  };
+  return names[chartType] || "This chart";
+}
+
+function describeRuleStatus(status, labels) {
+  if (status === "on") {
+    return `<li><strong>${labels.name}:</strong> used by default.</li>`;
+  }
+  if (status === "optional") {
+    return `<li><strong>${labels.name}:</strong> available in advanced settings, off by default.</li>`;
+  }
+  if (status === "warn") {
+    return `<li><strong>${labels.name}:</strong> advanced only, off by default, with a warning before use.</li>`;
+  }
+  return `<li><strong>${labels.name}:</strong> not offered for this chart type.</li>`;
+}
+
+function renderRuleExplainerModal(chartType) {
+  const body = document.getElementById("ruleExplainerBody");
+  const subtitle = document.getElementById("ruleExplainerSubtitle");
+  if (!body || !subtitle) return;
+
+  const policy = getRulePolicy(chartType);
+  const chartName = getChartTypeDisplayName(chartType);
+
+  subtitle.textContent =
+    `${chartName}: this tool uses a conservative, chart-aware rule policy designed to reduce false alerts.`;
+
+  let whyText = "";
+  if (chartType === "c" || chartType === "p" || chartType === "u") {
+    whyText =
+      "Attribute charts use a conservative rule set here. Zone rules are blocked because they can create misleading alerts, especially when limits vary or counts are low.";
+  } else if (chartType === "t" || chartType === "g") {
+    whyText =
+      "Rare-event charts are naturally irregular. Run and trend rules can create false signals, so they are advanced-only and warning-gated.";
+  } else if (chartType === "xmr") {
+    whyText =
+      "X-MR charts are continuous, but more fragile than subgrouped charts. Extra pattern rules are available only as advanced options.";
+  } else if (chartType === "xbars") {
+    whyText =
+      "X̄-S charts are the chart family where advanced rule sets are most defensible, but the default remains conservative to reduce false alarms.";
+  } else if (chartType === "run") {
+    whyText =
+      "Run charts do not use control limits. The tool keeps interpretation simple and conservative by default.";
+  } else {
+    whyText =
+      "This tool keeps the default rule set simple and conservative to reduce false alerts.";
+  }
+
+  body.innerHTML = `
+    <div class="hint">
+      <strong>${chartName}</strong>
+    </div>
+
+    <div class="hint" style="margin-top:0.5rem;">
+      ${whyText}
+    </div>
+
+    <hr style="margin:0.9rem 0;">
+
+    <div class="hint">
+      <strong>What this chart checks by default</strong>
+    </div>
+    <ul style="margin-top:0.5rem;">
+      ${describeRuleStatus(policy.beyondLimits, { name: "Beyond limits" })}
+      ${describeRuleStatus(policy.runShift, { name: "Run rule" })}
+      ${describeRuleStatus(policy.trend, { name: "Trend rule" })}
+      ${describeRuleStatus(policy.zone23, { name: "2 of 3 in the outer third" })}
+      ${describeRuleStatus(policy.zone45, { name: "4 of 5 beyond 1-sigma" })}
+    </ul>
+
+    <hr style="margin:0.9rem 0;">
+
+    <div class="hint">
+      <strong>Why some rules are limited</strong>
+    </div>
+    <div class="hint" style="margin-top:0.5rem;">
+      This tool is designed for reliable interpretation in healthcare and public-service settings.
+      It prefers fewer, more trustworthy signals over a noisier rule set that may create false alerts.
+    </div>
+
+    <div class="hint" style="margin-top:0.5rem;">
+      A “signal” can trigger meetings, concern, investigation, or action. To reduce wasted effort and alert fatigue,
+      some rules are restricted to chart types where they are more dependable.
+    </div>
+
+    <hr style="margin:0.9rem 0;">
+
+    <div class="hint">
+      <strong>Plain-English rule definitions</strong>
+    </div>
+
+    <div class="hint" style="margin-top:0.5rem;">
+      <strong>Beyond limits:</strong> a point above the upper limit or below the lower limit.
+    </div>
+
+    <div class="hint" style="margin-top:0.5rem;">
+      <strong>Run rule:</strong> a sustained run of points on one side of the centre line.
+    </div>
+
+    <div class="hint" style="margin-top:0.5rem;">
+      <strong>Trend rule:</strong> a sustained pattern of consecutive increases or decreases.
+    </div>
+
+    <div class="hint" style="margin-top:0.5rem;">
+      <strong>Zone rules:</strong> extra pattern rules based on how far points sit from the centre line.
+      These are the least portable rules, so they are only offered on chart types where they are more defensible.
+    </div>
+  `;
+}
+
+function openRuleExplainerForCurrentChart() {
+  const chartType =
+    (typeof getSelectedChartType_NoSideEffects === "function")
+      ? (getSelectedChartType_NoSideEffects() || "run")
+      : ((typeof getSelectedChartType === "function") ? (getSelectedChartType() || "run") : "run");
+
+  renderRuleExplainerModal(chartType);
+  toggleRuleExplainerModal(true);
+}
+
 // -----------------------------
 // Chart chooser wizard (Help me choose)
 // -----------------------------
@@ -7563,7 +10709,19 @@ function closeChartWizard() {
 }
 
 function wizardBack() {
-  if (chartWizardState.step > 0) chartWizardState.step -= 1;
+  // If on the results screen, go back to the previous question screen
+  if (chartWizardState.step === 99) {
+    chartWizardState.recommendation = null;
+    chartWizardState.step = 1;
+    renderChartWizard();
+    return;
+  }
+
+  // Otherwise go back one normal step
+  if (chartWizardState.step > 0) {
+    chartWizardState.step -= 1;
+  }
+
   renderChartWizard();
 }
 
@@ -7621,139 +10779,124 @@ function renderChartWizard() {
   const s = chartWizardState;
   const a = s.answers;
 
-  // Helper to render button list
   const optionButton = (text, onClick) =>
-    `<button type="button" style="margin:0.25rem 0; width:100%; text-align:left;" onclick="${onClick}">${text}</button>`;
+    `<button type="button" class="chart-wizard-option" onclick="${onClick}">${text}</button>`;
 
-  // Step screens
-    if (s.step === 0) {
+  const actionButtons = `
+    <div class="chart-wizard-actions">
+      <button type="button" class="chart-wizard-secondary" onclick="wizardBack()">Back</button>
+      <button type="button" onclick="finishWizard(computeRecommendation(chartWizardState.answers))">Skip</button>
+    </div>
+  `;
+
+  if (s.step === 0) {
     chartWizardBody.innerHTML = `
-      <p><strong>What are you charting?</strong></p>
+      <p class="chart-wizard-question">What are you charting?</p>
 
-      ${optionButton(
-        "A measurement (one number each time) — e.g. waiting time, score, temperature, length of stay",
-        `wizardNext('kind','measurement')`
-      )}
-
-      ${optionButton(
-        "A count per time period — e.g. number of falls per week, complaints per month, infections per day",
-        `wizardNext('kind','count')`
-      )}
-
-      ${optionButton(
-        "A proportion out of a total — e.g. 5 out of 100 compliant, % with a characteristic, pass rate",
-        `wizardNext('kind','proportion')`
-      )}
-
-      ${optionButton(
-        "Rare events — time or opportunities between events (e.g. days between serious incidents; procedures between harms)",
-        `wizardNext('kind','rare')`
-      )}
-
-      ${optionButton("Not sure", `finishWizard(computeRecommendation({kind:'unsure'}))`)}
+      <div class="chart-wizard-options">
+        ${optionButton("A measurement — e.g. waiting time, score, temperature, length of stay", `wizardNext('kind','measurement')`)}
+        ${optionButton("A count per time period — e.g. falls per week, complaints per month", `wizardNext('kind','count')`)}
+        ${optionButton("A proportion out of a total — e.g. 5 out of 100, pass rate", `wizardNext('kind','proportion')`)}
+        ${optionButton("Rare events — time or opportunities between events", `wizardNext('kind','rare')`)}
+        ${optionButton("Not sure", `finishWizard(computeRecommendation({kind:'unsure'}))`)}
+      </div>
     `;
     return;
   }
 
-
-  // Measurement follow-up
   if (s.step === 1 && a.kind === "measurement") {
     chartWizardBody.innerHTML = `
-      <p><strong>Do you have one value per time point, or multiple values per time point?</strong></p>
-      ${optionButton("One value each time point", `wizardNext('measurementShape','single')`)}
-      ${optionButton("Multiple values per time point (subgroups/samples)", `wizardNext('measurementShape','subgroups')`)}
-      ${optionButton("Not sure", `wizardNext('measurementShape','unsure')`)}
-      <div style="display:flex; gap:0.5rem; justify-content:space-between; margin-top:0.75rem;">
-        <button type="button" onclick="wizardBack()">Back</button>
-        <button type="button" onclick="finishWizard(computeRecommendation(chartWizardState.answers))">Skip</button>
+      <p class="chart-wizard-question">Do you have one value per time point, or multiple values?</p>
+
+      <div class="chart-wizard-options">
+        ${optionButton("One value each time point", `wizardNext('measurementShape','single')`)}
+        ${optionButton("Multiple values per time point — subgroups or samples", `wizardNext('measurementShape','subgroups')`)}
+        ${optionButton("Not sure", `wizardNext('measurementShape','unsure')`)}
       </div>
+
+      ${actionButtons}
     `;
     return;
   }
 
-    // Count follow-up
   if (s.step === 1 && a.kind === "count") {
     chartWizardBody.innerHTML = `
-      <p><strong>Does the amount of work / opportunity vary at each time point?</strong></p>
+      <p class="chart-wizard-question">Does the amount of work or opportunity vary?</p>
 
-      <p class="hint small-hint" style="margin-top:-0.25rem;">
-        If you are counting events per week/month with broadly similar activity each time, treat it as roughly constant.
-        If the volume changes a lot (or you have a denominator like bed-days / patient-days / inspections),
-        the tool will usually recommend a <strong>U chart (rate per opportunity)</strong>.
+      <p class="hint small-hint">
+        If activity is broadly similar each time, treat it as roughly constant. If volume changes a lot,
+        or you have a denominator such as bed-days or inspections, choose varies.
       </p>
 
-      ${optionButton("No — roughly similar volume each time (e.g. incidents per week)", `wizardNext('countOpportunity','constant')`)}
-      ${optionButton("Yes — volume varies, or I have a denominator column (e.g. bed-days, patient-days, inspections)", `wizardNext('countOpportunity','varies')`)}
-      ${optionButton("Not sure", `wizardNext('countOpportunity','unsure')`)}
-
-      <div style="display:flex; gap:0.5rem; justify-content:space-between; margin-top:0.75rem;">
-        <button type="button" onclick="wizardBack()">Back</button>
-        <button type="button" onclick="finishWizard(computeRecommendation(chartWizardState.answers))">Skip</button>
+      <div class="chart-wizard-options">
+        ${optionButton("No — roughly similar volume each time", `wizardNext('countOpportunity','constant')`)}
+        ${optionButton("Yes — volume varies, or I have a denominator column", `wizardNext('countOpportunity','varies')`)}
+        ${optionButton("Not sure", `wizardNext('countOpportunity','unsure')`)}
       </div>
+
+      ${actionButtons}
     `;
     return;
   }
 
-
-  // Proportion follow-up
   if (s.step === 1 && a.kind === "proportion") {
     chartWizardBody.innerHTML = `
-      <p><strong>Do you have both parts of the proportion?</strong></p>
-      <p class="hint small-hint" style="margin-top:-0.25rem;">
-        For a P chart you need a numerator (e.g. defectives) and a denominator (e.g. total cases) each time point.
+      <p class="chart-wizard-question">Do you have both parts of the proportion?</p>
+
+      <p class="hint small-hint">
+        For a P chart you need a numerator and denominator for each time point.
       </p>
-      ${optionButton("Yes — I have numerator and denominator columns", `wizardNext('proportionHasDenom','yes')`)}
-      ${optionButton("No — I only have the percentage/proportion value", `wizardNext('proportionHasDenom','no')`)}
-      ${optionButton("Not sure", `wizardNext('proportionHasDenom','unsure')`)}
-      <div style="display:flex; gap:0.5rem; justify-content:space-between; margin-top:0.75rem;">
-        <button type="button" onclick="wizardBack()">Back</button>
-        <button type="button" onclick="finishWizard(computeRecommendation(chartWizardState.answers))">Skip</button>
+
+      <div class="chart-wizard-options">
+        ${optionButton("Yes — I have numerator and denominator columns", `wizardNext('proportionHasDenom','yes')`)}
+        ${optionButton("No — I only have the percentage or proportion value", `wizardNext('proportionHasDenom','no')`)}
+        ${optionButton("Not sure", `wizardNext('proportionHasDenom','unsure')`)}
       </div>
+
+      ${actionButtons}
     `;
     return;
   }
 
-    // Rare events follow-up
   if (s.step === 1 && a.kind === "rare") {
     chartWizardBody.innerHTML = `
-      <p><strong>Which best describes your data?</strong></p>
+      <p class="chart-wizard-question">Which best describes your data?</p>
 
-      <p class="hint small-hint" style="margin-top:-0.25rem;">
-        Choose this when the event is uncommon and you’re looking at the gap <em>between</em> events.
+      <p class="hint small-hint">
+        Choose this when the event is uncommon and you are looking at the gap between events.
       </p>
 
-      ${optionButton("Time between events — e.g. days between serious incidents, weeks between pressure ulcers", `wizardNext('rareType','time')`)}
-      ${optionButton("Opportunities between events — e.g. procedures between harms, patients seen between infections", `wizardNext('rareType','opportunities')`)}
-      ${optionButton("Not sure", `wizardNext('rareType','unsure')`)}
-      <div style="display:flex; gap:0.5rem; justify-content:space-between; margin-top:0.75rem;">
-        <button type="button" onclick="wizardBack()">Back</button>
-        <button type="button" onclick="finishWizard(computeRecommendation(chartWizardState.answers))">Skip</button>
+      <div class="chart-wizard-options">
+        ${optionButton("Time between events — e.g. days between incidents", `wizardNext('rareType','time')`)}
+        ${optionButton("Opportunities between events — e.g. procedures between harms", `wizardNext('rareType','opportunities')`)}
+        ${optionButton("Not sure", `wizardNext('rareType','unsure')`)}
       </div>
+
+      ${actionButtons}
     `;
     return;
   }
 
-  // After step 1 follow-ups, we can compute and show results
   if (s.step >= 2 && s.step !== 99) {
     finishWizard(computeRecommendation(s.answers));
     return;
   }
 
-  // Results screen
   if (s.step === 99 && s.recommendation) {
     const rec = s.recommendation;
-    chartWizardBody.innerHTML = `
-      <p><strong>Recommended chart:</strong> ${rec.label}</p>
-      <p class="hint small-hint">${rec.reason}</p>
 
-      <div style="display:flex; gap:0.5rem; justify-content:flex-end; margin-top:1rem;">
-        <button type="button" onclick="wizardBack()">Back</button>
-        <button type="button" onclick="setChartType('${rec.chartType}'); closeChartWizard();">Use this chart</button>
+    chartWizardBody.innerHTML = `
+      <div class="chart-wizard-result">
+        <div class="chart-wizard-result-title">Recommended chart: ${rec.label}</div>
+        <div>${rec.reason}</div>
       </div>
 
-      <hr style="margin:1rem 0;" />
+      <div class="chart-wizard-actions">
+        <button type="button" class="chart-wizard-secondary" onclick="wizardBack()">Back</button>
+        <button type="button" class="wizard-primary" onclick="useWizardChart('${rec.chartType}')">Use this chart</button>
+      </div>
 
-      <p class="hint small-hint">
+      <p class="hint small-hint" style="margin-top:0.75rem;">
         You can still pick a different chart type manually if you prefer.
       </p>
     `;
@@ -7768,12 +10911,31 @@ window.finishWizard = finishWizard;
 window.computeRecommendation = computeRecommendation;
 window.setChartType = setChartType;
 window.closeChartWizard = closeChartWizard;
+window.useWizardChart = useWizardChart;
+
+function useWizardChart(chartType) {
+  setChartType(chartType);
+  closeChartWizard();
+
+  if (rawRows && rawRows.length && generateButton) {
+    lastGenerateWasManual = false;
+    generateButton.click();
+  }
+}
+
+
 
 // Hook wizard start into the existing button/modal
 if (helpChooseChartBtn) {
   helpChooseChartBtn.addEventListener("click", () => {
     toggleChartWizard(true);
     startChartWizard();
+  });
+}
+
+if (chartSetupBtn) {
+  chartSetupBtn.addEventListener("click", () => {
+    openChartSetupForCurrentType();
   });
 }
 
@@ -7787,7 +10949,11 @@ if (helpChooseChartBtn) {
   }
 })();
 
-
+if (ruleExplainerBtn) {
+  ruleExplainerBtn.addEventListener("click", () => {
+    openRuleExplainerForCurrentChart();
+  });
+}
 
 // ---- Existing split dropdown button still works ----
 function applySplitFromSidebarSelection() {
@@ -7827,6 +10993,13 @@ function applySplitFromSidebarSelection() {
 
   if (labels && typeof populateSplitOptions === "function") {
     populateSplitOptions(labels);
+  }
+
+    // If the user has not manually locked the Y-axis bounds,
+  // return to automatic scaling before regenerating.
+  if (!yAxisBoundsManuallyEdited) {
+    if (yAxisMinInput) yAxisMinInput.value = "";
+    if (yAxisMaxInput) yAxisMaxInput.value = "";
   }
 
   // Redraw whichever chart is currently selected
@@ -7880,78 +11053,139 @@ if (chartContextMenu) {
     }
 
     try {
-      if (action === "addAnnotation") {
+            if (action === "addAnnotation") {
         if (clickedPointIndex === null || clickedPointIndex === undefined) {
           alert("Right-click near a data point to add an annotation.");
           return;
         }
 
         const labels = currentChart?.data?.labels || [];
-        const xLabel = labels[clickedPointIndex];
+        const xLabel = labels?.[clickedPointIndex];
 
         if (!xLabel) {
-          alert("Could not identify the X value for that point.");
+          alert("Could not determine the selected x-position for annotation.");
           return;
         }
 
-        const text = prompt(`Annotation for ${xLabel}:`, "");
-        if (!text) return;
+        const text = prompt(`New annotation for ${xLabel}:`, "");
+        if (text === null) return;
 
-        // Optional: populate sidebar controls (nice UX)
+        const trimmed = String(text).trim();
+        if (!trimmed) {
+          alert("Annotation text cannot be blank.");
+          return;
+        }
+
         if (annotationDateInput) annotationDateInput.value = xLabel;
-        if (annotationLabelInput) annotationLabelInput.value = text;
+        if (annotationLabelInput) annotationLabelInput.value = trimmed;
 
-        // Store + redrawt
-        annotations.push({ date: xLabel, label: text });
+        annotations.push({ date: xLabel, label: trimmed });
 
-        // Regenerate to show it (your annotations render via buildAnnotationConfig)
         if (generateButton) generateButton.click();
         return;
       }
 
-if (action === "clearAnnotations") {
-  if (!annotations || annotations.length === 0) return;
+      if (action === "editAnnotation") {
+        if (clickedPointIndex === null || clickedPointIndex === undefined) {
+          alert("Right-click near a data point to edit an annotation.");
+          return;
+        }
 
-  const ok = confirm("Clear all annotations?");
-  if (!ok) return;
+        const labels = currentChart?.data?.labels || [];
+        const xLabel = labels?.[clickedPointIndex];
 
-  annotations.length = 0; // preserves the array reference
+        if (!xLabel) {
+          alert("Could not determine the selected x-position for annotation.");
+          return;
+        }
 
-  // Optional: clear the sidebar inputs too
-  if (annotationDateInput) annotationDateInput.value = "";
-  if (annotationLabelInput) annotationLabelInput.value = "";
+        const chosen = chooseAnnotationAtDate(xLabel, "edit");
+        if (!chosen) {
+          alert(`There are no annotations to edit at ${xLabel}.`);
+          return;
+        }
 
-  if (generateButton) generateButton.click();
-  return;
-}
+        const changed = editAnnotationAtIndex(chosen._idx);
+        if (changed && generateButton) generateButton.click();
+        return;
+      }
 
+      if (action === "deleteAnnotation") {
+        if (clickedPointIndex === null || clickedPointIndex === undefined) {
+          alert("Right-click near a data point to delete an annotation.");
+          return;
+        }
+
+        const labels = currentChart?.data?.labels || [];
+        const xLabel = labels?.[clickedPointIndex];
+
+        if (!xLabel) {
+          alert("Could not determine the selected x-position for annotation.");
+          return;
+        }
+
+        const chosen = chooseAnnotationAtDate(xLabel, "delete");
+        if (!chosen) {
+          alert(`There are no annotations to delete at ${xLabel}.`);
+          return;
+        }
+
+        const ok = confirm(`Delete this annotation?\n\n"${chosen.label}"`);
+        if (!ok) return;
+
+        const changed = deleteAnnotationAtIndex(chosen._idx);
+        if (changed && generateButton) generateButton.click();
+        return;
+      }
+
+      if (action === "clearAnnotations") {
+        if (!annotations || annotations.length === 0) return;
+
+        const ok = confirm("Clear all annotations?");
+        if (!ok) return;
+
+        annotations.length = 0;
+
+        if (annotationDateInput) annotationDateInput.value = "";
+        if (annotationLabelInput) annotationLabelInput.value = "";
+
+        if (generateButton) generateButton.click();
+        return;
+      }
 
       if (action === "addSplit") {
-  if (clickedPointIndex === null || clickedPointIndex === undefined) {
-    alert("Right-click near a data point to add a split.");
-    return;
-  }
+        if (clickedPointIndex === null || clickedPointIndex === undefined) {
+          alert("Right-click near a data point to add a split.");
+          return;
+        }
 
-  // Try sidebar-style apply ONLY if the split dropdown exists.
-  // If it fails (e.g. dropdown removed), fall back to direct add.
-  let applied = false;
+        // Try sidebar-style apply ONLY if the split dropdown exists.
+        // If it fails (e.g. dropdown removed), fall back to direct add.
+        let applied = false;
 
-  if (splitPointSelect && typeof applySplitFromSidebarSelection === "function") {
-    splitPointSelect.value = String(clickedPointIndex);
-    applied = (applySplitFromSidebarSelection() === true);
-  }
+        if (splitPointSelect && typeof applySplitFromSidebarSelection === "function") {
+          splitPointSelect.value = String(clickedPointIndex);
+          applied = (applySplitFromSidebarSelection() === true);
+        }
 
-  if (!applied) {
-    // Direct method that does NOT require sidebar UI
-    addSplitAfterIndex(clickedPointIndex);
-  }
+        if (!applied) {
+          // Direct method that does NOT require sidebar UI
+          addSplitAfterIndex(clickedPointIndex);
+        }
 
-  return;
-}
+        return;
+      }
+	
+      if (action === "removeSplit") {
+        const splitIdx = Number(btn.getAttribute("data-split-index"));
+        if (!Number.isInteger(splitIdx)) return;
 
+        removeSplitAtIndex(splitIdx);
+        return;
+      }
 
       if (action === "clearSplits") {
-        // Clear splits immediately + redraw (same effect as your sidebar clear button)
+        // Clear splits immediately + redraw
         splits = [];
         if (splitPointSelect) splitPointSelect.value = "";
 
@@ -7960,29 +11194,56 @@ if (action === "clearAnnotations") {
       }
 
       if (action === "copyCharts") {
-        const composite = buildCompositeCanvas({ includeSummaryText: false });
-        await copyCanvasToClipboard(composite);
-        alert("Chart image copied to clipboard.");
+  let restoreExportLayout = null;
+
+  try {
+    restoreExportLayout = await prepareChartsForExport();
+
+    const composite = buildCompositeCanvas({ includeSummaryText: false });
+    await copyCanvasToClipboard(composite);
+    alert("Chart image copied to clipboard.");
+  } finally {
+    if (restoreExportLayout) restoreExportLayout();
+  }
+
+  return;
+}
+
+if (action === "copyChartsAndAnalysis") {
+  let restoreExportLayout = null;
+
+  try {
+    restoreExportLayout = await prepareChartsForExport();
+
+    const composite = buildCompositeCanvas({ includeSummaryText: true });
+    await copyCanvasToClipboard(composite);
+    alert("Chart + analysis image copied to clipboard.");
+  } finally {
+    if (restoreExportLayout) restoreExportLayout();
+  }
+
+  return;
+}
+
+     if (action === "saveChartsAs") {
+  let restoreExportLayout = null;
+
+  try {
+    restoreExportLayout = await prepareChartsForExport();
+
+    const composite = buildCompositeCanvas({ includeSummaryText: true });
+    downloadCanvasAsPng(composite, "spc-charts.png");
+  } finally {
+    if (restoreExportLayout) restoreExportLayout();
+  }
+
+  return;
+}
+
+      if (action === "downloadPdf") {
+        exportPdfReport();
         return;
       }
-
-      if (action === "copyChartsAndAnalysis") {
-        const composite = buildCompositeCanvas({ includeSummaryText: true });
-        await copyCanvasToClipboard(composite);
-        alert("Chart + analysis image copied to clipboard.");
-        return;
-      }
-
-      if (action === "saveChartsAs") {
-        const composite = buildCompositeCanvas({ includeSummaryText: false });
-        downloadCanvasAsPng(composite, "spc-charts.png");
-        return;
-      }
-
-	if (action === "downloadPdf") {
-	  exportPdfReport();
-	  return;
-	}
 
     } catch (err) {
       console.error(err);
@@ -7990,6 +11251,7 @@ if (action === "clearAnnotations") {
     }
   });
 }
+
 
 function formatSpcHelperAnswerToHtml(text) {
   const raw = String(text ?? "").replace(/\r\n/g, "\n").trim();
@@ -8150,6 +11412,11 @@ if (clearSplitsButton) {
       splitPointSelect.value = "";
     }
 
+    if (!yAxisBoundsManuallyEdited) {
+      if (yAxisMinInput) yAxisMinInput.value = "";
+      if (yAxisMaxInput) yAxisMaxInput.value = "";
+    }
+
     if (getSelectedChartType_NoSideEffects() === "xmr") {
       generateButton.click();
     }
@@ -8206,6 +11473,31 @@ function attachSpcHelperSuggestionToggle() {
   });
 }
 
+function attachSpcHelperSectionToggles() {
+  const generalBtn = document.getElementById("spcHelperToggleGeneral");
+  const chartBtn = document.getElementById("spcHelperToggleChart");
+  const generalBody = document.getElementById("spcHelperGeneralSection");
+  const chartBody = document.getElementById("spcHelperChartSection");
+
+  if (generalBtn && generalBody && generalBtn.dataset.bound !== "1") {
+    generalBtn.dataset.bound = "1";
+    generalBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleHelperSection(generalBtn, generalBody);
+    });
+  }
+
+  if (chartBtn && chartBody && chartBtn.dataset.bound !== "1") {
+    chartBtn.dataset.bound = "1";
+    chartBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleHelperSection(chartBtn, chartBody);
+    });
+  }
+}
+
 function toggleSpcHelper() {
   const panel = document.getElementById("spcHelperPanel");
   if (!panel) return;
@@ -8219,8 +11511,12 @@ function toggleSpcHelper() {
       spcHelperHasBeenOpened = true;
     }
 
-    // Ensure toggle button works
+        // Ensure toggle buttons work
     attachSpcHelperSuggestionToggle();
+    attachSpcHelperSectionToggles();
+
+    // Re-render helper state when opening so defaults reflect the current chart state
+    if (typeof renderHelperState === "function") renderHelperState();
 
     // When opening: show suggestions by default for discoverability
     setSpcHelperSuggestionsCollapsed(false);
@@ -8247,9 +11543,18 @@ if (resetButton) {
   resetButton.addEventListener("click", resetAll);
 }
 
+updateSaveChartButtonState();
+updateDateControlsState();
+
 // Allow Escape key to close the SPC helper
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
+    const helpModal = document.getElementById("helpModal");
+    if (helpModal && helpModal.classList.contains("visible")) {
+      toggleHelpSection(false);
+      return;
+    }
+
     if (spcHelperPanel && spcHelperPanel.classList.contains("visible")) {
       spcHelperPanel.classList.remove("visible");
     }
@@ -8271,47 +11576,39 @@ function countValidNumericPoints() {
 
 function enforceChartTypeSuitabilityAndRegen() {
   if (!rawRows || !rawRows.length) return;
-    updateMrToggleVisibility();
-  const chartType = getSelectedChartType_NoSideEffects();
-  const valueCol = valueSelect?.value;
 
-  let validPoints = 0;
-  if (valueCol) {
-    for (const row of rawRows) {
-      const y = toNumericValue(row[valueCol]);
-      if (isFinite(y)) validPoints++;
-    }
-  }
+  updateMrToggleVisibility();
+  const beforeType = getSelectedChartType_NoSideEffects();
+  const availability = applyChartTypeAvailability();
+  const afterType = getSelectedChartType_NoSideEffects();
 
-  const minXmr = 12;
-
-  if (chartType === "xmr" && validPoints < minXmr) {
-    showError(
-      `XmR charts need at least ${minXmr} valid numeric points. ` +
-      `You currently have ${validPoints}. Switching back to a run chart.`
-    );
-
-    // revert to run chart
-    const runRadio = document.querySelector(
-      "input[name='chartType'][value='run']"
-    );
-    if (runRadio) runRadio.checked = true;
-
+  if (!availability[afterType]?.enabled) {
+    const reason = availability[afterType]?.reason || "This chart type is not available for the current data.";
+    showError(reason);
     return;
   }
 
-  // Suitable → regenerate immediately
+  if (beforeType !== afterType) {
+    const reason = availability[beforeType]?.reason || "The previously selected chart type is not available for the current data.";
+    showError(`${reason} Switched to ${getChartTypeDisplayName(afterType)}.`);
+  }
+
   generateButton.click();
 }
 
 // ---- Auto-regenerate when chart type, axis type, or selected columns change ----
 function wireAutoRedrawControls() {
   // Chart type radios (run / xmr)
-  document.querySelectorAll("input[name='chartType']").forEach(radio => {
+   document.querySelectorAll("input[name='chartType']").forEach(radio => {
   radio.addEventListener("change", () => {
+    applyDefaultYBoundsForSelectedColumn();
+
     if (typeof updateUIForChartType === "function") {
       updateUIForChartType(radio.value);
+      updateRuleUIForChartType(radio.value);
+
     }
+    maybeShowChartSetupModal(radio.value);
 
     if (typeof updateMrToggleVisibility === "function") {
       updateMrToggleVisibility();
@@ -8330,6 +11627,7 @@ function wireAutoRedrawControls() {
   // Axis type radios (date / sequence)
   document.querySelectorAll("input[name='axisType']").forEach(radio => {
     radio.addEventListener("change", () => {
+      axisTypeManuallyChanged = true;
       if (rawRows && rawRows.length) {
         if (typeof enforceChartTypeSuitabilityAndRegen === "function") {
           enforceChartTypeSuitabilityAndRegen();
@@ -8358,6 +11656,23 @@ function wireAutoRedrawControls() {
   if (dateSelect)  dateSelect.addEventListener("change", onColumnChange);
   if (valueSelect) valueSelect.addEventListener("change", onColumnChange);
   if (thirdSelect) thirdSelect.addEventListener("change", onColumnChange);
+
+  document.querySelectorAll("input[name='chartType']").forEach(radio => {
+    radio.addEventListener("change", () => {
+      yAxisBoundsManuallyEdited = false;
+      applyDefaultYBoundsForSelectedColumn();
+
+      if (!rawRows || !rawRows.length) return;
+
+      if (typeof enforceChartTypeSuitabilityAndRegen === "function") {
+        enforceChartTypeSuitabilityAndRegen();
+      } else if (generateButton) {
+        generateButton.click();
+      }
+    });
+  });
+
+    
 
   // Run once on load so MR toggle visibility matches initial selection
   if (typeof updateMrToggleVisibility === "function") {
@@ -8416,74 +11731,117 @@ if (dataEditorDetectHeadersButton) {
   });
 }
 
+function initSidebarTabs() {
+
+const buttons = document.querySelectorAll(".tab-btn");
+const panels = document.querySelectorAll(".tab-panel");
+
+buttons.forEach(btn => {
+
+btn.addEventListener("click", () => {
+
+const target = btn.dataset.tab;
+
+buttons.forEach(b => b.classList.remove("active"));
+panels.forEach(p => p.classList.remove("active"));
+
+btn.classList.add("active");
+document.getElementById(target).classList.add("active");
+
+});
+
+});
+
+}
+
+document.addEventListener("DOMContentLoaded", initSidebarTabs);
 
 async function exportPdfReport() {
-  const reportElement = document.getElementById("reportContent");
-  if (!reportElement) {
-    alert("Report content not found.");
-    return;
-  }
   if (!currentChart) {
     alert("Please generate a chart first.");
     return;
   }
 
-  // Wait for fonts (helps missing-text issues in html2canvas)
-  if (document.fonts && document.fonts.ready) {
-    await document.fonts.ready;
-  }
-
-  const prevScrollY = window.scrollY;
-  window.scrollTo(0, 0);
-
-  // Temporarily simplify capability markup for export (fix blank text)
-  const capEl = document.getElementById("capability");
-  const capBackupHTML = capEl ? capEl.innerHTML : null;
-  const capText = capEl ? (capEl.innerText || "").trim() : "";
-
-  if (capEl && capText) {
-    capEl.innerHTML = `
-      <div style="
-        border: 1px solid #c9b200;
-        background: #fff3a6;
-        border-radius: 4px;
-        padding: 14px;
-      ">
-        ${capText.split("\n").map(line => `<div>${line}</div>`).join("")}
-      </div>
-    `;
-  }
-
-  const opt = {
-    margin: [10, 16, 10, 16], // extra L/R helps avoid clipping
-    filename: "spc-report.pdf",
-    image: { type: "jpeg", quality: 0.98 },
-    html2canvas: {
-      scale: 2,
-      scrollX: 0,
-      scrollY: 0,
-      windowWidth: document.documentElement.scrollWidth,
-      windowHeight: document.documentElement.scrollHeight
-    },
-    jsPDF: { unit: "mm", format: "a4", orientation: "landscape" },
-    pagebreak: {
-      mode: ["css", "legacy"],
-      avoid: [".pdf-avoid-break"]
-    }
-  };
-
-  document.body.classList.add("pdf-exporting");
+  let restoreExportLayout = null;
 
   try {
-    await html2pdf().set(opt).from(reportElement).save();
+    restoreExportLayout = await prepareChartsForExport();
+
+    const composite = buildCompositeCanvas({ includeSummaryText: true });
+    if (!composite) {
+      alert("Could not build the PDF export image.");
+      return;
+    }
+
+    const { jsPDF } = window.jspdf || {};
+    if (!jsPDF) {
+      alert("PDF export library not available.");
+      return;
+    }
+
+    const pdf = new jsPDF({
+      orientation: "landscape",
+      unit: "mm",
+      format: "a4"
+    });
+
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+
+    const margin = 8;
+    const usableWidth = pageWidth - margin * 2;
+    const usableHeight = pageHeight - margin * 2;
+
+    const scale = usableWidth / composite.width;
+    const pageCanvasHeight = Math.floor(usableHeight / scale);
+
+    let sourceY = 0;
+    let pageNumber = 0;
+
+    while (sourceY < composite.height) {
+      const sliceHeight = Math.min(pageCanvasHeight, composite.height - sourceY);
+
+      const pageCanvas = document.createElement("canvas");
+      pageCanvas.width = composite.width;
+      pageCanvas.height = sliceHeight;
+
+      const ctx = pageCanvas.getContext("2d");
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+
+      ctx.drawImage(
+        composite,
+        0,
+        sourceY,
+        composite.width,
+        sliceHeight,
+        0,
+        0,
+        composite.width,
+        sliceHeight
+      );
+
+      if (pageNumber > 0) pdf.addPage();
+
+      const imgData = pageCanvas.toDataURL("image/png");
+      const renderedHeight = sliceHeight * scale;
+
+      pdf.addImage(
+        imgData,
+        "PNG",
+        margin,
+        margin,
+        usableWidth,
+        renderedHeight
+      );
+
+      sourceY += sliceHeight;
+      pageNumber += 1;
+    }
+
+    pdf.save("spc-report.pdf");
   } finally {
-    document.body.classList.remove("pdf-exporting");
-
-    // restore capability HTML
-    if (capEl && capBackupHTML != null) capEl.innerHTML = capBackupHTML;
-
-    // restore scroll
-    window.scrollTo(0, prevScrollY);
+    if (restoreExportLayout) restoreExportLayout();
   }
 }
 
