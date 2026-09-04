@@ -26,1380 +26,8 @@
 <script src="./vendor/jsuites.js"></script>
 <script src="./vendor/index.js"></script>
 
+<link rel="stylesheet" href="./css/main.css">
 
-  <style>
-    body {
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      margin: 1.5rem;
-      background-color: #f0f4f5; /* light NHS-style background */
-      max-width: 100%;
-    }
-    h1 {
-      margin-bottom: 0.25rem;
-	color: #005eb8; /* NHS blue */
-    }
-    .sub {
-      margin-top: 0;
-      color: #555;
-      font-size: 0.9rem;
-    }
-  .panel {
-  padding: 0.5rem;
-  border-radius: 0.5rem;
-  border: 1px solid #d8dde0;
-  background: #ffffff;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-  margin-bottom: 0.5rem;
-}
-    label {
-      display: inline-block;
-      margin-right: 0.2rem;
-      margin-top: 0.2rem;
-    }
-    select, input[type="file"], button {
-      margin-top: 0.25rem;
-      margin-bottom: 0.5rem;
-    }
-    /* Buttons */
-button {
-  padding: 0.45rem 0.9rem;
-  border-radius: 9999px;
-  border: 1px solid #005eb8;
-  background: #005eb8;
-  color: #ffffff;
-  cursor: pointer;
-  font-size: 0.9rem;
-}
-
-button:hover:not(:disabled) {
-  background: #003f87;
-  border-color: #003f87;
-}
-
-button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-    /* Make the main I/XmR chart tall and prominent */
-.chart-container {
-  width: 100%;
-  height: 480px;          /* bigger, clearer */
-  overflow: hidden;
-}
-
-select:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-/* MR chart a bit shorter */
-#mrPanel .chart-container {
-  height: 300px;
-}
-    .hint {
-      font-size: 0.8rem;
-      color: #666;
-    }
-    .error {
-      color: #b00020;
-      font-size: 0.9rem;
-    }
-
-.column-check-warning {
-  margin: 0.4rem 0 0.6rem 0;
-  padding: 0.55rem 0.65rem;
-  border-left: 4px solid #ffb81c;
-  background: #fff4ce;
-  color: #4d3700;
-  border-radius: 0.35rem;
-  font-size: 0.78rem;
-  line-height: 1.35;
-}
-
-.layout {
-  display: flex;
-  gap: 2rem;
-  align-items: flex-start;
-  max-width: 1400px;
-  margin: 0 auto;
-  padding: 0.5rem 0;
-}
-
-/* Sidebar with controls */
-.sidebar {
-  width: 320px;
-  flex-shrink: 0;
-  position: sticky;
-  top: 1rem;
-  font-size: 0.8rem;
-}
-
-.sidebar input,
-.sidebar select,
-.sidebar textarea {
-  width: 100%;
-  box-sizing: border-box;
-  margin-bottom: 0.6rem;
-}
-.tab-container {
-  height: 72vh;
-  display: flex;
-  flex-direction: column;
-  background: #e8eef1;
-  border: 1px solid #c7d3da;
-  border-radius: 0.75rem;
-  padding: 0.5rem;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.5);
-}
-
-.tab-bar {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 0.25rem;
-  margin-bottom: 0.4rem;
-}
-
-.tab-btn {
-  width: 100%;
-  border: 1px solid #005eb8;
-  background: #005eb8;
-  color: #ffffff;
-  cursor: pointer;
-  padding: 0.45rem 0.5rem;
-  font-size: 0.85rem;
-  border-radius: 0.55rem 0.55rem 0 0;
-  font-weight: 600;
-  line-height: 1.1;
-  text-align: center;
-}
-
-.tab-btn:hover {
-  background: #003f87;
-  border-color: #003f87;
-  color: #ffffff;
-}
-
-.tab-btn.active:hover {
-  background: #ffffff;
-  color: #003f87;
-  border-color: #c7d3da;
-  border-bottom-color: #ffffff;
-}
-
-.tab-btn.active {
-  background: #ffffff;
-  color: #003f87;
-  border-color: #c7d3da;
-  border-bottom-color: #ffffff;
-  position: relative;
-  top: 1px;
-}
-
-.tab-panels {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  background: #ffffff;
-  border: 1px solid #c7d3da;
-  border-radius: 0 0.6rem 0.6rem 0.6rem;
-  padding: 0.75rem;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
-}
-
-.tab-panel {
-  display: none;
-}
-
-.tab-panel.active {
-  display: block;
-}
-
-/* Make cards inside tabs feel integrated, not like separate floating tiles */
-.tab-panel .panel {
-  border: none;
-  box-shadow: none;
-  background: transparent;
-  padding: 0;
-  margin-bottom: 0;
-}
-
-/* Slightly improve section spacing inside tabs */
-.tab-panel hr {
-  border: 0;
-  border-top: 1px solid #d8dde0;
-  margin: 0.9rem 0;
-}
-
-/* Keep the scroll area feeling intentional */
-.tab-panels::-webkit-scrollbar {
-  width: 10px;
-}
-
-.tab-panels::-webkit-scrollbar-thumb {
-  background: #c2ccd3;
-  border-radius: 999px;
-  border: 2px solid #ffffff;
-}
-
-.tab-panels::-webkit-scrollbar-track {
-  background: transparent;
-}/* Keep headings readable */
-.sidebar .field-label {
-  display: block;
-  font-size: 0.9rem;
-  margin: 0.4rem 0 0.2rem;
-}
-
-.radio-group {
-  margin: 0.2rem 0 0.2rem 0;
-}
-
-.radio-inline {
-  display: inline-flex;
-  align-items: center;
-  margin-right: 1rem;
-  font-size: 0.9rem;
-}
-
-.radio-inline input[type="radio"] {
-  margin-right: 0.35rem;
-}
-
-/* Compact radio group layout */
-.radio-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.2rem;
-  margin: 0 0 0 0;
-}
-
-/* Make each radio+label a small inline chip, not a big bar */
-.radio-pill {
-  display: inline-flex;
-  align-items: center;
-  border-radius: 9999px;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  white-space: nowrap;
-  font-size: 0.8rem;
-}
-
-.chart-disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-/* Override the generic sidebar label rule for these */
-.sidebar .radio-pill {
-  display: inline-flex;   /* cancels label { display:block } */
-  width: auto;            /* no full-width bars */
-}
-
-/* Space between circle and text */
-.radio-pill input[type="radio"] {
-  margin-right: 0.25rem;
-}
-
-/* When the radio is checked, emphasise the pill */
-.radio-pill input[type="radio"]:checked + span,
-.radio-pill input[type="radio"]:checked {
-  font-weight: 600;
-  color: #005eb8;
-}
-
-/* Tiny hint text under each group */
-.small-hint {
-  font-size: 0.75rem;
-  color: #666;
-}
-
-/* Main area with charts/summary */
-.main {
-  flex: 1;
-  min-width: 0; /* prevents overflow */
-}
-
-/* Collapsible section styling */
-.sidebar details {
-  margin-bottom: 1rem;
-}
-.sidebar summary {
-  font-weight: 600;
-  cursor: pointer;
-  padding: 0.25rem 0;
-  color: #003087;
-}
-.sidebar summary::-webkit-details-marker {
-  margin-right: 0.25rem;
-}
-
-.sidebar label {
-  display: block;
-  margin-bottom: 0.25rem;
-}
-
-.sidebar .radio-inline {
-  display: inline-flex; /* override the block behaviour */
-}
-
-.sidebar input[type="text"],
-.sidebar input[type="date"],
-.sidebar input[type="number"],
-.sidebar select {
-  margin-bottom: 0.75rem;
-}
-
-canvas {
-  display: block;
-  max-width: 100%;
-  max-height: 100%;
-}
-
-/* Generate button */
-.sidebar-generate {
-  margin-bottom: 0.5rem;
-  border-radius: 9999px;
-  border: 1px solid #005eb8;
-  background: #03C04A;
-  border-color: #03C04A;
-  color: #ffffff;
-  cursor: pointer;
-}
-
-.sidebar-generate:hover {
-  background: #03AC13;
-  border-color: #03AC13;
-}
-
-.section-divider {
-  border: 0;
-  border-top: 1px solid #d5dbe1;
-  margin: 1rem 0 0.75rem 0;
-}
-
-
-/* Toggle button */
-.sidebar-toggle {
-  margin-bottom: 0.5rem;
-  padding: 0.35rem 0.9rem;
-  border-radius: 9999px;
-  border: 1px solid #005eb8;
-  background: #BEBEBE;
-  color: #ffffff;
-  cursor: pointer;
-  font-size: 0.85rem;
-}
-
-/* Slightly smaller than primary buttons so it feels like a utility */
-.sidebar-toggle:hover {
-  background: #A9A9A9;
-  border-color: #A9A9A9;
-}
-
-/* When collapsed, slide the sidebar off to the left and let main fill space */
-body.sidebar-collapsed .sidebar {
-  transform: translateX(-110%);
-  opacity: 0;
-  pointer-events: none;
-  position: absolute;
-}
-
-body.sidebar-collapsed .main {
-  flex: 1 1 100%;
-}
-
-/* Smooth transition */
-.sidebar {
-  transition: transform 0.2s ease-out, opacity 0.2s ease-out;
-}
-
-/* Responsive: stack sidebar on top for narrow screens */
-@media (max-width: 1000px) {
-  .layout {
-    flex-direction: column;
-  }
-  .sidebar {
-    position: static;
-    width: 100%;
-  }
-}
-
-@media print {
-  #exportButtons {
-    display: none !important;
-  }
-}
-
-/* Data editor modal */
-#dataEditorOverlay {
-  position: fixed;
-  inset: 0;
-  display: none;                /* toggled to flex in JS */
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.35);
-  z-index: 1000;
-}
-
-#sheetPickerOverlay {
-  position: fixed;
-  inset: 0;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.35);
-  z-index: 1000;
-}
-
-#sheetPickerSelect {
-  width: 100%;
-  box-sizing: border-box;
-  margin-top: 0.4rem;
-  margin-bottom: 0.75rem;
-}
-
-.data-editor-dialog {
-  background: #ffffff;
-  max-width: 900px;
-  width: 90%;
-  max-height: 90vh;
-  padding: 1rem;
-  border-radius: 0.5rem;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.3);
-  display: flex;
-  flex-direction: column;
-}
-
-/* Data editor controls row (header checkbox + optional detect button) */
-.data-editor-controls{
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  margin: 0.5rem 0 0.25rem 0;
-}
-
-.data-editor-controls-left{
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-}
-
-.data-editor-intro-hint{
-  margin-bottom: 0.6rem;
-  line-height: 1.35;
-}
-
-.data-editor-help-inline{
-  position: relative;
-  display: inline-block;
-  margin-left: 0.35rem;
-  vertical-align: baseline;
-}
-
-.data-editor-help-btn{
-  background: transparent !important;
-  border: none !important;
-  color: #005eb8 !important;
-  padding: 0 !important;
-  font-size: 0.78rem;
-  font-weight: 600;
-  text-decoration: underline;
-  cursor: pointer;
-  line-height: 1.2;
-}
-
-.data-editor-help-btn:hover{
-  color: #003f87 !important;
-  background: transparent !important;
-}
-
-.data-editor-help-btn:focus{
-  outline: 2px solid #ffb81c;
-  outline-offset: 2px;
-  border-radius: 2px;
-}
-
-.data-editor-help-popup{
-  position: absolute;
-  top: calc(100% + 0.2rem);
-  left: 0;
-  min-width: 290px;
-  max-width: 340px;
-  padding: 0.65rem 0.75rem;
-  border: 1px solid #c7d3da;
-  border-radius: 0.45rem;
-  background: #ffffff;
-  color: #222;
-  box-shadow: 0 4px 14px rgba(0,0,0,0.12);
-  font-size: 0.82rem;
-  line-height: 1.35;
-  z-index: 1100;
-  display: none;
-}
-
-.data-editor-help-popup.show{
-  display: block;
-}
-
-/* Make this label not full-width (overrides global label display) */
-.data-editor-checkbox{
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin: 0;
-  font-size: 0.85rem;
-  color: #333;
-  user-select: none;
-}
-
-/* Optional "secondary" button style that overrides global button styling */
-.data-editor-secondary{
-  background: #f6f8fa !important;
-  border: 1px solid #d0d7de !important;
-  color: #003087 !important;
-}
-
-.data-editor-secondary:hover:not(:disabled){
-  background: #eef2f6 !important;
-  border-color: #c9d1d9 !important;
-}
-
-
-.data-editor-buttons {
-  margin-top: 0.75rem;
-  text-align: right;
-}
-
-.data-editor-buttons button {
-  margin-left: 0.5rem;
-}
-
-/* SPC helper panel (bottom-right) */
-#spcHelperPanel {
-  position: fixed;
-  right: 0.75rem;
-  bottom: 0.75rem;
-  width: 520px;
-
-  /* key changes */
-  max-height: 75vh;        /* taller, relative to viewport */
-  height: auto;
-
-  background: #ffffff;
-  border-radius: 0.5rem;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-  font-size: 0.8rem;
-
-  display: flex;
-  flex-direction: column; /* important */
-  overflow: hidden;       /* prevent panel itself from scrolling */
-  z-index: 900;
-}
-
-/* --- Chart wizard polish --- */
-#chartWizardModal .modal-dialog {
-  width: min(720px, calc(100% - 2rem));
-}
-
-.chart-wizard-panel {
-  display: block;
-  margin: 0;
-  padding: 1.25rem;
-}
-
-.chart-wizard-panel h2 {
-  margin-top: 0;
-  margin-bottom: 0.35rem;
-  color: #003087;
-}
-
-.chart-wizard-question {
-  font-size: 1rem;
-  font-weight: 700;
-  margin: 0.8rem 0 0.6rem;
-}
-
-.chart-wizard-options {
-  display: grid;
-  gap: 0.55rem;
-  margin-top: 0.5rem;
-}
-
-.chart-wizard-option {
-  width: 100%;
-  text-align: left;
-  border: 1px solid #c7d3da !important;
-  background: #ffffff !important;
-  color: #1f2933 !important;
-  border-radius: 0.65rem !important;
-  padding: 0.7rem 0.8rem !important;
-  margin: 0 !important;
-  line-height: 1.3;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
-}
-
-.chart-wizard-option:hover {
-  border-color: #005eb8 !important;
-  background: #f0f7ff !important;
-}
-
-.chart-wizard-actions {
-  display: flex;
-  gap: 0.5rem;
-  justify-content: flex-end;
-  margin-top: 1rem;
-  border-top: 1px solid #e5e9ed;
-  padding-top: 0.85rem;
-}
-
-.chart-wizard-secondary {
-  background: #ffffff !important;
-  color: #005eb8 !important;
-  border: 1px solid #005eb8 !important;
-}
-
-.chart-wizard-result {
-  border-left: 4px solid #005eb8;
-  background: #f0f7ff;
-  padding: 0.85rem;
-  border-radius: 0.5rem;
-  margin-top: 0.75rem;
-}
-
-.chart-wizard-result-title {
-  font-size: 1rem;
-  font-weight: 700;
-  color: #003087;
-  margin-bottom: 0.35rem;
-}
-
-#spcHelperHeader {
-  background: #005eb8;
-  color: #ffffff;
-  padding: 0.4rem 0.6rem;
-  font-weight: 600;
-}
-
-#spcHelperHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-/* Close (X) button */
-#spcHelperCloseBtn {
-  background: transparent;
-  border: none;
-  color: #ffffff;
-  font-size: 1.1rem;
-  font-weight: 600;
-  cursor: pointer;
-  line-height: 1;
-  padding: 0 0.25rem;
-}
-
-#spcHelperCloseBtn:hover {
-  opacity: 0.85;
-}
-
-
-#spcHelperBody {
-  padding: 0.5rem 0.6rem 0.6rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-
-  /* key */
-  flex: 1 1 auto;
-  min-height: 0; /* critical for scroll to work in flex layouts */
-}
-
-
-#spcHelperAnswer {
-  font-size: 0.8rem;
-  max-height: 32vh;
-  overflow-y: auto;
-}
-
-#spcHelperIntro {
-  font-size: 0.8rem;
-  line-height: 1.25;
-}
-
-#spcHelperIntro ul {
-  margin: 0.2rem 0 0 1rem;
-  padding: 0;
-}
-
-.spc-helper-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  margin: 0.1rem 0 0.25rem;
-}
-
-.spc-helper-chips button {
-  font-size: 0.75rem;
-  padding: 0.2rem 0.45rem;
-  border-radius: 9999px;
-  border: 1px solid #d0d7de;
-  background: #f6f8fa;
-  cursor: pointer;
-}
-
-/* --- Fix chip styling so it overrides the global button styles --- */
-#spcHelperPanel .spc-helper-chips button {
-  /* override global button look */
-  background: #f6f8fa;
-  border: 1px solid #d0d7de;
-  color: #003087;              /* <-- key fix: readable text */
-  font-weight: 600;
-
-  /* make long questions wrap nicely */
-  white-space: normal;
-  text-align: left;
-  line-height: 1.2;
-  max-width: 100%;
-
-  /* keep them chip-like */
-  padding: 0.3rem 0.55rem;
-  border-radius: 9999px;
-}
-
-/* Hover/active states */
-#spcHelperPanel .spc-helper-chips button:hover {
-  background: #eef2f6;
-}
-
-#spcHelperPanel .spc-helper-chips button:active {
-  transform: translateY(1px);
-}
-
-
-.spc-helper-chips button:hover {
-  background: #eef2f6;
-}
-
-.spc-chip-section {
-  margin-top: 0.2rem;
-  border-top: 1px solid #eef2f6;
-  padding-top: 0.35rem;
-}
-
-.spc-chip-section-toggle {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  background: transparent;
-  border: none;
-  color: #2b2b2b;
-  font-size: 0.78rem;
-  font-weight: 700;
-  padding: 0.2rem 0;
-  margin: 0;
-  cursor: pointer;
-  text-align: left;
-}
-
-#spcHelperPanel .spc-chip-section-toggle:hover {
-  background: transparent;
-  color: #003087;
-}
-
-.spc-chip-section-toggle-icon {
-  font-size: 0.8rem;
-  line-height: 1;
-  transition: transform 0.15s ease;
-}
-
-.spc-chip-section-toggle[aria-expanded="false"] .spc-chip-section-toggle-icon {
-  transform: rotate(-90deg);
-}
-
-.spc-chip-section-body {
-  display: block;
-}
-
-.spc-chip-section-body.is-collapsed {
-  display: none;
-}
-
-/* Toggle button that shows/hides suggested question chips */
-.spc-helper-toggle-suggestions {
-  align-self: flex-start;
-  background: #f6f8fa;
-  border: 1px solid #d0d7de;
-  color: #003087;
-  font-weight: 600;
-  font-size: 0.75rem;
-  padding: 0.25rem 0.5rem;
-  border-radius: 0.4rem;
-  cursor: pointer;
-}
-
-#spcHelperPanel .spc-helper-toggle-suggestions:hover {
-  background: #eef2f6;
-  color: #003087;
-  border-color: #c9d1d9;
-}
-
-
-/* Slightly tighten chips now that the panel is wider */
-#spcHelperPanel .spc-helper-chips button {
-  max-width: 100%;
-}
-
-/* Optional: visually show chart chips are “inactive” until a chart exists */
-#spcHelperPanel .spc-helper-chips.is-disabled {
-  opacity: 0.55;
-  pointer-events: none;
-}
-
-
-#spcHelperOutput {
-  font-size: 0.8rem;
-  line-height: 1.3;
-
-  /* scrolling behaviour */
-  flex: 1 1 auto;     /* take remaining space */
-  min-height: 4rem;
-  overflow-y: auto;
-
-  border: 1px solid #eef2f6;
-  border-radius: 0.35rem;
-  padding: 0.4rem 0.45rem;
-  background: #ffffff;
-}
-
-
-#spcHelperOutput p {
-  margin: 0 0 0.55rem 0;
-}
-
-#spcHelperOutput ul {
-  margin: 0.15rem 0 0.55rem 1.1rem;
-  padding: 0;
-}
-
-#spcHelperOutput li {
-  margin: 0.15rem 0;
-}
-
-
-#spcHelperControls {
-  display: flex;
-  gap: 0.25rem;
-  margin-top: 0.25rem;
-  flex-shrink: 0; /* never collapse */
-}
-
-#spcHelperOutput {
-  scrollbar-width: thin;
-}
-
-#spcHelperOutput::-webkit-scrollbar {
-  width: 6px;
-}
-
-
-#aiQuestionInput {
-  flex: 1;
-  padding: 0.25rem 0.4rem;
-  border-radius: 0.25rem;
-  border: 1px solid #d0d7de;
-  font-size: 0.8rem;
-}
-
-#aiAskButton {
-  padding: 0.25rem 0.6rem;
-  font-size: 0.8rem;
-}
-
-/* Hide helper by default */
-#spcHelperPanel {
-  display: none; /* START HIDDEN */
-  opacity: 0;
-  transition: opacity 0.25s ease;
-}
-
-/* When visible */
-#spcHelperPanel.visible {
-  display: flex;
-  opacity: 1;
-}
-
-/* Help button styling */
-.helper-toggle-btn {
-  width: 100%;
-  padding: 0.4rem 0.6rem;
-  margin-bottom: 0.5rem;
-  background: #005eb8;
-  color: white;
-  border: none;
-  border-radius: 0.35rem;
-  font-size: 0.85rem;
-  cursor: pointer;
-}
-
-.helper-toggle-btn:hover {
-  background: #003f78;
-}
-
-.helper-note {
-  font-size: 0.78rem;
-  line-height: 1.35;
-  color: #5f6b75;
-  margin: 0.55rem 0 0.45rem 0;
-}
-
-/* --- Chart context menu (right-click) --- */
-.chart-context-menu {
-  position: fixed;
-  z-index: 2000;
-  min-width: 220px;
-  background: #ffffff;
-  border: 1px solid #d0d7de;
-  border-radius: 0.5rem;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.18);
-  padding: 0.35rem;
-}
-
-.chart-context-menu button {
-  width: 100%;
-  text-align: left;
-  padding: 0.45rem 0.6rem;
-  border: none;
-  background: transparent;
-  border-radius: 0.4rem;
-  cursor: pointer;
-  font-size: 0.9rem;
-  color: #111;
-}
-
-.chart-context-menu button:hover {
-  background: #eef2f6;
-}
-
-.chart-context-menu .menu-sep {
-  height: 1px;
-  background: #eef2f6;
-  margin: 0.25rem 0;
-}
-
-.context-submenu-wrap {
-  position: relative;
-}
-
-.context-submenu-wrap .submenu-parent {
-  width: 100%;
-  text-align: left;
-}
-
-.context-submenu {
-  display: none;
-  position: absolute;
-  top: 0;
-  left: calc(100% - 2px);
-  min-width: 200px;
-  background: #ffffff;
-  border: 1px solid #c7d3da;
-  border-radius: 0.4rem;
-  box-shadow: 0 6px 18px rgba(0,0,0,0.12);
-  padding: 0.25rem;
-  z-index: 1001;
-}
-
-.context-submenu-wrap:hover .context-submenu,
-.context-submenu-wrap:focus-within .context-submenu {
-  display: block;
-}
-
-/* Generate button turns red when changes are pending */
-#generateButton.needs-recalc {
-  background: #b00020 !important;
-  border-color: #b00020 !important;
-  color: #fff !important;
-}
-#generateButton.needs-recalc:hover {
-  filter: brightness(0.95);
-}
-
-/* Modal (Help & guidance) */
-.modal {
-  position: fixed;
-  inset: 0;
-  display: none;
-  z-index: 9999;
-}
-
-.modal.visible {
-  display: block;
-}
-
-.modal-backdrop {
-  position: absolute;
-  inset: 0;
-  background: rgba(0,0,0,0.5);
-  backdrop-filter: blur(3px);
-}
-
-.modal-dialog {
-  position: relative;
-  background: #ffffff;
-  margin: 3vh auto;
-  width: min(980px, calc(100% - 2rem));
-  max-height: 92vh;
-  overflow: hidden;
-  border-radius: 16px;
-  border: 1px solid #d8dde0;
-  box-shadow: 0 18px 45px rgba(0,0,0,0.22);
-}
-
-.modal-shell {
-  display: flex;
-  flex-direction: column;
-  max-height: 92vh;
-}
-
-.modal-header {
-  position: sticky;
-  top: 0;
-  z-index: 5;
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 1.1rem 1.25rem 0.9rem 1.25rem;
-  background: #ffffff;
-  border-bottom: 1px solid #e5eaed;
-}
-
-.modal-header-text h2 {
-  margin: 0;
-  font-size: 1.1rem;
-  color: #111;
-}
-
-.modal-header-text .sub {
-  margin: 0.45rem 0 0 0;
-  font-size: 0.92rem;
-  color: #5a5a5a;
-}
-
-.modal-close {
-  flex: 0 0 auto;
-  width: 38px;
-  height: 38px;
-  margin: 0;
-  border: none;
-  border-radius: 9999px;
-  background: #005eb8;
-  color: #ffffff;
-
-  font-size: 1.35rem;
-  line-height: 1;
-  font-weight: 600;
-
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-
-  box-shadow: 0 2px 6px rgba(0,0,0,0.10);
-}
-
-.modal-close:hover {
-  background: #003f87;
-}
-
-.modal-close:focus {
-  outline: 3px solid #ffb81c;
-  outline-offset: 2px;
-}
-
-.modal-body {
-  overflow: auto;
-  padding: 1rem 1.25rem 1.25rem 1.25rem;
-}
-
-.modal-body details {
-  border: 1px solid #d8dde0;
-  border-radius: 0.65rem;
-  background: #ffffff;
-  padding: 0.8rem 0.9rem;
-  margin: 0 0 0.75rem 0;
-}
-
-.modal-body summary {
-  cursor: pointer;
-  font-size: 0.98rem;
-  color: #111;
-}
-
-.modal-body summary strong {
-  font-weight: 700;
-}
-
-.modal-body details[open] {
-  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-}
-
-.modal-body p,
-.modal-body li {
-  line-height: 1.45;
-}
-
-.modal-body ul,
-.modal-body ol {
-  margin-top: 0.45rem;
-}
-
-.modal-note {
-  padding: 0.75rem 0.9rem;
-  border-radius: 0.6rem;
-  background: #f6f8fa;
-  border: 1px solid #d8dde0;
-  margin: 0.6rem 0 0.4rem 0;
-}
-
-body.modal-open {
-  overflow: hidden;
-}
-
-.mr-compact {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 0.35rem;
-  margin-top: 0.4rem;
-  padding: 0; /* no box */
-}
-
-.mr-compact-row {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
-.mr-label {
-  font-weight: 700;
-  margin-right: 0.25rem;
-}
-
-.mr-radio {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  white-space: nowrap;
-}
-
-/* Make chart row & help button compact */
-.chart-row {
-  align-items: center;
-  gap: 0.2rem;
-}
-
-.help-btn {
-  padding: 0.35rem 0.65rem;
-  font-size: 0.85em;
-  white-space: nowrap;
-  background: #f6f8fa;
-  color: #003f87;
-  border: 1px solid #b8c7d1;
-  border-radius: 9999px;
-}
-
-.help-btn:hover {
-  background: #e9f0f5;
-  border-color: #8fa8b8;
-  color: #f6f8fa;
-}
-
-.mr-label {
-  font-weight: 700;
-  margin-right: 0.1rem;
-}
-
-.mr-radio {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  white-space: nowrap;
-}
-
-.mr-subhint {
-  font-size: 0.85em;
-  opacity: 0.8;
-  white-space: nowrap;
-}
-
-/* Tighten radio pill spacing a bit */
-.radio-pill {
-  padding: 0.2rem 0.2rem;   /* was probably larger */
-}
-
-.mr-check {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.mr-mode {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap; /* allows wrap instead of overflow */
-}
-
-.mr-mode-label {
-  font-weight: 700;
-  margin-right: 0.2rem;
-  white-space: nowrap;
-}
-
-/* --- Fix MR alignment inside sidebar: override .sidebar label { display:block } --- */
-.sidebar label.mr-check,
-.sidebar label.mr-radio {
-  display: inline-flex !important;
-  align-items: center;
-  gap: 0.25rem;
-  margin-bottom: 0;          /* prevent extra vertical spacing */
-  width: auto;               /* avoid full-width label blocks */
-}
-
-/* Keep the MR display row compact and wrapping nicely */
-#mrDisplayOptions.mr-mode {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
-/* Optional: ensure the MR section itself doesn't look like a big panel */
-#mrToggleRow.mr-compact {
-  padding: 0.25rem 0;
-  margin-top: 0.35rem;
-}
-
-.data-editor-grid{
-  flex: 1;
-  min-height: 360px;
-  border: 1px solid #d0d7de;
-  border-radius: 0.25rem;
-  margin-top: 0.25rem;
-  overflow: auto;
-}
-
-.data-editor-status{
-  font-size: 0.8rem;
-  color: #555;
-  margin: 0.15rem 0 0.35rem;
-}
-.data-editor-status strong{ color:#003087; }
-
-.data-editor-workbook-bar {
-  margin: 0.25rem 0 0.5rem;
-  padding: 0.55rem 0.65rem;
-  border: 1px solid #d8dde0;
-  border-radius: 0.4rem;
-  background: #f8fbfc;
-}
-
-.data-editor-workbook-row {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  margin-bottom: 0.35rem;
-}
-
-.data-editor-sheet-label {
-  display: inline-flex;
-  align-items: center;
-  margin: 0;
-  white-space: nowrap;
-}
-
-#dataEditorSheetSelect {
-  flex: 1 1 auto;
-  min-width: 0;
-  margin: 0;
-}
-
-/* PDF export: try to keep each period summary together */
-.pdf-avoid-break {
-  break-inside: avoid;
-  page-break-inside: avoid;
-}
-
-.hidden {
-  display: none !important;
-}
-
-/* PDF export: ensure capability text renders */
-body.pdf-exporting #capability {
-  position: static !important;
-  transform: none !important;
-  -webkit-print-color-adjust: exact;
-  print-color-adjust: exact;
-}
-
-body.pdf-exporting #reportContent {
-  width: 1200px;
-  max-width: 1200px;
-  margin: 0 auto;
-  background: #ffffff;
-}
-
-body.pdf-exporting .chart-container {
-  width: 1200px !important;
-  height: 560px !important;
-  overflow: visible !important;
-}
-
-body.pdf-exporting #mrPanel .chart-container {
-  height: 360px !important;
-}
-
-body.pdf-exporting #summary,
-body.pdf-exporting #capability {
-  max-width: 1120px;
-  margin-left: auto;
-  margin-right: auto;
-  line-height: 1.35;
-}
-
-.font-toggle-row {
-  display: flex;
-  gap: 0.5rem;
-  margin-bottom: 0.75rem;
-}
-
-.font-toggle-btn {
-  min-width: 2.25rem;
-  height: 2.25rem;
-  border-radius: 0.5rem;
-  border: 1px solid #b8c4cc;
-  background: #ffffff;
-  color: #003087;
-  font-size: 1rem;
-  line-height: 1;
-  padding: 0;
-}
-
-.font-toggle-btn[aria-pressed="true"] {
-  background: #005eb8;
-  border-color: #005eb8;
-  color: #ffffff;
-}
-
-  </style>
 </head>
 
 <body>
@@ -1547,9 +175,6 @@ body.pdf-exporting #capability {
     </label>
   </div>
 
-  <div class="hint" style="margin-top:0.1rem;">
-    If you’re not sure, use <strong>Help me choose</strong>.
-  </div>
 </details>
 
 <div id="chartTypeAvailabilityHint" class="hint small-hint" style="margin-top:0.35rem;" aria-live="polite"></div>
@@ -1617,7 +242,20 @@ body.pdf-exporting #capability {
 
 <hr />
 
-<strong class="field-label">X-axis type:</strong>
+<strong class="field-label">
+  <span class="label-with-tooltip">
+    X-axis type
+
+    <span class="help-tooltip" tabindex="0" aria-label="X-axis type help">
+      ?
+      <span class="help-tooltip-text">
+        Use Date / time for time-series SPC. Use Sequence / category
+        to plot rows in their original order without treating the
+        X-axis values as dates.
+      </span>
+    </span>
+  </span>:
+</strong>
 <div class="radio-row">
   <label class="radio-pill">
     <input type="radio" name="axisType" value="date" checked />
@@ -1629,14 +267,22 @@ body.pdf-exporting #capability {
   </label>
 </div>
 
-<div class="hint small-hint" style="margin-top:0.25rem;">
-  Use <em>Date / time</em> for time-series SPC, or <em>Sequence / category</em> to plot rows in their original order.
-</div>
-
 <div id="dateFormatRow" style="margin-top:0.6rem;">
   <label>
+  <span class="label-with-tooltip">
     Date format for numeric dates
-    <select id="dateFormatPreference">
+
+    <span class="help-tooltip" tabindex="0" aria-label="Date format help">
+      ?
+      <span class="help-tooltip-text">
+        Used for ambiguous numeric dates such as 01/02/2024.
+        ISO dates such as 2024-02-01 and Excel dates are recognised
+        automatically.
+      </span>
+    </span>
+  </span>
+
+  <select id="dateFormatPreference">
       <option value="uk" selected>UK / day-first (dd/mm/yyyy)</option>
       <option value="us">US / month-first (mm/dd/yyyy)</option>
       <option value="auto">Auto-detect</option>
@@ -1644,9 +290,6 @@ body.pdf-exporting #capability {
     </select>
   </label>
 
-  <div class="hint small-hint" style="margin-top:0.2rem;">
-    Applies to ambiguous numeric dates such as 01/02/2024. ISO dates like 2024-02-01 and Excel dates are handled automatically.
-  </div>
 
   <div id="dateFormatWarning" class="hint" style="display:none; margin-top:0.3rem; color:#8a3b00;"></div>
 </div>
@@ -1673,6 +316,79 @@ X-axis label
 Y-axis label
 <input type="text" id="yAxisLabel" />
 </label>
+
+<hr>
+
+<details open>
+  <summary>Title settings</summary>
+
+<label>
+  Title font family
+  <select id="chartTitleFontFamily">
+    <option value="">Auto / default</option>
+    <option value="Arial">Arial</option>
+    <option value="Arial Narrow">Arial Narrow</option>
+    <option value="Aptos">Aptos</option>
+    <option value="Calibri">Calibri</option>
+    <option value="Cambria">Cambria</option>
+    <option value="Century Gothic">Century Gothic</option>
+    <option value="Georgia">Georgia</option>
+    <option value="Helvetica">Helvetica</option>
+    <option value="Segoe UI">Segoe UI</option>
+    <option value="Tahoma">Tahoma</option>
+    <option value="Trebuchet MS">Trebuchet MS</option>
+    <option value="Verdana">Verdana</option>
+    <option value="Gill Sans">Gill Sans</option>
+    <option value="Lucida Sans Unicode">Lucida Sans Unicode</option>
+    <option value="Book Antiqua">Book Antiqua</option>
+    <option value="Garamond">Garamond</option>
+    <option value="Times New Roman">Times New Roman</option>
+  </select>
+</label>
+
+<label>
+  Title font size
+  <input
+    type="number"
+    id="chartTitleFontSize"
+    min="8"
+    max="48"
+    step="1"
+    value="16"
+  />
+</label>
+
+<div class="font-toggle-row">
+  <button
+    type="button"
+    id="chartTitleBoldBtn"
+    class="font-toggle-btn"
+    aria-pressed="true"
+    title="Bold"
+  ><strong>B</strong></button>
+
+  <button
+    type="button"
+    id="chartTitleItalicBtn"
+    class="font-toggle-btn"
+    aria-pressed="false"
+    title="Italic"
+  ><em>I</em></button>
+
+  <button
+    type="button"
+    id="chartTitleUnderlineBtn"
+    class="font-toggle-btn"
+    aria-pressed="false"
+    title="Underline"
+  ><u>U</u></button>
+</div>
+
+<label class="radio-pill" style="display:inline-flex; gap:0.5rem; align-items:center;">
+  <input type="checkbox" id="showChartTitle" checked />
+  Show chart title
+</label>
+</details>
 
 </div>
 
@@ -1729,9 +445,19 @@ Y-axis label
 <details open>
   <summary>Y axis</summary>
       <label>
-        Y-axis minimum
-        <input type="number" id="yAxisMin" step="any" />
-      </label>
+  <span class="label-with-tooltip">
+    Y-axis minimum
+
+    <span class="help-tooltip" tabindex="0" aria-label="Y-axis range help">
+      ?
+      <span class="help-tooltip-text">
+        Leave the minimum and maximum blank to let the chart choose its range automatically.
+      </span>
+    </span>
+  </span>
+
+  <input type="number" id="yAxisMin" />
+</label>
 
       <label>
         Y-axis maximum
@@ -1789,16 +515,34 @@ Y-axis label
   </select>
 </label>
 
+<label>
+  <span class="label-with-tooltip">
+    Y-axis tick interval
+
+    <span class="help-tooltip" tabindex="0" aria-label="Y-axis tick interval help">
+      ?
+      <span class="help-tooltip-text">
+        Leave blank for automatic spacing. For percentages, enter percentage
+        points: for example, 1 means 1%, and 0.5 means 0.5%.
+      </span>
+    </span>
+  </span>
+
+  <input
+    type="number"
+    id="yAxisTickStep"
+    min="0"
+    step="any"
+    placeholder="Auto"
+  />
+</label>
+
 <div class="font-toggle-row">
   <button type="button" id="yAxisItalicBtn" class="font-toggle-btn" aria-pressed="false" title="Italic"><em>I</em></button>
   <button type="button" id="yAxisBoldBtn" class="font-toggle-btn" aria-pressed="false" title="Bold"><strong>B</strong></button>
 </div>
 
 </details>
-
-<div class="hint small-hint" style="margin-top:0.25rem;">
-  Leave min/max blank to use the chart's automatic range.
-</div>
 
 </div>
 
@@ -1848,9 +592,7 @@ Hide target line
 <div class="panel">
 
 <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem;">
-  <div class="hint" style="margin:0;">
-    Adjust the rule thresholds used in the summary and (optionally) point highlighting.
-  </div>
+  <strong>Detection rules</strong>
 
   <button id="ruleExplainerBtn" type="button" class="help-btn">
     Rule explainer
@@ -1859,18 +601,53 @@ Hide target line
 
 <div style="margin-top:0.75rem;">
   <label>
-    Shift (run) length:
-    <input type="number" id="shiftRulePoints" min="3" step="1" value="8" style="width: 6rem;" />
-  </label>
-  <div class="hint small-hint">Default: 8 points on one side of the centre line.</div>
+  <span class="label-with-tooltip">
+    Shift (run) length
+
+    <span class="help-tooltip" tabindex="0" aria-label="Shift rule help">
+      ?
+      <span class="help-tooltip-text">
+        Number of consecutive points on the same side of the centre line
+        required to flag a shift. Default: 8.
+      </span>
+    </span>
+  </span>
+
+  <input
+    type="number"
+    id="shiftRulePoints"
+    min="3"
+    step="1"
+    value="8"
+    style="width:6rem;"
+  />
+</label>
 </div>
 
 <div>
   <label>
-    Trend length:
-    <input type="number" id="trendRulePoints" min="3" step="1" value="6" style="width: 6rem;" />
-  </label>
-  <div class="hint small-hint">Default: 6 consecutive increases or decreases. This number is only used when the trend rule is available and turned on.</div>
+  <span class="label-with-tooltip">
+    Trend length
+
+    <span class="help-tooltip" tabindex="0" aria-label="Trend rule help">
+      ?
+      <span class="help-tooltip-text">
+        Number of consecutive increases or decreases required to flag a trend.
+        Default: 6. This setting is only used when the trend rule is available
+        and enabled.
+      </span>
+    </span>
+  </span>
+
+  <input
+    type="number"
+    id="trendRulePoints"
+    min="3"
+    step="1"
+    value="6"
+    style="width:6rem;"
+  />
+</label>
 </div>
 
 <hr />
@@ -1881,32 +658,64 @@ Hide target line
   <div class="panel" style="margin-top:0.75rem; padding:0.75rem;">
     <div id="advancedTrendRow" style="display:none; margin-top:0;">
       <label class="radio-pill" style="display:inline-flex; gap:0.5rem; align-items:center;">
-        <input type="checkbox" id="enableAdvancedTrend" />
-        Enable trend rule
-      </label>
-      <div class="hint small-hint" style="margin-top:0.25rem;">
-        Off by default. Trend rules can increase false alerts on some chart types.
-      </div>
+  <input type="checkbox" id="enableAdvancedTrend" />
+
+  <span class="label-with-tooltip">
+    Enable trend rule
+
+    <span class="help-tooltip" tabindex="0" aria-label="Trend rule help">
+      ?
+      <span class="help-tooltip-text">
+        Looks for a sustained sequence of consecutive increases or decreases.
+        The required length is set by the Trend length control above.
+      </span>
+    </span>
+  </span>
+</label>
+
+<div class="hint small-hint" style="margin-top:0.25rem;">
+  Advanced option — may increase false alerts.
+</div>
     </div>
 
     <div id="rareRulesRow" style="display:none; margin-top:0.75rem;">
-      <label class="radio-pill" style="display:inline-flex; gap:0.5rem; align-items:center;">
-        <input type="checkbox" id="enableRareRunTrend" />
-        Enable run &amp; trend rules for T/G charts (advanced)
-      </label>
-      <div class="hint small-hint" style="margin-top:0.25rem;">
-        This chart type is naturally irregular. Run and trend rules may generate false signals and are off by default.
-      </div>
+     <label class="radio-pill" style="display:inline-flex; gap:0.5rem; align-items:center;">
+  <input type="checkbox" id="enableRareRunTrend" />
+
+  <span class="label-with-tooltip">
+    Run &amp; trend rules for T/G charts
+
+    <span class="help-tooltip" tabindex="0" aria-label="Rare event rules help">
+      ?
+      <span class="help-tooltip-text">
+        Enables run and trend detection on T and G rare-event charts.
+        These chart types are naturally irregular, so pattern rules should be used cautiously.
+      </span>
+    </span>
+  </span>
+</label>
+
+<div class="hint small-hint" style="margin-top:0.25rem;">
+  Advanced option — rare-event charts can produce false run/trend signals.
+</div>
     </div>
 
     <div id="lclClampRow" style="display:none; margin-top:0.75rem;">
       <label class="radio-pill" style="display:inline-flex; gap:0.5rem; align-items:center;">
-        <input type="checkbox" id="clampLclAtZero" />
-        Clamp LCL at zero
-      </label>
-      <div class="hint small-hint" style="margin-top:0.25rem;">
-        Useful when the calculated lower control limit falls below zero for a measure that cannot realistically be negative.
-      </div>
+  <input type="checkbox" id="clampLclAtZero" />
+
+  <span class="label-with-tooltip">
+    Clamp LCL at zero
+
+    <span class="help-tooltip" tabindex="0" aria-label="Clamp LCL help">
+      ?
+      <span class="help-tooltip-text">
+        If the calculated lower control limit is below zero, display the LCL at zero instead.
+        Useful for measures such as counts or times that cannot be negative.
+      </span>
+    </span>
+  </span>
+</label>
     </div>
 
     <div id="zoneRulesSection" style="display:none; margin-top:0.75rem;">
@@ -1942,15 +751,10 @@ Hide target line
   Flag special-cause signals on the chart
 </label>
 
-<div id="lclClampRow" style="display:none; margin-top:0.5rem;">
-  <label class="radio-pill" style="display:inline-flex; gap:0.5rem; align-items:center;">
-    <input type="checkbox" id="clampLclAtZero" />
-    Fix LCL at 0 (when calculated LCL is below 0)
-  </label>
-  <div class="hint small-hint">
-    Useful for measures that cannot go below zero (e.g. counts, times).
-  </div>
-</div>
+	<label class="radio-pill" style="display:inline-flex; gap:0.5rem; align-items:center;">
+  	<input type="checkbox" id="colourBlindMode" />
+  	Colour-blind friendly colours and symbols
+	</label>
 
 </div>
 </div>    </aside>
@@ -2512,6 +1316,7 @@ Hide target line
 </div>
 
   <script src="spc-helper-library.js"></script>
+  <script src="./js/modals.js"></script>
   <script src="spc.js"></script>
 </body>
 </html>

@@ -3,7 +3,7 @@
 let rawRows = [];
 let currentChart = null;   // main I / run chart
 let mrChart = null;        // moving range chart
-let annotations = [];      // { date: 'YYYY-MM-DD', label: 'text' }
+let annotations = [];      // { date: 'YYYY-MM-DD', label: 'text', yAdjust?: number }
 let splits = [];   // indices where a new XmR segment starts (split AFTER index)
 let lastXmRAnalysis = null;
 let lastRunAnalysis = null;
@@ -54,22 +54,42 @@ const IMPLEMENTED_CHARTS = new Set(["run", "xmr", "c", "p", "u", "xbars", "t", "
 // Shared chart styling (keep charts consistent)
 // -----------------------------
 const SPC_STYLE = {
-  // main series + “normal” points
-  seriesBlue: "#003f87",     // matches Run/XmR main line :contentReference[oaicite:1]{index=1}
+  seriesBlue: "#003f87",
   pointNormal: "#003f87",
-
-  // special-cause points (Run uses orange)
-  pointSpecial: "#ff8c00",   // matches your Run chart special cause colour :contentReference[oaicite:2]{index=2}
-
-  // centre line (Run median uses red)
-  centreRed: "#e41a1c",      // matches Run chart median colour :contentReference[oaicite:3]{index=3}
-
-  // limits (XmR uses green for UCL/LCL)
-  limitGreen: "#2ca25f",     // matches XmR limit colour :contentReference[oaicite:4]{index=4}
-
-  // target (Run/XmR use this orange)
-  targetOrange: "#fdae61"    // matches Run target line 
+  pointSpecial: "#ff8c00",
+  pointBeyond: "#d73027",
+  centreRed: "#e41a1c",
+  limitGreen: "#2ca25f",
+  targetOrange: "#fdae61"
 };
+
+const SPC_STYLE_DEFAULT = {
+  seriesBlue: "#003f87",
+  pointNormal: "#003f87",
+  pointSpecial: "#ff8c00",
+  pointBeyond: "#d73027",
+  centreRed: "#e41a1c",
+  limitGreen: "#2ca25f",
+  targetOrange: "#fdae61"
+};
+
+const SPC_STYLE_COLOUR_BLIND = {
+  seriesBlue: "#0072B2",
+  pointNormal: "#0072B2",
+  pointSpecial: "#D55E00",
+  pointBeyond: "#000000",
+  centreRed: "#000000",
+  limitGreen: "#009E73",
+  targetOrange: "#CC79A7"
+};
+
+function applySpcColourTheme(themeName) {
+  const theme = themeName === "colourBlind"
+    ? SPC_STYLE_COLOUR_BLIND
+    : SPC_STYLE_DEFAULT;
+
+  Object.assign(SPC_STYLE, theme);
+}
 
 // -----------------------------
 // Shared legend styling
@@ -225,6 +245,12 @@ const baselineInput     = document.getElementById("baselinePoints");
 const chartTitleInput   = document.getElementById("chartTitle");
 const xAxisLabelInput   = document.getElementById("xAxisLabel");
 const yAxisLabelInput   = document.getElementById("yAxisLabel");
+const chartTitleFontFamilyInput = document.getElementById("chartTitleFontFamily");
+const chartTitleFontSizeInput   = document.getElementById("chartTitleFontSize");
+const showChartTitleCheckbox    = document.getElementById("showChartTitle");
+const chartTitleBoldBtn      = document.getElementById("chartTitleBoldBtn");
+const chartTitleItalicBtn    = document.getElementById("chartTitleItalicBtn");
+const chartTitleUnderlineBtn = document.getElementById("chartTitleUnderlineBtn");
 
 const xAxisFontFamilyInput = document.getElementById("xAxisFontFamily");
 const xAxisFontSizeInput   = document.getElementById("xAxisFontSize");
@@ -235,6 +261,7 @@ const yAxisMinInput        = document.getElementById("yAxisMin");
 const yAxisMaxInput        = document.getElementById("yAxisMax");
 const yAxisFormatInput     = document.getElementById("yAxisFormat");
 const yAxisDecimalsInput = document.getElementById("yAxisDecimals");
+const yAxisTickStepInput = document.getElementById("yAxisTickStep");
 const yAxisFontFamilyInput = document.getElementById("yAxisFontFamily");
 const yAxisFontSizeInput   = document.getElementById("yAxisFontSize");
 const yAxisItalicBtn = document.getElementById("yAxisItalicBtn");
@@ -322,8 +349,26 @@ const chartTypeAvailabilityHint = document.getElementById("chartTypeAvailability
 const columnCheckWarning = document.getElementById("columnCheckWarning");
 
 const flagSpecialCauseOnChartCheckbox = document.getElementById("flagSpecialCauseOnChart");
+const colourBlindModeCheckbox = document.getElementById("colourBlindMode");
 const lclClampRow = document.getElementById("lclClampRow");
 const clampLclAtZeroCheckbox = document.getElementById("clampLclAtZero");
+
+const savedSpcTheme = localStorage.getItem("spcColourTheme") || "default";
+applySpcColourTheme(savedSpcTheme);
+
+if (colourBlindModeCheckbox) {
+  colourBlindModeCheckbox.checked = savedSpcTheme === "colourBlind";
+
+  colourBlindModeCheckbox.addEventListener("change", () => {
+    const themeName = colourBlindModeCheckbox.checked ? "colourBlind" : "default";
+    localStorage.setItem("spcColourTheme", themeName);
+    applySpcColourTheme(themeName);
+
+    if (rawRows && rawRows.length && generateButton) {
+      generateButton.click();
+    }
+  });
+}
 
 const dataEditorGridEl = document.getElementById("dataEditorGrid");
 let dataEditorGrid = null; // jspreadsheet instance
@@ -420,7 +465,19 @@ function collectToolSettings() {
       enabled: (typeof targetEnabled !== "undefined") ? !!targetEnabled : true
     },
 
-    labels: { title, xLabel, yLabel },
+    labels: {
+  title,
+  xLabel,
+  yLabel,
+  titleDisplay: showChartTitleCheckbox?.checked ?? true,
+  titleFont: {
+    family: chartTitleFontFamilyInput?.value ?? "",
+    size: chartTitleFontSizeInput?.value ?? "16",
+    bold: isPressed(chartTitleBoldBtn),
+    italic: isPressed(chartTitleItalicBtn),
+    underline: isPressed(chartTitleUnderlineBtn)
+  }
+},
 
     axes: {
       x: {
@@ -436,6 +493,7 @@ function collectToolSettings() {
         max: yAxisMaxInput?.value ?? "",
         format: yAxisFormatInput?.value ?? "auto",
 	decimals: yAxisDecimalsInput?.value ?? "auto",
+        stepSize: yAxisTickStepInput?.value ?? "",
         font: {
           family: yAxisFontFamilyInput?.value ?? "",
           size: yAxisFontSizeInput?.value ?? "",
@@ -513,23 +571,118 @@ function applyToolSettings(settings, { silent = true } = {}) {
     if (typeof updateTargetToggleVisibility === "function") updateTargetToggleVisibility();
   }
 
-  if (chartTitleInput && settings.labels?.title !== undefined) chartTitleInput.value = settings.labels.title;
-  if (xAxisLabelInput && settings.labels?.xLabel !== undefined) xAxisLabelInput.value = settings.labels.xLabel;
-  if (yAxisLabelInput && settings.labels?.yLabel !== undefined) yAxisLabelInput.value = settings.labels.yLabel;
+  if (chartTitleInput && settings.labels?.title !== undefined) {
+  chartTitleInput.value = settings.labels.title;
+  chartTitleManuallyEdited = String(settings.labels.title).trim() !== "";
+}
+
+if (xAxisLabelInput && settings.labels?.xLabel !== undefined) {
+  xAxisLabelInput.value = settings.labels.xLabel;
+  xAxisLabelManuallyEdited = String(settings.labels.xLabel).trim() !== "";
+}
+
+if (yAxisLabelInput && settings.labels?.yLabel !== undefined) {
+  yAxisLabelInput.value = settings.labels.yLabel;
+  yAxisLabelManuallyEdited = String(settings.labels.yLabel).trim() !== "";
+}
+
+if (
+  showChartTitleCheckbox &&
+  settings.labels?.titleDisplay !== undefined
+) {
+  showChartTitleCheckbox.checked = !!settings.labels.titleDisplay;
+}
+
+if (
+  chartTitleFontFamilyInput &&
+  settings.labels?.titleFont?.family !== undefined
+) {
+  chartTitleFontFamilyInput.value = settings.labels.titleFont.family;
+}
+
+if (
+  chartTitleFontSizeInput &&
+  settings.labels?.titleFont?.size !== undefined
+) {
+  chartTitleFontSizeInput.value = settings.labels.titleFont.size;
+}
+
+if (settings.labels?.titleFont?.bold !== undefined) {
+  setPressed(
+    chartTitleBoldBtn,
+    !!settings.labels.titleFont.bold
+  );
+}
+
+if (settings.labels?.titleFont?.italic !== undefined) {
+  setPressed(
+    chartTitleItalicBtn,
+    !!settings.labels.titleFont.italic
+  );
+}
+
+if (settings.labels?.titleFont?.underline !== undefined) {
+  setPressed(
+    chartTitleUnderlineBtn,
+    !!settings.labels.titleFont.underline
+  );
+}
+
+// Older project files pre-date title style controls.
+// Their titles were bold by default.
+if (settings.labels?.titleFont?.bold === undefined) {
+  setPressed(chartTitleBoldBtn, true);
+}
 
   if (xAxisFontFamilyInput && settings.axes?.x?.font?.family !== undefined) xAxisFontFamilyInput.value = settings.axes.x.font.family;
   if (xAxisFontSizeInput && settings.axes?.x?.font?.size !== undefined) xAxisFontSizeInput.value = settings.axes.x.font.size;
   setPressed(xAxisItalicBtn, settings.axes?.x?.font?.style === "italic");
   setPressed(xAxisBoldBtn, settings.axes?.x?.font?.weight === "bold");
 
-  if (yAxisMinInput && settings.axes?.y?.min !== undefined) yAxisMinInput.value = settings.axes.y.min;
-  if (yAxisMaxInput && settings.axes?.y?.max !== undefined) yAxisMaxInput.value = settings.axes.y.max;
-  if (yAxisFormatInput && settings.axes?.y?.format !== undefined) yAxisFormatInput.value = settings.axes.y.format;
-  if (yAxisDecimalsInput && settings.axes?.y?.decimals !== undefined) yAxisDecimalsInput.value = settings.axes.y.decimals;
-  if (yAxisFontFamilyInput && settings.axes?.y?.font?.family !== undefined) yAxisFontFamilyInput.value = settings.axes.y.font.family;
-  if (yAxisFontSizeInput && settings.axes?.y?.font?.size !== undefined) yAxisFontSizeInput.value = settings.axes.y.font.size;
-  setPressed(yAxisItalicBtn, settings.axes?.y?.font?.style === "italic");
-  setPressed(yAxisBoldBtn, settings.axes?.y?.font?.weight === "bold");
+  if (yAxisMinInput && settings.axes?.y?.min !== undefined) {
+  yAxisMinInput.value = settings.axes.y.min;
+}
+
+if (yAxisMaxInput && settings.axes?.y?.max !== undefined) {
+  yAxisMaxInput.value = settings.axes.y.max;
+}
+
+const hasSavedYMin =
+  settings.axes?.y?.min !== undefined &&
+  String(settings.axes.y.min).trim() !== "";
+
+const hasSavedYMax =
+  settings.axes?.y?.max !== undefined &&
+  String(settings.axes.y.max).trim() !== "";
+
+yAxisBoundsManuallyEdited = hasSavedYMin || hasSavedYMax;
+
+if (yAxisFormatInput && settings.axes?.y?.format !== undefined) {
+  yAxisFormatInput.value = settings.axes.y.format;
+}
+
+if (yAxisDecimalsInput && settings.axes?.y?.decimals !== undefined) {
+  yAxisDecimalsInput.value = settings.axes.y.decimals;
+}
+
+if (yAxisTickStepInput && settings.axes?.y?.stepSize !== undefined) {
+  yAxisTickStepInput.value = settings.axes.y.stepSize;
+}
+
+if (typeof updateYAxisInputStep === "function") {
+  updateYAxisInputStep();
+}
+
+if (yAxisFontFamilyInput && settings.axes?.y?.font?.family !== undefined) {
+  yAxisFontFamilyInput.value = settings.axes.y.font.family;
+}
+
+if (yAxisFontSizeInput && settings.axes?.y?.font?.size !== undefined) {
+  yAxisFontSizeInput.value = settings.axes.y.font.size;
+}
+
+setPressed(yAxisItalicBtn, settings.axes?.y?.font?.style === "italic");
+setPressed(yAxisBoldBtn, settings.axes?.y?.font?.weight === "bold");
 
   if (Array.isArray(settings.splits)) splits = settings.splits.slice();
   if (Array.isArray(settings.annotations)) annotations = settings.annotations.slice();
@@ -1027,32 +1180,7 @@ function isProbablyHeaderRow(row) {
   return headerish >= datish && headerish > 0;
 }
 
-if (dataEditorDeleteHelpBtn && dataEditorDeleteHelpPopup) {
-  dataEditorDeleteHelpBtn.addEventListener("mouseenter", showDataEditorDeleteHelp);
-  dataEditorDeleteHelpBtn.addEventListener("mouseleave", hideDataEditorDeleteHelp);
 
-  dataEditorDeleteHelpBtn.addEventListener("click", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    toggleDataEditorDeleteHelp();
-  });
-
-  dataEditorDeleteHelpBtn.addEventListener("focus", showDataEditorDeleteHelp);
-  dataEditorDeleteHelpBtn.addEventListener("blur", hideDataEditorDeleteHelp);
-
-  dataEditorDeleteHelpPopup.addEventListener("mouseenter", showDataEditorDeleteHelp);
-  dataEditorDeleteHelpPopup.addEventListener("mouseleave", hideDataEditorDeleteHelp);
-
-  document.addEventListener("click", (e) => {
-    const clickedInsideHelp =
-      dataEditorDeleteHelpBtn.contains(e.target) ||
-      dataEditorDeleteHelpPopup.contains(e.target);
-
-    if (!clickedInsideHelp) {
-      hideDataEditorDeleteHelp();
-    }
-  });
-}
 
 if (dataEditorSheetSelect) {
   dataEditorSheetSelect.addEventListener("change", () => {
@@ -1145,6 +1273,33 @@ function updateTargetToggleBtn() {
   targetToggleBtn.textContent = targetEnabled ? "Hide target line" : "Show target line";
 }
 
+function getChartTitleSettings() {
+  const size = Number(chartTitleFontSizeInput?.value);
+
+  return {
+    show: showChartTitleCheckbox ? showChartTitleCheckbox.checked : true,
+
+    underline: isPressed(chartTitleUnderlineBtn),
+
+    font: {
+      family: (chartTitleFontFamilyInput?.value || "").trim(),
+      size: Number.isFinite(size) && size > 0 ? size : 16,
+      style: isPressed(chartTitleItalicBtn) ? "italic" : "normal",
+      weight: isPressed(chartTitleBoldBtn) ? "bold" : "normal"
+    }
+  };
+}
+
+function buildChartTitleConfig(title) {
+  const settings = getChartTitleSettings();
+
+  return {
+    display: settings.show && !!String(title || "").trim(),
+    text: title,
+    font: cleanFontOptions(settings.font)
+  };
+}
+
 function applyPresentationEditsLive() {
   if (!currentChart) return;
 
@@ -1154,10 +1309,17 @@ function applyPresentationEditsLive() {
   const axisSettings = (typeof getAxisSettings === "function") ? getAxisSettings() : null;
 
   // Title
-  if (currentChart.options?.plugins?.title) {
-    currentChart.options.plugins.title.display = !!title;
-    currentChart.options.plugins.title.text = title;
-  }
+  // Title
+if (currentChart.options?.plugins?.title) {
+  const titleSettings = getChartTitleSettings();
+
+  currentChart.options.plugins.title.display =
+    titleSettings.show && !!title;
+
+  currentChart.options.plugins.title.text = title;
+  currentChart.options.plugins.title.font =
+    cleanFontOptions(titleSettings.font);
+}
 
   // X axis
   if (currentChart.options?.scales?.x) {
@@ -1253,6 +1415,22 @@ if (chartTitleInput) {
   });
 }
 
+[
+  chartTitleFontFamilyInput,
+  chartTitleFontSizeInput,
+  showChartTitleCheckbox
+].forEach(el => {
+  if (!el) return;
+
+  el.addEventListener("input", () => {
+    applyPresentationEditsLiveDebounced();
+  });
+
+  el.addEventListener("change", () => {
+    applyPresentationEditsLiveDebounced();
+  });
+});
+
 if (xAxisLabelInput) {
   xAxisLabelInput.addEventListener("input", () => {
     xAxisLabelManuallyEdited = true;
@@ -1295,6 +1473,7 @@ function handleAxisControlChanged({ livePreview = false } = {}) {
 [
   yAxisFormatInput,
   yAxisDecimalsInput,
+  yAxisTickStepInput,
   xAxisFontFamilyInput,
   yAxisFontFamilyInput,
   xAxisFontSizeInput,
@@ -1783,7 +1962,7 @@ if (addAnnotationBtn) {
     }
 
     // Dates from <input type="date"> are already 'YYYY-MM-DD'
-    annotations.push({ date: dateVal, label: labelVal });
+    annotations.push({ date: dateVal, label: labelVal, yAdjust: null });
 
 	// Clear just the label field, keep the date selection
 	annotationLabelInput.value = "";
@@ -2037,11 +2216,7 @@ function drawSecondarySPCChart({
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        title: {
-          display: true,
-          text: title,
-          font: { size: 16, weight: "bold" }
-        },
+        title: buildChartTitleConfig(title),
         legend: SPC_LEGEND,
         annotation: {
           annotations: (typeof buildAnnotationConfig === "function")
@@ -2152,11 +2327,7 @@ function drawXbarSCombinedChart({
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        title: {
-          display: true,
-          text: mainLabels.title,
-          font: { size: 16, weight: "bold" }
-        },
+        title: buildChartTitleConfig(mainLabels.title),
         legend: SPC_LEGEND,
         annotation: {
           annotations: (typeof buildAnnotationConfig === "function")
@@ -2252,6 +2423,12 @@ function resetAll() {
   if (chartTitleInput) chartTitleInput.value = "";
   if (xAxisLabelInput) xAxisLabelInput.value = "";
   if (yAxisLabelInput) yAxisLabelInput.value = "";
+  if (chartTitleFontFamilyInput) chartTitleFontFamilyInput.value = "";
+  if (chartTitleFontSizeInput) chartTitleFontSizeInput.value = "16";
+  if (showChartTitleCheckbox) showChartTitleCheckbox.checked = true;
+  setPressed(chartTitleBoldBtn, true);
+  setPressed(chartTitleItalicBtn, false);
+  setPressed(chartTitleUnderlineBtn, false);
   if (targetInput) targetInput.value = "";
   if (annotationDateInput) annotationDateInput.value = "";
   if (annotationLabelInput) annotationLabelInput.value = "";
@@ -2272,6 +2449,7 @@ function resetAll() {
   if (yAxisMaxInput) yAxisMaxInput.value = "";
   if (yAxisFormatInput) yAxisFormatInput.value = "auto";
   if (yAxisDecimalsInput) yAxisDecimalsInput.value = "auto";
+  if (yAxisTickStepInput) yAxisTickStepInput.value = "";
   if (dateFormatPreferenceSelect) dateFormatPreferenceSelect.selectedIndex = 0;
   if (yAxisFontFamilyInput) yAxisFontFamilyInput.value = "";
   if (yAxisFontSizeInput) yAxisFontSizeInput.value = "11";
@@ -2473,6 +2651,10 @@ function wireToggleButton(btn) {
     }
   });
 }
+
+wireToggleButton(chartTitleBoldBtn);
+wireToggleButton(chartTitleItalicBtn);
+wireToggleButton(chartTitleUnderlineBtn);
 
 wireToggleButton(xAxisItalicBtn);
 wireToggleButton(xAxisBoldBtn);
@@ -3759,19 +3941,22 @@ if (typeof updateRuleUIForChartType === "function") {
   updateRuleUIForChartType(chartType);
 }
 
+// ---- T chart UX: enable/disable Value column depending on input mode ----
+if (chartType === "t" && valueSelect) {
+  const shouldDisableValue = (tChartInputMode === "eventDates");
+  valueSelect.disabled = shouldDisableValue;
 
-  // ---- T chart UX: enable/disable Value column depending on input mode ----
-  if (chartType === "t" && valueSelect) {
-    const shouldDisableValue = (tChartInputMode === "eventDates");
-    valueSelect.disabled = shouldDisableValue;
-
-    // Soft hint if disabled
-    if (shouldDisableValue) {
-      valueSelect.title = "Not used for T chart when using event dates.";
-    }
+  // Soft hint if disabled
+  if (shouldDisableValue) {
+    valueSelect.title = "Not used for T chart when using event dates.";
   }
 }
 
+// Keep MR / S-chart toggle synchronized with the selected chart type
+if (typeof updateMrToggleVisibility === "function") {
+  updateMrToggleVisibility();
+}
+}
 
 
 
@@ -4293,17 +4478,17 @@ function drawXbarSChart(points, baselineCount, labels) {
   });
 
   const pointColoursX = xbarVals.map((v, i) => {
-    if (!flagOnChart) return "#003f87";
-    if (axX.flags?.beyond?.[i]) return "#d73027";
-    if (axX.flags?.special?.[i]) return "#ff8c00";
-    return "#003f87";
+    if (!flagOnChart) return SPC_STYLE.seriesBlue;
+    if (axX.flags?.beyond?.[i]) return SPC_STYLE.pointBeyond;
+    if (axX.flags?.special?.[i]) return SPC_STYLE.pointSpecial;
+    return SPC_STYLE.seriesBlue;
   });
 
   const pointColoursS = sVals.map((v, i) => {
-    if (!flagOnChart) return "#003f87";
-    if (axS.flags?.beyond?.[i]) return "#d73027";
-    if (axS.flags?.special?.[i]) return "#ff8c00";
-    return "#003f87";
+    if (!flagOnChart) return SPC_STYLE.seriesBlue;
+    if (axS.flags?.beyond?.[i]) return SPC_STYLE.pointBeyond;
+    if (axS.flags?.special?.[i]) return SPC_STYLE.pointSpecial;
+    return SPC_STYLE.seriesBlue;
   });
 
   // Draw as a combined chart (your existing approach)
@@ -4469,10 +4654,10 @@ function drawTChart(points, baselineCount, labels) {
   });
 
   const pointColours = deltas.map((v, i) => {
-    if (!flagOnChart) return "#003f87";
-    if (analysisForColour.flags?.beyond?.[i]) return "#d73027";
-    if (analysisForColour.flags?.special?.[i]) return "#ff8c00";
-    return "#003f87";
+    if (!flagOnChart) return SPC_STYLE.seriesBlue;
+    if (analysisForColour.flags?.beyond?.[i]) return SPC_STYLE.pointBeyond;
+    if (analysisForColour.flags?.special?.[i]) return SPC_STYLE.pointSpecial;
+    return SPC_STYLE.seriesBlue;
   });
 
   drawSimpleSPCChart({
@@ -4633,10 +4818,10 @@ function drawGChart(values, baselineCount, labels) {
   });
 
   const pointColours = gVals.map((v, i) => {
-    if (!flagOnChart) return "#003f87";
-    if (analysisForColour.flags?.beyond?.[i]) return "#d73027";
-    if (analysisForColour.flags?.special?.[i]) return "#ff8c00";
-    return "#003f87";
+    if (!flagOnChart) return SPC_STYLE.seriesBlue;
+    if (analysisForColour.flags?.beyond?.[i]) return SPC_STYLE.pointBeyond;
+    if (analysisForColour.flags?.special?.[i]) return SPC_STYLE.pointSpecial;
+    return SPC_STYLE.seriesBlue;
   });
 
   drawSimpleSPCChart({
@@ -4714,6 +4899,24 @@ function parseOptionalNumber(value) {
   return Number.isFinite(n) ? n : undefined;
 }
 
+function getYAxisTickStep() {
+  const raw = parseOptionalNumber(yAxisTickStepInput?.value);
+
+  if (!Number.isFinite(raw) || raw <= 0) {
+    return undefined;
+  }
+
+  const format = yAxisFormatInput?.value || "auto";
+
+  // Percentage data is stored internally as proportions.
+  // User enters percentage points: 1 = 1%, 0.5 = 0.5%.
+  if (format === "percent") {
+    return raw / 100;
+  }
+
+  return raw;
+}
+
 function getAxisSettings() {
   return {
     x: {
@@ -4725,10 +4928,11 @@ function getAxisSettings() {
       }
     },
     y: {
-      min: parseOptionalNumber(yAxisMinInput?.value),
-      max: parseOptionalNumber(yAxisMaxInput?.value),
-      format: (yAxisFormatInput?.value || "auto"),
-      font: {
+  min: parseOptionalNumber(yAxisMinInput?.value),
+  max: parseOptionalNumber(yAxisMaxInput?.value),
+  format: (yAxisFormatInput?.value || "auto"),
+  stepSize: getYAxisTickStep(),
+  font: {
         family: (yAxisFontFamilyInput?.value || "").trim(),
         size: parseOptionalNumber(yAxisFontSizeInput?.value),
         style: isPressed(yAxisItalicBtn) ? "italic" : "normal",
@@ -4737,6 +4941,137 @@ function getAxisSettings() {
     }
   };
 }
+
+// Draw an underline beneath the main chart title when requested.
+// Chart.js supports bold/italic natively, but not underline.
+const chartTitleUnderlinePlugin = {
+  id: "chartTitleUnderline",
+
+  afterDraw(chart) {
+    if (!chart || !chart.ctx) return;
+
+    const settings = getChartTitleSettings();
+
+    if (!settings.show || !settings.underline) return;
+
+    const titleOptions = chart.options?.plugins?.title;
+    const titleBlock = chart.titleBlock;
+
+    if (!titleOptions?.display || !titleBlock) return;
+
+    const text = titleOptions.text;
+
+    // Keep underline support simple and safe for normal one-line titles.
+    if (typeof text !== "string" || !text.trim()) return;
+
+    const ctx = chart.ctx;
+    const fontOptions = titleOptions.font || {};
+
+    ctx.save();
+
+    // Resolve the same font that Chart.js uses for the title.
+    if (typeof Chart !== "undefined" && Chart.helpers?.toFont) {
+      const resolvedFont = Chart.helpers.toFont(fontOptions);
+      ctx.font = resolvedFont.string;
+    } else {
+      const size = Number(fontOptions.size) || 16;
+      const family = fontOptions.family || "sans-serif";
+      const style = fontOptions.style || "normal";
+      const weight = fontOptions.weight || "normal";
+      ctx.font = `${style} ${weight} ${size}px ${family}`;
+    }
+
+    const textWidth = ctx.measureText(text).width;
+
+    const centreX = (titleBlock.left + titleBlock.right) / 2;
+    const underlineY = titleBlock.bottom - 3;
+
+    ctx.beginPath();
+    ctx.moveTo(centreX - textWidth / 2, underlineY);
+    ctx.lineTo(centreX + textWidth / 2, underlineY);
+
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = titleOptions.color || "#666";
+    ctx.stroke();
+
+    ctx.restore();
+  }
+};
+
+if (typeof Chart !== "undefined" && Chart.register) {
+  Chart.register(chartTitleUnderlinePlugin);
+}
+
+
+function positionHelpTooltip(helpIcon) {
+  if (!helpIcon) return;
+
+  const tooltip = helpIcon.querySelector(".help-tooltip-text");
+  if (!tooltip) return;
+
+  tooltip.classList.add("is-visible");
+
+  // Temporarily place it so we can measure it
+  tooltip.style.left = "0px";
+  tooltip.style.top = "0px";
+
+  const iconRect = helpIcon.getBoundingClientRect();
+  const tipRect = tooltip.getBoundingClientRect();
+
+  const gap = 8;
+  const edgePadding = 10;
+
+  // Centre tooltip horizontally on the ? icon
+  let left =
+    iconRect.left +
+    iconRect.width / 2 -
+    tipRect.width / 2;
+
+  // Keep the tooltip inside the browser window
+  left = Math.max(
+    edgePadding,
+    Math.min(left, window.innerWidth - tipRect.width - edgePadding)
+  );
+
+  // Prefer above the icon
+  let top = iconRect.top - tipRect.height - gap;
+
+  // If there isn't enough room above, put it underneath
+  if (top < edgePadding) {
+    top = iconRect.bottom + gap;
+  }
+
+  tooltip.style.left = `${left}px`;
+  tooltip.style.top = `${top}px`;
+}
+
+function hideHelpTooltip(helpIcon) {
+  const tooltip = helpIcon?.querySelector(".help-tooltip-text");
+
+  if (tooltip) {
+    tooltip.classList.remove("is-visible");
+  }
+}
+
+document.querySelectorAll(".help-tooltip").forEach(helpIcon => {
+  helpIcon.addEventListener("mouseenter", () => {
+    positionHelpTooltip(helpIcon);
+  });
+
+  helpIcon.addEventListener("mouseleave", () => {
+    hideHelpTooltip(helpIcon);
+  });
+
+  helpIcon.addEventListener("focus", () => {
+    positionHelpTooltip(helpIcon);
+  });
+
+  helpIcon.addEventListener("blur", () => {
+    hideHelpTooltip(helpIcon);
+  });
+});
+
+
 
 function cleanFontOptions(font) {
   const out = {};
@@ -4814,6 +5149,17 @@ function buildAxisConfig(axisLabel, settings, extra = {}) {
     },
     ...extra
   };
+
+// Integer axes should use whole-number tick positions.
+// This prevents fractional ticks being rounded into duplicate labels
+// such as 1, 1, 1, 2, 2.
+// Manual tick interval takes priority.
+if (Number.isFinite(settings?.stepSize) && settings.stepSize > 0) {
+  cfg.ticks.stepSize = settings.stepSize;
+} else if (settings?.format === "integer") {
+  // Otherwise let Chart.js choose sensible whole-number spacing.
+  cfg.ticks.precision = 0;
+}
 
   if (settings && Number.isFinite(settings.min)) {
     cfg.min = settings.min;
@@ -5049,27 +5395,31 @@ function buildAnnotationConfig(labels) {
     const level = Math.floor(lane / 2);
     const above = lane % 2 === 0;
 
-    // Small offsets only
-    const yAdjust = above
-      ? -(4 + level * 10)
-      : (4 + level * 10);
+    // Small offsets only, unless the user has dragged the label
+	const defaultYAdjust = above
+	  ? -(4 + level * 10)
+	  : (4 + level * 10);
+
+	const yAdjust = Number.isFinite(a.yAdjust)
+	  ? a.yAdjust
+	  : defaultYAdjust;
 
     cfg["annot" + a._idx] = {
       type: "line",
       xMin: a.date,
       xMax: a.date,
-      borderColor: "#000000",
-      borderWidth: 1,
-      borderDash: [2, 2],
+      borderColor: "rgba(120,120,120,0.30)",
+      borderWidth: 0.6,
+      borderDash: [5,4],
       label: {
         display: true,
         content: wrapped,
         backgroundColor: "rgba(255,255,255,0.96)",
         color: "#000000",
-        borderColor: "#000000",
+        borderColor: "#888888",
         borderWidth: 0.5,
-        padding: 4,
-        cornerRadius: 4,
+        padding: 6,
+        cornerRadius: 6,
         font: {
           size: 10,
           weight: "bold"
@@ -5087,28 +5437,120 @@ function buildAnnotationConfig(labels) {
   return cfg;
 }
 
-function showDataEditorDeleteHelp() {
-  if (!dataEditorDeleteHelpBtn || !dataEditorDeleteHelpPopup) return;
-  dataEditorDeleteHelpPopup.classList.add("show");
-  dataEditorDeleteHelpBtn.setAttribute("aria-expanded", "true");
-  dataEditorDeleteHelpPopup.setAttribute("aria-hidden", "false");
+const draggableAnnotationLabelsPlugin = {
+  id: "draggableAnnotationLabels",
+
+  afterInit(chart) {
+       const canvas = chart.canvas;
+    if (!canvas) return;
+
+    let drag = null;
+
+    function getHitAnnotation(event) {
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = event.clientX - rect.left;
+
+      const labels = chart.data.labels || [];
+      const xScale = chart.scales.x;
+      if (!xScale) return null;
+
+      for (let i = annotations.length - 1; i >= 0; i--) {
+        const a = annotations[i];
+        const x = xScale.getPixelForValue(a.date);
+
+        // Big forgiving hit area around the dotted vertical line
+        if (Math.abs(mouseX - x) <= 18) {
+          return i;
+        }
+      }
+
+      return null;
+    }
+
+    function redraw() {
+      chart.options.plugins.annotation.annotations = buildAnnotationConfig(chart.data.labels);
+      chart.update("none");
+    }
+
+    canvas.addEventListener("pointerdown", (event) => {
+      if (!Array.isArray(annotations)) return;
+
+      const hitIndex = getHitAnnotation(event);
+      if (hitIndex === null) return;
+
+      event.preventDefault();
+
+      drag = {
+        index: hitIndex,
+        startY: event.clientY,
+        startAdjust: Number.isFinite(annotations[hitIndex].yAdjust)
+          ? annotations[hitIndex].yAdjust
+          : 0
+      };
+
+      canvas.setPointerCapture(event.pointerId);
+      canvas.style.cursor = "ns-resize";
+    });
+
+    canvas.addEventListener("pointermove", (event) => {
+      if (!Array.isArray(annotations)) return;
+
+      if (drag) {
+        const deltaY = event.clientY - drag.startY;
+
+        const chartTopLimit = chart.chartArea.top +10;
+const chartBottomLimit = chart.chartArea.bottom -10;
+
+const proposedAdjust = drag.startAdjust + deltaY;
+
+const annotationConfig = buildAnnotationConfig(chart.data.labels);
+const thisConfig = annotationConfig["annot" + drag.index];
+const position = thisConfig?.label?.position || "end";
+
+let proposedY = position === "start"
+  ? chart.chartArea.bottom + proposedAdjust
+  : chart.chartArea.top + proposedAdjust;
+
+if (proposedY < chartTopLimit) {
+  proposedY = chartTopLimit;
 }
 
-function hideDataEditorDeleteHelp() {
-  if (!dataEditorDeleteHelpBtn || !dataEditorDeleteHelpPopup) return;
-  dataEditorDeleteHelpPopup.classList.remove("show");
-  dataEditorDeleteHelpBtn.setAttribute("aria-expanded", "false");
-  dataEditorDeleteHelpPopup.setAttribute("aria-hidden", "true");
+if (proposedY > chartBottomLimit) {
+  proposedY = chartBottomLimit;
 }
 
-function toggleDataEditorDeleteHelp() {
-  if (!dataEditorDeleteHelpPopup) return;
-  if (dataEditorDeleteHelpPopup.classList.contains("show")) {
-    hideDataEditorDeleteHelp();
-  } else {
-    showDataEditorDeleteHelp();
+annotations[drag.index].yAdjust = position === "start"
+  ? proposedY - chart.chartArea.bottom
+  : proposedY - chart.chartArea.top;
+
+        redraw();
+        canvas.style.cursor = "ns-resize";
+        return;
+      }
+
+      canvas.style.cursor = getHitAnnotation(event) !== null ? "ns-resize" : "";
+    });
+
+    canvas.addEventListener("pointerup", () => {
+      drag = null;
+      canvas.style.cursor = "";
+    });
+
+    canvas.addEventListener("pointercancel", () => {
+      drag = null;
+      canvas.style.cursor = "";
+    });
+
+    canvas.addEventListener("pointerleave", () => {
+      if (!drag) canvas.style.cursor = "";
+    });
   }
+};
+
+if (typeof Chart !== "undefined" && Chart.register) {
+  Chart.register(draggableAnnotationLabelsPlugin);
 }
+
 
 function updateDataEditorWorkbookUi() {
   if (!dataEditorWorkbookBar || !dataEditorSheetSelect || !dataEditorWorkbookStatus) return;
@@ -7917,7 +8359,7 @@ if (chartType === "run") {
     }
 
     const pointColours = gaps.map((v, i) =>
-      (v > uclArr[i] || v < lclArr[i]) ? "#d73027" : "#003f87"
+      (v > uclArr[i] || v < lclArr[i]) ? SPC_STYLE.pointBeyond : SPC_STYLE.seriesBlue
     );
 
     drawSimpleSPCChart({
@@ -8059,7 +8501,7 @@ function drawRunChart(points, baselineCount, labels) {
 
   // ---- Build piecewise median line + colours ----
   const medianLine = new Array(n).fill(NaN);
-  const pointColours = new Array(n).fill("#003f87");
+  const pointColours = new Array(n).fill(SPC_STYLE.seriesBlue);
 
   // Collect rule hits (optional – useful if your summary wants it)
   const runRangesAll = [];
@@ -8127,7 +8569,7 @@ function drawRunChart(points, baselineCount, labels) {
     for (let i = 0; i < segValues.length; i++) {
       const globalIdx = start + i;
       if (flagOnChart && (runFlags[i] || trendFlags[i])) {
-        pointColours[globalIdx] = "#ff8c00";
+        pointColours[globalIdx] = SPC_STYLE.pointSpecial;
       }
     }
   }
@@ -8141,7 +8583,7 @@ function drawRunChart(points, baselineCount, labels) {
       data: values,
       pointRadius: 4,
       pointBackgroundColor: pointColours,
-      borderColor: "#003f87",
+      borderColor: SPC_STYLE.seriesBlue,
       borderWidth: 2,
       fill: false
     },
@@ -8150,7 +8592,7 @@ function drawRunChart(points, baselineCount, labels) {
       data: medianLine,
       borderDash: [6, 4],
       borderWidth: 2,
-      borderColor: "#e41a1c",
+      borderColor: SPC_STYLE.centreRed,
       pointRadius: 0,
       pointHoverRadius: 0,
       fill: false
@@ -8163,7 +8605,7 @@ function drawRunChart(points, baselineCount, labels) {
       data: values.map(() => target),
       borderDash: [4, 2],
       borderWidth: 2,
-      borderColor: "#fdae61",
+      borderColor: SPC_STYLE.targetOrange,
       pointRadius: 0,
       pointHoverRadius: 0,
       fill: false
@@ -8177,11 +8619,7 @@ function drawRunChart(points, baselineCount, labels) {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        title: {
-          display: true,
-          text: title,
-          font: { size: 16, weight: "bold" }
-        },
+        title: buildChartTitleConfig(title),
         legend: SPC_LEGEND,
         annotation: { annotations: buildAnnotationConfig(labels) }
       },
@@ -8300,7 +8738,7 @@ function drawCChart(points, baselineCount, labels) {
     }
   }
 
-  const pointColours = values.map((v, i) => (beyond[i] ? "#d73027" : "#003f87"));
+  const pointColours = values.map((v, i) => (beyond[i] ? SPC_STYLE.pointBeyond : SPC_STYLE.seriesBlue));
 
   drawSimpleSPCChart({
     labels,
@@ -8426,7 +8864,7 @@ function drawPChart(pointsWithN, baselineCount, labels) {
     }
   }
 
-  const pointColours = values.map((v, i) => (beyond[i] ? "#d73027" : "#003f87"));
+  const pointColours = values.map((v, i) => (beyond[i] ? SPC_STYLE.pointBeyond : SPC_STYLE.seriesBlue));
 
   drawSimpleSPCChart({
     labels,
@@ -8558,7 +8996,7 @@ function drawUChart(pointsWithN, baselineCount, labels) {
     }
   }
 
-  const pointColours = values.map((v, i) => (beyond[i] ? "#d73027" : "#003f87"));
+  const pointColours = values.map((v, i) => (beyond[i] ? SPC_STYLE.pointBeyond : SPC_STYLE.seriesBlue));
 
   drawSimpleSPCChart({
     labels,
@@ -8749,11 +9187,7 @@ function drawSimpleSPCChart({
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        title: {
-          display: true,
-          text: title,
-          font: { size: 16, weight: "bold" }
-        },
+        title: buildChartTitleConfig(title),
         legend: SPC_LEGEND,
         annotation: {
           annotations: (typeof buildAnnotationConfig === "function")
@@ -8832,7 +9266,7 @@ function drawXmRChart(points, baselineCount, labels) {
   const twoSigmaUp   = new Array(n).fill(NaN);
   const twoSigmaDown = new Array(n).fill(NaN);
 
-  const pointColours = new Array(n).fill("#003f87");
+  const pointColours = new Array(n).fill(SPC_STYLE.seriesBlue);
 
   let anySigma = false;
 
@@ -8898,9 +9332,9 @@ function drawXmRChart(points, baselineCount, labels) {
       if (!flagOnChart) {
         pointColours[globalIdx] = SPC_STYLE.pointNormal;
       } else if (segAnalysis.flags?.beyond?.[i]) {
-        pointColours[globalIdx] = "#d73027";
+        pointColours[globalIdx] = SPC_STYLE.pointBeyond;
       } else if (segAnalysis.flags?.special?.[i]) {
-        pointColours[globalIdx] = "#ff8c00";
+        pointColours[globalIdx] = SPC_STYLE.pointSpecial;
       } else {
         pointColours[globalIdx] = SPC_STYLE.pointNormal;
       }
@@ -8937,8 +9371,8 @@ function drawXmRChart(points, baselineCount, labels) {
   datasets.push({
     label: "Value",
     data: values,
-    borderColor: "#003f87",
-    backgroundColor: "#003f87",
+    borderColor: SPC_STYLE.seriesBlue,
+    backgroundColor: SPC_STYLE.seriesBlue,
     pointRadius: 3,
     pointHoverRadius: 4,
     pointBackgroundColor: pointColours,
@@ -8953,21 +9387,21 @@ function drawXmRChart(points, baselineCount, labels) {
     {
       label: "Mean",
       data: meanLine,
-      borderColor: "#d73027",
+      borderColor: SPC_STYLE.pointBeyond,
       borderDash: [6, 4],
       pointRadius: 0
     },
     {
       label: "UCL (3σ)",
       data: uclLine,
-      borderColor: "#2ca25f",
+      borderColor: SPC_STYLE.limitGreen,
       borderDash: [4, 4],
       pointRadius: 0
     },
     {
       label: "LCL (3σ)",
       data: lclLine,
-      borderColor: "#2ca25f",
+      borderColor: SPC_STYLE.limitGreen,
       borderDash: [4, 4],
       pointRadius: 0
     }
@@ -8996,7 +9430,7 @@ function drawXmRChart(points, baselineCount, labels) {
     datasets.push({
       label: "Target",
       data: values.map(() => target),
-      borderColor: "#fdae61",
+      borderColor: SPC_STYLE.targetOrange,
       borderWidth: 2,
       borderDash: [4, 2],
       pointRadius: 0,
@@ -9020,11 +9454,7 @@ function drawXmRChart(points, baselineCount, labels) {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        title: {
-          display: true,
-          text: title,
-          font: { size: 16, weight: "bold" }
-        },
+        title: buildChartTitleConfig(title),
         legend: SPC_LEGEND,
         annotation: {
           annotations: buildAnnotationConfig(labels)
@@ -9123,9 +9553,9 @@ function drawMrChart(allPoints, labels, segments) {
   const showAll = (typeof getMrDisplayMode === "function") && (getMrDisplayMode() === "all");
 
   // House style colours (match main chart)
-  const BLUE = "#003f87";
-  const RED = "#d73027";
-  const GREEN = "#2ca25f";
+  const BLUE = SPC_STYLE.seriesBlue;
+  const RED = SPC_STYLE.pointBeyond;
+  const GREEN = SPC_STYLE.limitGreen;
 
   function mrForValues(values) {
     const mr = Array(values.length).fill(null); // MR undefined at first point
@@ -9290,12 +9720,12 @@ function renderMrChart(mrLabels, mrValues, avgMR, uclMR) {
     {
       label: "Moving range",
       data: mrValues,
-      borderColor: "#003f87",
-      backgroundColor: "#003f87",
+      borderColor: SPC_STYLE.seriesBlue,
+      backgroundColor: SPC_STYLE.seriesBlue,
       borderWidth: 2,
       pointRadius: 3,
       pointHoverRadius: 4,
-      pointBackgroundColor: "#003f87",
+      pointBackgroundColor: SPC_STYLE.seriesBlue,
       pointBorderColor: "#ffffff",
       pointBorderWidth: 1,
       spanGaps: false,
@@ -9305,7 +9735,7 @@ function renderMrChart(mrLabels, mrValues, avgMR, uclMR) {
     {
       label: "MR average",
       data: mrValues.map(() => avgMR),
-      borderColor: "#d73027",
+      borderColor: SPC_STYLE.pointBeyond,
       borderDash: [6, 4],
       borderWidth: 2,
       pointRadius: 0,
@@ -9314,7 +9744,7 @@ function renderMrChart(mrLabels, mrValues, avgMR, uclMR) {
     {
       label: "MR UCL",
       data: mrValues.map(() => uclMR),
-      borderColor: "#2ca25f",
+      borderColor: SPC_STYLE.limitGreen,
       borderDash: [4, 4],
       borderWidth: 2,
       pointRadius: 0,
@@ -9977,7 +10407,7 @@ async function prepareChartsForExport() {
 
   if (mainContainer) {
     mainContainer.style.width = "1200px";
-    mainContainer.style.height = "560px";
+    mainContainer.style.height = "640px";
   }
 
   if (mrContainer) {
@@ -9986,7 +10416,7 @@ async function prepareChartsForExport() {
   }
 
   if (currentChart) {
-    currentChart.resize(1200, 560);
+    currentChart.resize(1200, 640);
     currentChart.update("none");
   }
 
@@ -10189,30 +10619,9 @@ let tChartInputMode = (() => {
   }
 })();
 
-function toggleChartSetupModal(forceOpen) {
-  const modal = document.getElementById("chartSetupModal");
-  if (!modal) return;
 
-  const isOpen = modal.classList.contains("visible");
-  const shouldOpen = typeof forceOpen === "boolean" ? forceOpen : !isOpen;
 
-  modal.classList.toggle("visible", shouldOpen);
-  modal.setAttribute("aria-hidden", shouldOpen ? "false" : "true");
-  document.body.classList.toggle("modal-open", shouldOpen);
 
-  if (shouldOpen) {
-    const closeBtn = modal.querySelector(".modal-close");
-    if (closeBtn) closeBtn.focus();
-  }
-}
-
-function shouldAutoShowChartSetupModal() {
-  try {
-    return localStorage.getItem("spc_hideChartSetupModal") !== "true";
-  } catch {
-    return true;
-  }
-}
 
 function setAutoShowChartSetupModal(shouldShow) {
   try {
@@ -10220,299 +10629,6 @@ function setAutoShowChartSetupModal(shouldShow) {
   } catch {}
 }
 
-function renderChartSetupModal(chartType) {
-  const body = document.getElementById("chartSetupBody");
-  const subtitle = document.getElementById("chartSetupSubtitle");
-  const dontShow = document.getElementById("chartSetupDontShow");
-  if (!body || !subtitle) return;
-
-  if (dontShow) {
-    dontShow.checked = !shouldAutoShowChartSetupModal();
-    dontShow.onchange = () => setAutoShowChartSetupModal(!dontShow.checked);
-  }
-
-  function card(title, innerHtml) {
-    return `
-      <div style="border:1px solid #d8dde0; border-radius:0.5rem; padding:0.75rem; margin:0.75rem 0; background:#fafcfd;">
-        <div style="font-weight:700; color:#003087; margin-bottom:0.4rem;">${title}</div>
-        ${innerHtml}
-      </div>
-    `;
-  }
-
-  function exampleTable(headers, rows) {
-    const head = headers.map(h => `<th style="text-align:left; border-bottom:1px solid #d8dde0; padding:0.35rem 0.5rem;">${h}</th>`).join("");
-    const bodyRows = rows.map(r =>
-      `<tr>${r.map(v => `<td style="padding:0.35rem 0.5rem; border-bottom:1px solid #eef2f6;">${v}</td>`).join("")}</tr>`
-    ).join("");
-
-    return `
-      <div style="overflow-x:auto;">
-        <table style="border-collapse:collapse; width:100%; font-size:0.9rem; margin-top:0.35rem;">
-          <thead><tr>${head}</tr></thead>
-          <tbody>${bodyRows}</tbody>
-        </table>
-      </div>
-    `;
-  }
-
-  subtitle.textContent = "How to structure your data for this chart.";
-
-  if (chartType === "run") {
-    subtitle.textContent = "Run chart: simple view of values over time.";
-    body.innerHTML = `
-      ${card("Use this when...", `
-        <p style="margin:0;">You want a simple chart of a measure over time using a <strong>median</strong>.</p>
-      `)}
-
-      ${card("You need these columns", `
-        <ul style="margin:0;">
-          <li><strong>Date / X-axis column</strong> → time or order</li>
-          <li><strong>Value / Y-axis column</strong> → the measure you want to track</li>
-        </ul>
-      `)}
-
-      ${card("Example layout", exampleTable(
-        ["Week", "Waiting time"],
-        [["1", "12"], ["2", "10"], ["3", "14"]]
-      ))}
-
-      ${card("Common mistake", `
-        <p style="margin:0;">Do not choose a row number or ID column as the value. That can create a chart that looks valid but means nothing.</p>
-      `)}
-    `;
-    return;
-  }
-
-  if (chartType === "xmr") {
-    subtitle.textContent = "XmR chart: individual measurements over time.";
-    body.innerHTML = `
-      ${card("Use this when...", `
-        <p style="margin:0;">You have <strong>one measurement per time point</strong> and want a mean plus control limits.</p>
-      `)}
-
-      ${card("You need these columns", `
-        <ul style="margin:0;">
-          <li><strong>Date / X-axis column</strong> → date, week, month or sequence</li>
-          <li><strong>Value / Y-axis column</strong> → the numeric measurement</li>
-        </ul>
-      `)}
-
-      ${card("Example layout", exampleTable(
-        ["Date", "Length of stay"],
-        [["2024-01-01", "5.2"], ["2024-01-08", "4.8"], ["2024-01-15", "6.1"]]
-      ))}
-
-      ${card("Common mistake", `
-        <p style="margin:0;">Use XmR only when there is one value per time point. If each time point has several measurements, use <strong>X̄–S</strong> instead.</p>
-      `)}
-    `;
-    return;
-  }
-
-  if (chartType === "c") {
-    subtitle.textContent = "C chart: count per time period.";
-    body.innerHTML = `
-      ${card("Use this when...", `
-        <p style="margin:0;">You are plotting a <strong>count</strong> per period and the amount of opportunity is roughly the same each time.</p>
-      `)}
-
-      ${card("You need these columns", `
-        <ul style="margin:0;">
-          <li><strong>Date / X-axis column</strong> → date, week, month or sequence</li>
-          <li><strong>Value / Y-axis column</strong> → count of events</li>
-        </ul>
-      `)}
-
-      ${card("Example layout", exampleTable(
-        ["Week", "Falls"],
-        [["1", "3"], ["2", "4"], ["3", "2"]]
-      ))}
-
-      ${card("Common mistake", `
-        <p style="margin:0;">If the denominator changes a lot between points, use a <strong>U chart</strong> instead of a C chart.</p>
-      `)}
-    `;
-    return;
-  }
-
-  if (chartType === "p") {
-    subtitle.textContent = "P chart: proportion out of a total.";
-    body.innerHTML = `
-      ${card("Use this when...", `
-        <p style="margin:0;">You want to track a <strong>proportion</strong>, such as 5 out of 100 or the percentage meeting a standard.</p>
-      `)}
-
-      ${card("You need these columns", `
-        <ul style="margin:0;">
-          <li><strong>Date / X-axis column</strong> → time or order</li>
-          <li><strong>Value / Y-axis column</strong> → numerator</li>
-          <li><strong>Third column</strong> → denominator</li>
-        </ul>
-      `)}
-
-      ${card("Example layout", exampleTable(
-        ["Week", "Patients with harm", "Patients reviewed"],
-        [["1", "5", "100"], ["2", "7", "110"], ["3", "6", "95"]]
-      ))}
-
-      ${card("Common mistake", `
-        <p style="margin:0;">The numerator must not be larger than the denominator.</p>
-      `)}
-    `;
-    return;
-  }
-
-  if (chartType === "u") {
-    subtitle.textContent = "U chart: rate per opportunity.";
-    body.innerHTML = `
-      ${card("Use this when...", `
-        <p style="margin:0;">You want to track a <strong>rate</strong>, where the denominator changes from point to point.</p>
-      `)}
-
-      ${card("You need these columns", `
-        <ul style="margin:0;">
-          <li><strong>Date / X-axis column</strong> → time or order</li>
-          <li><strong>Value / Y-axis column</strong> → count of events</li>
-          <li><strong>Third column</strong> → opportunities / exposure</li>
-        </ul>
-      `)}
-
-      ${card("Example layout", exampleTable(
-        ["Month", "Infections", "Bed days"],
-        [["Jan", "2", "1200"], ["Feb", "3", "1350"], ["Mar", "1", "980"]]
-      ))}
-
-      ${card("Common mistake", `
-        <p style="margin:0;">Use U when the denominator varies. If the denominator is roughly constant, a <strong>C chart</strong> may be more appropriate.</p>
-      `)}
-    `;
-    return;
-  }
-
-  if (chartType === "xbars") {
-    subtitle.textContent = "X̄–S chart: grouped measurements.";
-    body.innerHTML = `
-      ${card("Use this when...", `
-        <p style="margin:0;">You have <strong>multiple measurements within each subgroup</strong> and want to understand both subgroup averages and within-group variation.</p>
-      `)}
-
-      ${card("You need these columns", `
-        <ul style="margin:0;">
-          <li><strong>Date / X-axis column</strong> → subgroup label or time label</li>
-          <li><strong>Value / Y-axis column</strong> → measurement value</li>
-          <li><strong>Third column</strong> → subgroup ID</li>
-        </ul>
-      `)}
-
-      ${card("Example layout", exampleTable(
-        ["Day", "Reading", "Sample_ID"],
-        [["Mon", "10.2", "A"], ["Mon", "10.5", "A"], ["Tue", "9.8", "B"], ["Tue", "10.1", "B"]]
-      ))}
-
-      ${card("Common mistake", `
-        <p style="margin:0;">Do not use X̄–S if each subgroup only has one reading. Use <strong>XmR</strong> instead.</p>
-      `)}
-    `;
-    return;
-  }
-
-  if (chartType === "t") {
-    subtitle.textContent = "T chart: time between rare events.";
-
-    const checkedDates = tChartInputMode === "eventDates" ? "checked" : "";
-    const checkedGaps  = tChartInputMode === "gaps" ? "checked" : "";
-
-    body.innerHTML = `
-      ${card("Use this when...", `
-        <p style="margin:0;">You want to track the <strong>time between rare events</strong>.</p>
-      `)}
-
-      ${card("Choose your setup", `
-        <label style="display:block; margin:0.25rem 0;">
-          <input type="radio" name="tChartInputMode" value="eventDates" ${checkedDates}>
-          <strong>I have event dates</strong> (one row per event)
-        </label>
-        <div class="hint small-hint" style="margin-top:0.15rem; margin-bottom:0.5rem;">
-          Put the event date/time in <em>Date / X-axis column</em>. The <em>Value / Y-axis column</em> is not used.
-        </div>
-
-        <label style="display:block; margin:0.25rem 0;">
-          <input type="radio" name="tChartInputMode" value="gaps" ${checkedGaps}>
-          <strong>I already have the gaps</strong> (numeric time between events)
-        </label>
-        <div class="hint small-hint" style="margin-top:0.15rem;">
-          Put the gap values in <em>Value / Y-axis column</em>.
-        </div>
-      `)}
-
-      ${card("Example layout", exampleTable(
-        ["Event date"],
-        [["01/01/2024"], ["12/01/2024"], ["20/01/2024"]]
-      ))}
-
-      ${card("Common mistake", `
-        <p style="margin:0;">Do not use a T chart for event counts per month. Use a <strong>C</strong>, <strong>P</strong> or <strong>U</strong> chart instead.</p>
-      `)}
-    `;
-
-    body.querySelectorAll("input[name='tChartInputMode']").forEach(r => {
-      r.addEventListener("change", () => {
-        tChartInputMode = r.value;
-        try { localStorage.setItem("spc_tChartInputMode", tChartInputMode); } catch {}
-
-        if (typeof updateUIForChartType === "function") {
-          updateUIForChartType("t");
-        }
-
-        if (rawRows && rawRows.length && generateButton) {
-          generateButton.click();
-        }
-      });
-    });
-
-    return;
-  }
-
-  if (chartType === "g") {
-    subtitle.textContent = "G chart: opportunities between rare events.";
-    body.innerHTML = `
-      ${card("Use this when...", `
-        <p style="margin:0;">You want to track the <strong>number of opportunities between rare events</strong>.</p>
-      `)}
-
-      ${card("You need these columns", `
-        <ul style="margin:0;">
-          <li><strong>Date / X-axis column</strong> → optional label / order column</li>
-          <li><strong>Value / Y-axis column</strong> → number of opportunities between events</li>
-        </ul>
-      `)}
-
-      ${card("Example layout", exampleTable(
-        ["Week", "Procedures between harms"],
-        [["1", "35"], ["2", "48"], ["3", "27"]]
-      ))}
-
-      ${card("Common mistake", `
-        <p style="margin:0;">Use G when the thing between events is a <strong>count of opportunities</strong>. If it is elapsed time, use a <strong>T chart</strong>.</p>
-      `)}
-    `;
-    return;
-  }
-
-  body.innerHTML = `
-    ${card("Setup guidance", `
-      <p style="margin:0;">Use the column labels shown in <strong>Choose columns</strong>.</p>
-    `)}
-  `;
-}
-
-
-function maybeShowChartSetupModal(chartType) {
-  if (!shouldAutoShowChartSetupModal()) return;
-  renderChartSetupModal(chartType);
-  toggleChartSetupModal(true);
-}
 
 function openChartSetupForCurrentType() {
   const chartType = (typeof getSelectedChartType_NoSideEffects === "function")
@@ -11423,25 +11539,6 @@ if (clearSplitsButton) {
   });
 }
 
-// -----------------------------
-// Help section toggle
-// -----------------------------
-function toggleHelpSection(forceOpen) {
-  const modal = document.getElementById("helpModal");
-  if (!modal) return;
-
-  const isOpen = modal.classList.contains("visible");
-  const shouldOpen = typeof forceOpen === "boolean" ? forceOpen : !isOpen;
-
-  modal.classList.toggle("visible", shouldOpen);
-  modal.setAttribute("aria-hidden", shouldOpen ? "false" : "true");
-  document.body.classList.toggle("modal-open", shouldOpen);
-
-  if (shouldOpen) {
-    const closeBtn = modal.querySelector(".modal-close");
-    if (closeBtn) closeBtn.focus();
-  }
-}
 
 
 // --- SPC helper: collapse/expand suggested chips for better small-screen UX ---
@@ -11526,15 +11623,6 @@ function toggleSpcHelper() {
 
 
 
-const spcHelperCloseBtn = document.getElementById("spcHelperCloseBtn");
-
-if (spcHelperCloseBtn) {
-  spcHelperCloseBtn.addEventListener("click", () => {
-    if (spcHelperPanel) {
-      spcHelperPanel.classList.remove("visible");
-    }
-  });
-}
 
 
 const resetButton = document.getElementById("resetButton");
@@ -11577,10 +11665,11 @@ function countValidNumericPoints() {
 function enforceChartTypeSuitabilityAndRegen() {
   if (!rawRows || !rawRows.length) return;
 
-  updateMrToggleVisibility();
+
   const beforeType = getSelectedChartType_NoSideEffects();
   const availability = applyChartTypeAvailability();
   const afterType = getSelectedChartType_NoSideEffects();
+  updateMrToggleVisibility();
 
   if (!availability[afterType]?.enabled) {
     const reason = availability[afterType]?.reason || "This chart type is not available for the current data.";
@@ -11681,24 +11770,6 @@ function wireAutoRedrawControls() {
 }
 
 
-(function initHelpModal() {
-  const modal = document.getElementById("helpModal");
-  if (!modal) return;
-
-  // Click outside (backdrop) closes
-  modal.addEventListener("click", (e) => {
-    if (e.target && e.target.classList.contains("modal-backdrop")) {
-      toggleHelpSection(false);
-    }
-  });
-
-  // Escape closes
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && modal.classList.contains("visible")) {
-      toggleHelpSection(false);
-    }
-  });
-})();
 
 
 // Initialize UI once on load (in case default is run)
