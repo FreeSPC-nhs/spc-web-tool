@@ -5,8 +5,663 @@ let currentChart = null;   // main I / run chart
 let mrChart = null;        // moving range chart
 let annotations = [];      // { date: 'YYYY-MM-DD', label: 'text', yAdjust?: number }
 let splits = [];   // indices where a new XmR segment starts (split AFTER index)
+
+// Observations/subgroups deliberately left visible but excluded from
+// centre-line and control-limit estimation. Stored as { scope, key }.
+// P/P′ share a scope, and U/U′ share a scope, so switching between
+// the standard and Laney chart preserves the user's explicit decision.
+let limitExclusions = [];
+
+const LIMIT_EXCLUSION_SUPPORTED_CHARTS = new Set([
+  "xmr", "c", "p", "pprime", "u", "uprime", "xbars"
+]);
+
+function getLimitExclusionScope(chartType) {
+  if (chartType === "p" || chartType === "pprime") return "p";
+  if (chartType === "u" || chartType === "uprime") return "u";
+  return chartType;
+}
+
+function normaliseLimitExclusions(value) {
+  if (!Array.isArray(value)) return [];
+
+  const seen = new Set();
+  const out = [];
+
+  value.forEach(item => {
+    if (!item || typeof item !== "object") return;
+
+    const scope = String(item.scope || "").trim();
+    const key = String(item.key || "").trim();
+    if (!scope || !key) return;
+
+    const token = `${scope}::${key}`;
+    if (seen.has(token)) return;
+
+    seen.add(token);
+    out.push({ scope, key });
+  });
+
+  return out;
+}
+
+function makeRowLimitExclusionKey(point, fallbackIndex) {
+  const rowIndex = Number(point?._rowIndex);
+
+  if (Number.isInteger(rowIndex) && rowIndex >= 0) {
+    return `row:${rowIndex}`;
+  }
+
+  return `index:${fallbackIndex}`;
+}
+
+function makeSubgroupLimitExclusionKey(subgroupLabel) {
+  return `subgroup:${String(subgroupLabel ?? "")}`;
+}
+
+function isLimitExcluded(scope, key) {
+  return limitExclusions.some(
+    item =>
+      item.scope === scope &&
+      item.key === key
+  );
+}
+
+function setLimitExcluded(scope, key, excluded) {
+  if (!scope || !key) return;
+
+  limitExclusions =
+    normaliseLimitExclusions(
+      limitExclusions
+    );
+
+  const idx =
+    limitExclusions.findIndex(
+      item =>
+        item.scope === scope &&
+        item.key === key
+    );
+
+  if (excluded) {
+    if (idx === -1) {
+      limitExclusions.push({
+        scope,
+        key
+      });
+    }
+
+  } else if (idx !== -1) {
+    limitExclusions.splice(
+      idx,
+      1
+    );
+  }
+}
+
+function markLimitExclusionsOnPoints(
+  chartType,
+  points
+) {
+  const scope =
+    getLimitExclusionScope(
+      chartType
+    );
+
+  return (points || []).map(
+    (point, index) => {
+      const key =
+        makeRowLimitExclusionKey(
+          point,
+          index
+        );
+
+      return {
+        ...point,
+        _limitExclusionKey:
+          key,
+
+        _excludeFromLimits:
+          isLimitExcluded(
+            scope,
+            key
+          )
+      };
+    }
+  );
+}
+
+function getMarkedExcludedIndices(
+  points
+) {
+  const out = [];
+
+  (points || []).forEach(
+    (point, index) => {
+      if (
+        point?._excludeFromLimits
+      ) {
+        out.push(index);
+      }
+    }
+  );
+
+  return out;
+}
+
+function buildRowLimitExclusionKeys(
+  points
+) {
+  return (points || []).map(
+    (point, index) =>
+      point?._limitExclusionKey ||
+      makeRowLimitExclusionKey(
+        point,
+        index
+      )
+  );
+}
+
+function getCurrentLimitEstimationWindow(
+  pointIndex
+) {
+  const labels =
+    currentChart?.data?.labels || [];
+
+  const n =
+    labels.length;
+
+  if (
+    !Number.isInteger(pointIndex) ||
+    pointIndex < 0 ||
+    pointIndex >= n
+  ) {
+    return {
+      eligible: false,
+      reason:
+        "Right-click near a plotted point."
+    };
+  }
+
+  const effectiveSplits =
+    (
+      Array.isArray(splits)
+        ? splits
+        : []
+    )
+      .filter(
+        i =>
+          Number.isInteger(i) &&
+          i >= 0 &&
+          i < n - 1
+      )
+      .sort(
+        (a, b) => a - b
+      );
+
+  let segmentStart = 0;
+  let segmentEnd =
+    n - 1;
+
+  let segmentIndex = 0;
+
+  for (
+    let i = 0;
+    i < effectiveSplits.length;
+    i++
+  ) {
+    const splitAfter =
+      effectiveSplits[i];
+
+    if (
+      pointIndex <=
+      splitAfter
+    ) {
+      segmentEnd =
+        splitAfter;
+
+      break;
+    }
+
+    segmentStart =
+      splitAfter + 1;
+
+    segmentIndex =
+      i + 1;
+  }
+
+  // Later split periods use the whole period
+  // to establish their new limits.
+  if (segmentIndex > 0) {
+    return {
+      eligible: true,
+      segmentStart,
+      segmentEnd,
+      segmentIndex
+    };
+  }
+
+  const baseline =
+    Number(
+      baselineInput?.value
+    );
+
+  if (
+    Number.isFinite(
+      baseline
+    ) &&
+    baseline >= 1
+  ) {
+    const baselineEnd =
+      Math.min(
+        segmentEnd,
+        segmentStart +
+        Math.floor(baseline) -
+        1
+      );
+
+    if (
+      pointIndex >
+      baselineEnd
+    ) {
+      return {
+        eligible: false,
+        segmentStart,
+        segmentEnd,
+        segmentIndex,
+
+        reason:
+          "This point is outside the baseline used to estimate the current limits, so excluding it would not change the limit calculation."
+      };
+    }
+  }
+
+  return {
+    eligible: true,
+    segmentStart,
+    segmentEnd,
+    segmentIndex
+  };
+}
+
+function getCurrentLimitExclusionMenuState(
+  pointIndex
+) {
+  const chartType =
+    (
+      typeof
+        getSelectedChartType_NoSideEffects ===
+        "function"
+    )
+      ? (
+          getSelectedChartType_NoSideEffects() ||
+          "run"
+        )
+      : "run";
+
+  const supported =
+    LIMIT_EXCLUSION_SUPPORTED_CHARTS.has(
+      chartType
+    );
+
+  const scope =
+    getLimitExclusionScope(
+      chartType
+    );
+
+  const key =
+    currentChart
+      ?.$limitExclusionKeys
+      ?.[pointIndex] ??
+    null;
+
+  const windowInfo =
+    getCurrentLimitEstimationWindow(
+      pointIndex
+    );
+
+  const excluded =
+    !!key &&
+    isLimitExcluded(
+      scope,
+      key
+    );
+
+  let eligible =
+    !!key &&
+    !!windowInfo.eligible;
+
+  let reason =
+    windowInfo.reason || "";
+
+  // Prevent a new exclusion from making
+  // the limit estimate mathematically unusable.
+  if (
+    supported &&
+    key &&
+    eligible &&
+    !excluded
+  ) {
+    const keys =
+      currentChart
+        ?.$limitExclusionKeys ||
+      [];
+
+    const start =
+      Number.isInteger(
+        windowInfo.segmentStart
+      )
+        ? windowInfo.segmentStart
+        : 0;
+
+    let end =
+      Number.isInteger(
+        windowInfo.segmentEnd
+      )
+        ? windowInfo.segmentEnd
+        : Math.max(
+            0,
+            keys.length - 1
+          );
+
+    if (
+      windowInfo.segmentIndex ===
+      0
+    ) {
+      const baseline =
+        Number(
+          baselineInput?.value
+        );
+
+      if (
+        Number.isFinite(
+          baseline
+        ) &&
+        baseline >= 1
+      ) {
+        end =
+          Math.min(
+            end,
+            start +
+            Math.floor(
+              baseline
+            ) -
+            1
+          );
+      }
+    }
+
+    const includedFlags = [];
+
+    for (
+      let i = start;
+      i <= end;
+      i++
+    ) {
+      const k =
+        keys[i];
+
+      const wouldBeExcluded =
+        i === pointIndex ||
+        (
+          !!k &&
+          isLimitExcluded(
+            scope,
+            k
+          )
+        );
+
+      includedFlags.push(
+        !wouldBeExcluded
+      );
+    }
+
+    const includedCount =
+      includedFlags
+        .filter(Boolean)
+        .length;
+
+    const minimumIncluded =
+      [
+        "xmr",
+        "pprime",
+        "uprime",
+        "xbars"
+      ].includes(chartType)
+        ? 2
+        : 1;
+
+    if (
+      includedCount <
+      minimumIncluded
+    ) {
+      eligible = false;
+
+      reason =
+        `Excluding this ${
+          chartType === "xbars"
+            ? "subgroup"
+            : "point"
+        } would leave too few included observations to estimate the control limits.`;
+    }
+
+    // XmR/P′/U′ need at least one pair
+    // of consecutive included observations
+    // for a moving-range variation estimate.
+    if (
+      eligible &&
+      [
+        "xmr",
+        "pprime",
+        "uprime"
+      ].includes(chartType)
+    ) {
+      let hasAdjacentPair =
+        false;
+
+      for (
+        let i = 1;
+        i <
+          includedFlags.length;
+        i++
+      ) {
+        if (
+          includedFlags[i - 1] &&
+          includedFlags[i]
+        ) {
+          hasAdjacentPair =
+            true;
+
+          break;
+        }
+      }
+
+      if (!hasAdjacentPair) {
+        eligible = false;
+
+        reason =
+          "Excluding this point would leave no pair of consecutive included observations for the moving-range variation estimate.";
+      }
+    }
+  }
+
+  return {
+    chartType,
+    supported,
+    scope,
+    key,
+    excluded,
+    eligible,
+    reason
+  };
+}
+
+function attachLimitExclusionContext(
+  chart,
+  chartType,
+  keys,
+  excludedIndices
+) {
+  if (!chart) return;
+
+  /*
+   * Store exclusion metadata directly on the Chart instance.
+   *
+   * IMPORTANT:
+   * Do not modify chart.options here. Once Chart.js has created a chart,
+   * chart.options is backed by internal resolver/proxy objects. Mutating
+   * those objects from here can cause recursive proxy updates and can also
+   * interfere with the annotation drag plugin.
+   */
+  chart.$limitExclusionChartType =
+    chartType;
+
+  chart.$limitExclusionScope =
+    getLimitExclusionScope(
+      chartType
+    );
+
+  chart.$limitExclusionKeys =
+    Array.isArray(keys)
+      ? keys.slice()
+      : [];
+
+  chart.$limitExcludedIndices =
+    Array.isArray(
+      excludedIndices
+    )
+      ? excludedIndices.slice()
+      : [];
+
+  /*
+   * The exclusion marker plugin reads the metadata above.
+   * draw() is sufficient to paint the marker and does not re-resolve
+   * the whole Chart.js options tree.
+   */
+  if (
+    typeof chart.draw ===
+    "function"
+  ) {
+    chart.draw();
+  }
+}
+
+function attachRowLimitExclusionContext(
+  chart,
+  chartType,
+  points
+) {
+  const keys =
+    buildRowLimitExclusionKeys(
+      points
+    );
+
+  const excluded =
+    getMarkedExcludedIndices(
+      points
+    );
+
+  attachLimitExclusionContext(
+    chart,
+    chartType,
+    keys,
+    excluded
+  );
+}
+
+function attachSubgroupLimitExclusionContext(
+  chart,
+  subgroupLabels
+) {
+  const scope =
+    getLimitExclusionScope(
+      "xbars"
+    );
+
+  const keys =
+    (subgroupLabels || [])
+      .map(
+        makeSubgroupLimitExclusionKey
+      );
+
+  const excluded = [];
+
+  keys.forEach(
+    (key, index) => {
+      if (
+        isLimitExcluded(
+          scope,
+          key
+        )
+      ) {
+        excluded.push(
+          index
+        );
+      }
+    }
+  );
+
+  attachLimitExclusionContext(
+    chart,
+    "xbars",
+    keys,
+    excluded
+  );
+}
+
+function appendLimitExclusionSummary() {
+  if (
+    !summaryDiv ||
+    !currentChart
+  ) {
+    return;
+  }
+
+  const excluded =
+    currentChart
+      .$limitExcludedIndices ||
+    [];
+
+  if (!excluded.length) {
+    return;
+  }
+
+  const isSubgroup =
+    currentChart
+      .$limitExclusionChartType ===
+    "xbars";
+
+  const unit =
+    isSubgroup
+      ? "subgroup"
+      : "point";
+
+  const count =
+    excluded.length;
+
+  const note =
+    document.createElement(
+      "p"
+    );
+
+  note.className =
+    "limit-exclusion-summary";
+
+  note.innerHTML =
+    `<strong>Excluded from limit calculations:</strong> ` +
+    `${count} ${unit}${count === 1 ? "" : "s"}. ` +
+    `${
+      count === 1
+        ? `The excluded ${unit} remains visible on the chart.`
+        : `Excluded ${unit}s remain visible on the chart.`
+    }`;
+
+  summaryDiv.appendChild(
+    note
+  );
+}
 let lastXmRAnalysis = null;
 let lastRunAnalysis = null;
+let lastParetoAnalysis = null;
 let dataModelDirty = false;
 let gridHeaders = ["Date", "Value"];
 let lastGridHeadersKey = ""; // track changes
@@ -48,7 +703,33 @@ let pendingImportedSettings = null;
 
 
 
-const IMPLEMENTED_CHARTS = new Set(["run", "xmr", "c", "p", "u", "xbars", "t", "g"]);
+const IMPLEMENTED_CHARTS =
+  new Set([
+    "run",
+    "xmr",
+    "c",
+    "p",
+    "pprime",
+    "u",
+    "uprime",
+    "xbars",
+    "t",
+    "g",
+    "pareto"
+  ]);
+
+const PARETO_COUNT_ROWS =
+  "__pareto_count_rows__";
+
+function isPFamilyChartType(chartType) {
+  return chartType === "p" ||
+         chartType === "pprime";
+}
+
+function isUFamilyChartType(chartType) {
+  return chartType === "u" ||
+         chartType === "uprime";
+}
 
 // -----------------------------
 // Shared chart styling (keep charts consistent)
@@ -99,6 +780,7 @@ const SPC_LEGEND = {
   display: true,
   position: "bottom",
   align: "center",
+
   labels: {
     usePointStyle: true,
     pointStyle: "line",
@@ -107,21 +789,47 @@ const SPC_LEGEND = {
     padding: 14,
 
     generateLabels(chart) {
-      const defaultLabels = Chart.defaults.plugins.legend.labels.generateLabels(chart);
+      const defaultLabels =
+        Chart.defaults.plugins.legend.labels.generateLabels(
+          chart
+        );
 
-      return defaultLabels.map(label => {
-        const dataset = chart.data.datasets[label.datasetIndex] || {};
+      return defaultLabels.map(
+        label => {
+          const dataset =
+            chart.data.datasets[
+              label.datasetIndex
+            ] || {};
 
-        return {
-          ...label,
-          pointStyle: "line",
-          strokeStyle: dataset.borderColor || label.strokeStyle,
-          fillStyle: "transparent",
-          lineWidth: Math.max(dataset.borderWidth || 2, 3),
-          lineDash: dataset.borderDash || [],
-          lineCap: "round"
-        };
-      });
+          return {
+            ...label,
+
+            pointStyle:
+              "line",
+
+            strokeStyle:
+              dataset.borderColor ||
+              label.strokeStyle,
+
+            fillStyle:
+              "transparent",
+
+            lineWidth:
+              Math.max(
+                dataset.borderWidth ||
+                2,
+                3
+              ),
+
+            lineDash:
+              dataset.borderDash ||
+              [],
+
+            lineCap:
+              "round"
+          };
+        }
+      );
     }
   }
 };
@@ -199,9 +907,122 @@ const baselineOverlayPlugin = {
   }
 };
 
+const limitExclusionMarkerPlugin = {
+  id: "limitExclusionMarkers",
+
+  afterDatasetsDraw(chart) {
+    const indices =
+      Array.isArray(
+        chart
+          .$limitExcludedIndices
+      )
+        ? chart
+            .$limitExcludedIndices
+        : [];
+
+    if (!indices.length) {
+      return;
+    }
+
+    const meta =
+      chart.getDatasetMeta?.(0);
+
+    if (
+      !meta ||
+      !Array.isArray(
+        meta.data
+      )
+    ) {
+      return;
+    }
+
+    const ctx =
+      chart.ctx;
+
+    ctx.save();
+
+    ctx.lineWidth = 2;
+    ctx.strokeStyle =
+      "#333333";
+
+    ctx.fillStyle =
+      "#ffffff";
+
+    indices.forEach(
+      index => {
+        const element =
+          meta.data[index];
+
+        if (
+          !element ||
+          !Number.isFinite(
+            element.x
+          ) ||
+          !Number.isFinite(
+            element.y
+          )
+        ) {
+          return;
+        }
+
+        const x =
+          element.x;
+
+        const y =
+          element.y;
+
+        const r = 7;
+
+        // Hollow circle
+        ctx.beginPath();
+        ctx.arc(
+          x,
+          y,
+          r,
+          0,
+          Math.PI * 2
+        );
+        ctx.fill();
+        ctx.stroke();
+
+        // X through the circle
+        ctx.beginPath();
+
+        ctx.moveTo(
+          x - 3.5,
+          y - 3.5
+        );
+
+        ctx.lineTo(
+          x + 3.5,
+          y + 3.5
+        );
+
+        ctx.moveTo(
+          x + 3.5,
+          y - 3.5
+        );
+
+        ctx.lineTo(
+          x - 3.5,
+          y + 3.5
+        );
+
+        ctx.stroke();
+      }
+    );
+
+    ctx.restore();
+  }
+};
+
+
 // Register once (Chart.js v3/v4)
 if (typeof Chart !== "undefined" && Chart.register) {
-  Chart.register(baselineOverlayPlugin);
+  Chart.register(
+  baselineOverlayPlugin,
+  limitExclusionMarkerPlugin
+);
 
   // Give charts a little more headroom/footroom so annotation labels stay visible
   Chart.defaults.layout = Chart.defaults.layout || {};
@@ -222,11 +1043,75 @@ const thirdColumnRow = document.getElementById("thirdColumnRow");
 const thirdLabelEl = document.getElementById("thirdLabel");
 const thirdHintEl = document.getElementById("thirdHint");
 const thirdSelect = document.getElementById("thirdColumn");
+const uRateMultiplierRow = document.getElementById("uRateMultiplierRow");
+const uRateMultiplierSelect = document.getElementById("uRateMultiplier");
+
+let lastURateMultiplier = 1;
+
+function getURateMultiplier() {
+  const value = Number(uRateMultiplierSelect?.value || 1);
+
+  return [1, 10, 100, 1000, 10000].includes(value)
+    ? value
+    : 1;
+}
+
+function formatURateMultiplier(multiplier) {
+  return Number(multiplier).toLocaleString("en-GB");
+}
+
+function rescaleNumericInput(input, ratio) {
+  if (!input) return;
+
+  const text = String(input.value || "").trim();
+  if (text === "") return;
+
+  const value = Number(text);
+  if (!Number.isFinite(value)) return;
+
+  input.value = String(value * ratio);
+}
+
+if (uRateMultiplierSelect) {
+  lastURateMultiplier = getURateMultiplier();
+
+  uRateMultiplierSelect.addEventListener("change", () => {
+    const newMultiplier = getURateMultiplier();
+    const oldMultiplier = lastURateMultiplier || 1;
+
+    if (newMultiplier !== oldMultiplier) {
+      const ratio = newMultiplier / oldMultiplier;
+
+      // These controls use the same visible units as the chart.
+      // Keep their meaning unchanged when the display scale changes.
+      rescaleNumericInput(targetInput, ratio);
+      rescaleNumericInput(yAxisMinInput, ratio);
+      rescaleNumericInput(yAxisMaxInput, ratio);
+      rescaleNumericInput(yAxisTickStepInput, ratio);
+    }
+
+    lastURateMultiplier = newMultiplier;
+
+    if (rawRows && rawRows.length && generateButton) {
+      generateButton.click();
+    }
+  });
+}
 
 
 // Chart chooser / extra columns
 const helpChooseChartBtn   = document.getElementById("helpChooseChartBtn");
 const chartSetupBtn        = document.getElementById("chartSetupBtn");
+
+const newDataChartPrompt =
+  document.getElementById("newDataChartPrompt");
+
+const newDataHelpChooseBtn =
+  document.getElementById("newDataHelpChooseBtn");
+
+const newDataChooseManuallyBtn =
+  document.getElementById("newDataChooseManuallyBtn");
+
 const extraColumnsWrap     = document.getElementById("extraColumns");
 const extraColumns_PU      = document.getElementById("extraColumns_PU");
 const extraColumns_XbarS   = document.getElementById("extraColumns_XbarS");
@@ -319,6 +1204,8 @@ const ruleExplainerBtn = document.getElementById("ruleExplainerBtn");
 const advancedRulesDetails = document.getElementById("advancedRulesDetails");
 const enableAdvancedTrendCheckbox = document.getElementById("enableAdvancedTrend");
 const advancedTrendRow = document.getElementById("advancedTrendRow");
+const mrScreeningRow = document.getElementById("mrScreeningRow");
+const screenLargeMRsCheckbox = document.getElementById("screenLargeMRs");
 
 const ruleTwoOfThreeOuterThirdCheckbox = document.getElementById("ruleTwoOfThreeOuterThird");
 const ruleFourOfFiveOneSigmaCheckbox = document.getElementById("ruleFourOfFiveOneSigma");
@@ -456,15 +1343,47 @@ function collectToolSettings() {
     axisType,
 
     selectedColumns,
-    dateFormatPreference: getDateFormatPreference(),
+dateFormatPreference: getDateFormatPreference(),
 
-    baselinePoints,
+appearance: {
+  colourTheme: colourBlindModeCheckbox?.checked
+    ? "colourBlind"
+    : "default"
+},
+
+uRateMultiplier: String(getURateMultiplier()),
+
+baselinePoints,
     target: {
       value: targetValue,
       direction: targetDirection,
       enabled: (typeof targetEnabled !== "undefined") ? !!targetEnabled : true
     },
 
+  xmrMeanLabels: {
+  show:
+    (typeof showXmRMeanLabels !== "undefined")
+      ? !!showXmRMeanLabels
+      : false,
+
+  positions:
+    (typeof xmrMeanLabelPositions !== "undefined" &&
+     xmrMeanLabelPositions)
+      ? { ...xmrMeanLabelPositions }
+      : {},
+
+  verticalPositions:
+    (typeof xmrMeanLabelVerticalPositions !== "undefined" &&
+     xmrMeanLabelVerticalPositions)
+      ? { ...xmrMeanLabelVerticalPositions }
+      : {},
+
+  hidden:
+    (typeof xmrHiddenMeanLabels !== "undefined" &&
+     xmrHiddenMeanLabels instanceof Set)
+      ? Array.from(xmrHiddenMeanLabels)
+      : []
+},
     labels: {
   title,
   xLabel,
@@ -511,16 +1430,46 @@ function collectToolSettings() {
       ruleTwoOfThreeOuterThird: ruleTwoOfThreeOuterThirdCheckbox?.checked ?? false,
       ruleFourOfFiveOneSigma: ruleFourOfFiveOneSigmaCheckbox?.checked ?? false,
       flagSpecialCauseOnChart: flagSpecial,
-      clampLclAtZero: clampLcl
+      clampLclAtZero: clampLcl,
+      screenLargeMRs: screenLargeMRsCheckbox?.checked ?? true
     },
 
-    splits: Array.isArray(splits) ? splits.slice() : [],
-    annotations: Array.isArray(annotations) ? annotations.slice() : []
+        splits:
+      Array.isArray(splits)
+        ? splits.slice()
+        : [],
+
+    annotations:
+      Array.isArray(annotations)
+        ? annotations.slice()
+        : [],
+
+    limitExclusions:
+      normaliseLimitExclusions(
+        limitExclusions
+      )
   };
 }
 
 function applyToolSettings(settings, { silent = true } = {}) {
   if (!settings || typeof settings !== "object") return;
+
+// Restore the colour theme saved with this chart.
+// Do not write it to localStorage: opening somebody else's saved
+// chart should not permanently change this browser's preference.
+const savedColourTheme = settings.appearance?.colourTheme;
+
+if (
+  savedColourTheme === "default" ||
+  savedColourTheme === "colourBlind"
+) {
+  applySpcColourTheme(savedColourTheme);
+
+  if (colourBlindModeCheckbox) {
+    colourBlindModeCheckbox.checked =
+      savedColourTheme === "colourBlind";
+  }
+}
 
   if (settings.chartType) setCheckedRadioValue("chartType", settings.chartType);
   if (settings.axisType) setCheckedRadioValue("axisType", settings.axisType);
@@ -528,6 +1477,18 @@ function applyToolSettings(settings, { silent = true } = {}) {
   if (typeof updateUIForChartType === "function" && settings.chartType) {
     updateUIForChartType(settings.chartType);
   }
+
+  if (uRateMultiplierSelect) {
+  const savedMultiplier = String(settings.uRateMultiplier ?? "1");
+
+  const validMultiplier = ["1", "10", "100", "1000", "10000"]
+    .includes(savedMultiplier)
+      ? savedMultiplier
+      : "1";
+
+  uRateMultiplierSelect.value = validMultiplier;
+  lastURateMultiplier = Number(validMultiplier);
+}
 
   if (shiftRulePointsInput && settings.rules?.shiftRulePoints !== undefined) {
     shiftRulePointsInput.value = settings.rules.shiftRulePoints;
@@ -560,6 +1521,18 @@ function applyToolSettings(settings, { silent = true } = {}) {
     clampLclAtZeroCheckbox.checked = !!settings.rules.clampLclAtZero;
   }
 
+  if (screenLargeMRsCheckbox) {
+  if (settings.rules?.screenLargeMRs !== undefined) {
+    // Newer saved chart: restore the user's saved choice.
+    screenLargeMRsCheckbox.checked =
+      !!settings.rules.screenLargeMRs;
+  } else {
+    // Older saved chart: preserve the legacy XmR calculation
+    // rather than silently changing its historical limits.
+    screenLargeMRsCheckbox.checked = false;
+  }
+}
+
   if (baselineInput && settings.baselinePoints !== undefined) baselineInput.value = settings.baselinePoints;
 
   if (targetInput && settings.target?.value !== undefined) targetInput.value = settings.target.value;
@@ -570,6 +1543,70 @@ function applyToolSettings(settings, { silent = true } = {}) {
     if (typeof updateTargetToggleBtn === "function") updateTargetToggleBtn();
     if (typeof updateTargetToggleVisibility === "function") updateTargetToggleVisibility();
   }
+
+  // Restore XmR mean-label display settings.
+// Older saved charts do not contain these settings, so default to labels off.
+if (settings.xmrMeanLabels && typeof settings.xmrMeanLabels === "object") {
+  showXmRMeanLabels =
+    !!settings.xmrMeanLabels.show;
+
+  xmrMeanLabelPositions = {};
+
+  Object.entries(
+    settings.xmrMeanLabels.positions || {}
+  ).forEach(([key, value]) => {
+    const idx = Number(key);
+    const pos = Number(value);
+
+    if (
+      Number.isInteger(idx) &&
+      idx >= 0 &&
+      Number.isFinite(pos)
+    ) {
+      xmrMeanLabelPositions[idx] =
+        Math.max(0, Math.min(1, pos));
+    }
+  });
+
+  xmrMeanLabelVerticalPositions = {};
+
+  Object.entries(
+    settings.xmrMeanLabels.verticalPositions || {}
+  ).forEach(([key, value]) => {
+    const idx = Number(key);
+
+    if (
+      Number.isInteger(idx) &&
+      idx >= 0 &&
+      (value === "above" || value === "below")
+    ) {
+      xmrMeanLabelVerticalPositions[idx] =
+        value;
+    }
+  });
+
+  const hidden =
+    Array.isArray(settings.xmrMeanLabels.hidden)
+      ? settings.xmrMeanLabels.hidden
+      : [];
+
+  xmrHiddenMeanLabels = new Set(
+    hidden
+      .map(Number)
+      .filter(
+        idx =>
+          Number.isInteger(idx) &&
+          idx >= 0
+      )
+  );
+} else {
+  // Backward compatibility with saved charts created
+  // before mean labels were introduced.
+  showXmRMeanLabels = false;
+  xmrMeanLabelPositions = {};
+  xmrMeanLabelVerticalPositions = {};
+  xmrHiddenMeanLabels = new Set();
+}
 
   if (chartTitleInput && settings.labels?.title !== undefined) {
   chartTitleInput.value = settings.labels.title;
@@ -686,6 +1723,10 @@ setPressed(yAxisBoldBtn, settings.axes?.y?.font?.weight === "bold");
 
   if (Array.isArray(settings.splits)) splits = settings.splits.slice();
   if (Array.isArray(settings.annotations)) annotations = settings.annotations.slice();
+  limitExclusions =
+    normaliseLimitExclusions(
+      settings.limitExclusions
+    );
 
   const missing = [];
 
@@ -716,6 +1757,35 @@ setPressed(yAxisBoldBtn, settings.axes?.y?.font?.weight === "bold");
     applyColumnIntelligence(chartTypeNow);
   }
 
+// Reapply the saved X-axis type after column intelligence.
+// X̄–S is always categorical by subgroup, so old saved projects
+// that used Date / time are safely normalised to Sequence / category.
+if (
+  chartTypeNow === "xbars" ||
+  chartTypeNow === "pareto"
+) {
+  if (typeof setAxisType === "function") {
+    setAxisType("sequence");
+  } else {
+    setCheckedRadioValue(
+      "axisType",
+      "sequence"
+    );
+  }
+} else if (settings.axisType) {
+  setCheckedRadioValue(
+    "axisType",
+    settings.axisType
+  );
+}
+
+if (
+  clampLclAtZeroCheckbox &&
+  settings.rules?.clampLclAtZero !== undefined
+) {
+  clampLclAtZeroCheckbox.checked = !!settings.rules.clampLclAtZero;
+}
+
   if (missing.length && typeof showError === "function" && !silent) {
     showError(
       "Imported settings/project applied, but some saved columns were not found in your current data. " +
@@ -725,11 +1795,6 @@ setPressed(yAxisBoldBtn, settings.axes?.y?.font?.weight === "bold");
 
   updateDateFormatWarning();
   if (typeof updateDateControlsState === "function") updateDateControlsState();
-
-  if (rawRows && rawRows.length && generateButton) {
-    if (typeof lastGenerateWasManual !== "undefined") lastGenerateWasManual = false;
-    generateButton.click();
-  }
 }
 
 function collectProjectFile() {
@@ -753,11 +1818,14 @@ function exportProjectNow() {
 
 function resetAnnotationsAndSplitsForNewData() {
   annotations = [];
+  limitExclusions = [];
   if (annotationDateInput) annotationDateInput.value = "";
   if (annotationLabelInput) annotationLabelInput.value = "";
 
   splits = [];
   if (splitPointSelect) splitPointSelect.innerHTML = "";
+
+  resetXmRMeanLabelState();
 }
 
 function loadProjectObject(projectObj) {
@@ -784,45 +1852,122 @@ function loadProjectObject(projectObj) {
 
   if (settings) {
     applyToolSettings(settings, { silent: false });
-  } else if (generateButton) {
-    if (typeof lastGenerateWasManual !== "undefined") lastGenerateWasManual = false;
-    generateButton.click();
   }
 
+  /*
+   * The data and restored settings are now in place.
+   * Mark the model dirty before generating the final chart.
+   */
   markDataModelDirty();
+
+  /*
+   * Wait until the browser has completed the restored-control updates,
+   * then generate the chart once using the final saved settings.
+   */
+  if (generateButton) {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+
+        /*
+         * Reassert saved user choices that automatic data/column logic
+         * may have changed during loading.
+         */
+        if (settings?.axisType) {
+          setCheckedRadioValue("axisType", settings.axisType);
+        }
+
+        if (
+          clampLclAtZeroCheckbox &&
+          settings?.rules?.clampLclAtZero !== undefined
+        ) {
+          clampLclAtZeroCheckbox.checked =
+            !!settings.rules.clampLclAtZero;
+        }
+
+        if (typeof updateDateFormatWarning === "function") {
+          updateDateFormatWarning();
+        }
+
+        if (typeof updateDateControlsState === "function") {
+          updateDateControlsState();
+        }
+
+        if (typeof lastGenerateWasManual !== "undefined") {
+          lastGenerateWasManual = false;
+        }
+
+        generateButton.click();
+      });
+    });
+  }
 }
 
 function importSettingsOrProjectFromFile(file) {
   if (!file) return;
 
   const reader = new FileReader();
+
   reader.onload = () => {
     try {
       const text = String(reader.result || "");
       const parsed = JSON.parse(text);
 
       // New full project file
-      if (parsed && typeof parsed === "object" && parsed.projectVersion === 1 && parsed.data?.rawRows) {
+      if (
+        parsed &&
+        typeof parsed === "object" &&
+        parsed.projectVersion === 1 &&
+        parsed.data?.rawRows
+      ) {
         loadProjectObject(parsed);
         return;
       }
 
       // Old settings-only file (backward compatibility)
-      if (parsed && typeof parsed === "object" && parsed.settingsVersion === 1) {
+      if (
+        parsed &&
+        typeof parsed === "object" &&
+        parsed.settingsVersion === 1
+      ) {
         if (rawRows && rawRows.length) {
           applyToolSettings(parsed, { silent: false });
+
+          markDataModelDirty();
+
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              if (typeof lastGenerateWasManual !== "undefined") {
+                lastGenerateWasManual = false;
+              }
+
+              if (generateButton) {
+                generateButton.click();
+              }
+            });
+          });
+
         } else {
           pendingImportedSettings = parsed;
-          alert("Settings loaded. Now upload your CSV or Excel data and the tool will apply these settings automatically.");
+
+          alert(
+            "Settings loaded. Now upload your CSV or Excel data and the tool will apply these settings automatically."
+          );
         }
+
         return;
       }
 
-      alert("That file doesn’t look like a supported SPC project or settings file.");
+      alert(
+        "That file doesn’t look like a supported SPC project or settings file."
+      );
+
     } catch (e) {
-      alert("Could not read that JSON file. Please check it is a valid export from this tool.");
+      alert(
+        "Could not read that JSON file. Please check it is a valid export from this tool."
+      );
     }
   };
+
   reader.readAsText(file);
 }
 
@@ -946,6 +2091,50 @@ function resetStateAfterDataLoad() {
 
   splits = [];
   if (splitPointSelect) splitPointSelect.innerHTML = "";
+
+  resetXmRMeanLabelState();
+}
+
+function prepareForNewImportedChart(rows) {
+  // Validate the new data before destroying the current chart.
+  if (!rows || rows.length === 0) {
+    showError("No rows found in the data.");
+    return false;
+  }
+
+  const firstRow = rows[0];
+  const columns =
+    firstRow && typeof firstRow === "object"
+      ? Object.keys(firstRow)
+      : [];
+
+  if (columns.length === 0) {
+    showError("Could not detect any columns in the data.");
+    return false;
+  }
+
+  const hasExistingWork =
+    (Array.isArray(rawRows) && rawRows.length > 0) ||
+    !!currentChart ||
+    !!dataModelDirty;
+
+  if (hasExistingWork) {
+    const ok = window.confirm(
+      "Load these data as a new chart?\n\n" +
+      "This will clear the current data and chart settings. " +
+      "Save the current chart first if you want to reopen it later."
+    );
+
+    if (!ok) {
+      // Allow the same file to be selected again later.
+      if (fileInput) fileInput.value = "";
+      return false;
+    }
+  }
+
+  // We now know the replacement data are usable.
+  resetAll();
+  return true;
 }
 
 function guessColumns(rows) {
@@ -1196,12 +2385,23 @@ function getNonBlankGridRows() {
   return data2D.filter(row => row.some(cell => String(cell ?? "").trim() !== ""));
 }
 
+
 function detectHeadersFromGrid() {
   const rows = getNonBlankGridRows();
 
-  // SAFER default:
-  // In this tool, column headings usually live in the grid's column titles already.
-  // Only treat the first row as headers if we actually see "header-like" text.
+  // When editing an existing dataset, the column headings
+  // are already stored separately in the spreadsheet titles.
+  // Do not treat the first observation as a header row.
+  if (
+    dataEditorSourceMode === "manual" &&
+    Array.isArray(rawRows) &&
+    rawRows.length > 0
+  ) {
+    return false;
+  }
+
+  // For a new, empty editor or an Excel worksheet,
+  // retain the existing header-detection behaviour.
   if (rows.length < 2) return false;
 
   return isProbablyHeaderRow(rows[0]);
@@ -1375,10 +2575,13 @@ function updateTargetToggleVisibility() {
   if (hasValidTargetInput()) {
     targetToggleBtn.style.display = "inline-flex";
   } else {
-    // No target defined: hide button and force target OFF
+    // No target defined: hide the button, but keep the user's
+    // current show/hide preference for when a target is entered.
     targetToggleBtn.style.display = "none";
-    targetEnabled = false;              // assumes you use the button toggle model
-    if (typeof updateTargetToggleBtn === "function") updateTargetToggleBtn();
+  }
+
+  if (typeof updateTargetToggleBtn === "function") {
+    updateTargetToggleBtn();
   }
 }
 
@@ -1393,6 +2596,19 @@ if (targetInput) {
     }
   });
 }
+
+// When target direction changes, immediately recalculate
+// target performance and capability analysis.
+if (targetDirectionInput) {
+  targetDirectionInput.addEventListener("change", () => {
+    if (rawRows && rawRows.length && generateButton) {
+      lastGenerateWasManual = false;
+      generateButton.click();
+    }
+  });
+}
+
+
 
 // Call once on load
 updateTargetToggleVisibility();
@@ -1767,7 +2983,6 @@ function clearError() {
 }
 
 function getTargetValue() {
-  if (!targetEnabled) return null;
   if (!targetInput) return null;
 
   const v = targetInput.value.trim();
@@ -1833,9 +3048,25 @@ if (clampLclAtZeroCheckbox) {
   });
 }
 
+if (screenLargeMRsCheckbox) {
+  screenLargeMRsCheckbox.addEventListener("change", () => {
+    const chartType = getSelectedChartType_NoSideEffects();
+
+    if (
+      chartType === "xmr" &&
+      rawRows &&
+      rawRows.length &&
+      generateButton
+    ) {
+      generateButton.click();
+    }
+  });
+}
+
 if (ruleTwoOfThreeOuterThirdCheckbox) {
   ruleTwoOfThreeOuterThirdCheckbox.addEventListener("change", debouncedRegen);
 }
+
 if (ruleFourOfFiveOneSigmaCheckbox) {
   ruleFourOfFiveOneSigmaCheckbox.addEventListener("change", debouncedRegen);
 }
@@ -1860,34 +3091,26 @@ if (enableRareRunTrendCheckbox) {
     }
   });
 }
+
 const recalcPrompt = document.getElementById("recalcPrompt");
 const firstRunGuide = document.getElementById("firstRunGuide");
-const FIRST_RUN_KEY = "spc_first_run_done_v1";
 
-// Safe storage wrappers (localStorage can throw in some browser/privacy modes)
-function safeGetItem(key) {
-  try { return localStorage.getItem(key); } catch (e) { return null; }
-}
-function safeSetItem(key, value) {
-  try { localStorage.setItem(key, value); } catch (e) {}
-}
-function safeRemoveItem(key) {
-  try { localStorage.removeItem(key); } catch (e) {}
-}
-
+// Treat the Quick start panel as useful empty-state guidance,
+// rather than something shown only once per browser.
 function updateFirstRunGuideVisibility() {
   if (!firstRunGuide) return;
-  const done = safeGetItem(FIRST_RUN_KEY) === "1";
-  firstRunGuide.style.display = done ? "none" : "block";
+
+  firstRunGuide.style.display = currentChart ? "none" : "block";
 }
 
 function markFirstRunComplete() {
-  safeSetItem(FIRST_RUN_KEY, "1");
-  updateFirstRunGuideVisibility();
+  if (!firstRunGuide) return;
+
+  firstRunGuide.style.display = "none";
 }
 
+// Kept for compatibility with existing reset code.
 function clearFirstRunFlag() {
-  safeRemoveItem(FIRST_RUN_KEY);
   updateFirstRunGuideVisibility();
 }
 
@@ -2048,15 +3271,20 @@ fileInput.addEventListener("change", async () => {
         const headers = results.meta && results.meta.fields ? results.meta.fields : null;
         rows = stripDuplicateHeaderRow(rows, headers);
 
-        if (!loadRows(rows)) return;
-        resetStateAfterDataLoad();
-        return;
+	if (!prepareForNewImportedChart(rows)) return;
+if (!loadRows(rows)) return;
+
+resetStateAfterDataLoad();
+showNewDataChartPrompt();
+
+return;
       }
     }
 
     if (parsed.hadHeader) {
-      if (!loadRows(parsed.rows)) return;
-    } else {
+  if (!prepareForNewImportedChart(parsed.rows)) return;
+  if (!loadRows(parsed.rows)) return;
+} else {
       const ok = confirm(
         "It looks like your CSV does not include column headings.\n\n" +
         "Click OK to treat the first row as DATA (I will create Column1, Column2...).\n" +
@@ -2078,10 +3306,12 @@ fileInput.addEventListener("change", async () => {
         return o;
       });
 
+      if (!prepareForNewImportedChart(objRows)) return;
       if (!loadRows(objRows)) return;
     }
 
     resetStateAfterDataLoad();
+showNewDataChartPrompt();
   } catch (err) {
     console.error(err);
     showError(
@@ -2149,9 +3379,182 @@ function xbarSConstants(n) {
   return { c4, A3, B3, B4 };
 }
 
+// Estimate process sigma for an X̄–S chart from subgroup standard deviations.
+// This is the variable-subgroup-size extension of the existing S-bar method.
+// When all subgroup sizes are equal, it reduces to s-bar / c4(n).
+function estimateXbarSSigmaFromSbar(sValues, subgroupSizes) {
+  if (
+    !Array.isArray(sValues) ||
+    !Array.isArray(subgroupSizes) ||
+    sValues.length !== subgroupSizes.length ||
+    sValues.length === 0
+  ) {
+    return NaN;
+  }
+
+  let numerator = 0;
+  let denominator = 0;
+
+  for (let i = 0; i < sValues.length; i++) {
+    const s = Number(sValues[i]);
+    const n = Number(subgroupSizes[i]);
+
+    if (!Number.isFinite(s) || !Number.isFinite(n) || n < 2) continue;
+
+    const c4 = c4Constant(n);
+    if (!Number.isFinite(c4) || c4 <= 0 || c4 >= 1) continue;
+
+    const varianceTerm = 1 - c4 * c4;
+    if (!(varianceTerm > 0)) continue;
+
+    const h = (c4 * c4) / varianceTerm;
+
+    numerator += h * (s / c4);
+    denominator += h;
+  }
+
+  return denominator > 0
+    ? numerator / denominator
+    : NaN;
+}
+
 // -----------------------------
 // Draw a second chart in the MR panel (re-uses the existing mrPanel UI)
 // -----------------------------
+function buildXbarSSplitMarkerPlugin(splitAfterIndices = []) {
+  const safeSplits = Array.isArray(splitAfterIndices)
+    ? splitAfterIndices.filter(
+        i =>
+          Number.isInteger(i) &&
+          i >= 0
+      )
+    : [];
+
+  return {
+    id: "xbarSSplitMarkers",
+
+    afterDraw(chart) {
+      if (!safeSplits.length) return;
+
+      const ctx = chart.ctx;
+      const chartArea = chart.chartArea;
+      const xScale = chart.scales?.x;
+      const labels =
+        chart.data?.labels || [];
+
+      if (
+        !ctx ||
+        !chartArea ||
+        !xScale ||
+        labels.length < 2
+      ) {
+        return;
+      }
+
+      ctx.save();
+
+      ctx.strokeStyle =
+        "rgba(80,80,80,0.65)";
+
+      ctx.fillStyle =
+        "rgba(80,80,80,0.85)";
+
+      ctx.lineWidth = 1;
+      ctx.setLineDash([5, 4]);
+
+      ctx.font =
+        "600 10px Arial, sans-serif";
+
+      ctx.textAlign = "center";
+      ctx.textBaseline = "bottom";
+
+      safeSplits.forEach(
+        (splitAfterIndex) => {
+          if (
+            splitAfterIndex >=
+            labels.length - 1
+          ) {
+            return;
+          }
+
+          const leftX =
+            xScale.getPixelForValue(
+              splitAfterIndex
+            );
+
+          const rightX =
+            xScale.getPixelForValue(
+              splitAfterIndex + 1
+            );
+
+          if (
+            !Number.isFinite(leftX) ||
+            !Number.isFinite(rightX)
+          ) {
+            return;
+          }
+
+          const x =
+            (leftX + rightX) / 2;
+
+          ctx.beginPath();
+
+          ctx.moveTo(
+            x,
+            chartArea.top
+          );
+
+          ctx.lineTo(
+            x,
+            chartArea.bottom
+          );
+
+          ctx.stroke();
+
+          ctx.fillText(
+            "Split",
+            x,
+            chartArea.top - 3
+          );
+        }
+      );
+
+      ctx.restore();
+    }
+  };
+}
+
+function buildXbarSSplitSegmentStyle(
+  baseColour,
+  splitAfterIndices = []
+) {
+  const splitSet =
+    new Set(
+      Array.isArray(
+        splitAfterIndices
+      )
+        ? splitAfterIndices.filter(
+            i =>
+              Number.isInteger(i) &&
+              i >= 0
+          )
+        : []
+    );
+
+  if (!splitSet.size) {
+    return undefined;
+  }
+
+  return {
+    borderColor: (ctx) =>
+      splitSet.has(
+        ctx.p0DataIndex
+      )
+        ? "rgba(0,0,0,0)"
+        : baseColour
+  };
+}
+
 function drawSecondarySPCChart({
   canvas,
   labels,
@@ -2164,7 +3567,8 @@ function drawSecondarySPCChart({
   xLabel,
   yLabel,
   suggestedMin,
-  suggestedMax
+  suggestedMax,
+  splitAfterIndices = []
 }) {
   if (!canvas) return null;
 
@@ -2172,71 +3576,161 @@ function drawSecondarySPCChart({
     {
       label: "Value",
       data: values,
-      borderColor: SPC_STYLE.seriesBlue,
+      borderColor:
+        SPC_STYLE.seriesBlue,
       borderWidth: 2,
       fill: false,
       pointRadius: 4,
-      pointBackgroundColor: pointColours,
-      pointBorderColor: pointColours,
+      pointBackgroundColor:
+        pointColours,
+      pointBorderColor:
+        pointColours,
       tension: 0.1
     },
+
     {
       label: "Centre line",
       data: cl,
-      borderColor: SPC_STYLE.centreRed,
+      borderColor:
+        SPC_STYLE.centreRed,
       borderDash: [6, 4],
       borderWidth: 2,
       pointRadius: 0,
-      pointHoverRadius: 0
+      pointHoverRadius: 0,
+
+      segment:
+        buildXbarSSplitSegmentStyle(
+          SPC_STYLE.centreRed,
+          splitAfterIndices
+        )
     },
+
     {
       label: "UCL",
       data: ucl,
-      borderColor: SPC_STYLE.limitGreen,
+      borderColor:
+        SPC_STYLE.limitGreen,
       borderDash: [4, 4],
       borderWidth: 2,
       pointRadius: 0,
-      pointHoverRadius: 0
+      pointHoverRadius: 0,
+
+      segment:
+        buildXbarSSplitSegmentStyle(
+          SPC_STYLE.limitGreen,
+          splitAfterIndices
+        )
     },
+
     {
       label: "LCL",
       data: lcl,
-      borderColor: SPC_STYLE.limitGreen,
+      borderColor:
+        SPC_STYLE.limitGreen,
       borderDash: [4, 4],
       borderWidth: 2,
       pointRadius: 0,
-      pointHoverRadius: 0
+      pointHoverRadius: 0,
+
+      segment:
+        buildXbarSSplitSegmentStyle(
+          SPC_STYLE.limitGreen,
+          splitAfterIndices
+        )
     }
   ];
 
-  return new Chart(canvas.getContext("2d"), {
-    type: "line",
-    data: { labels, datasets },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        title: buildChartTitleConfig(title),
-        legend: SPC_LEGEND,
-        annotation: {
-          annotations: (typeof buildAnnotationConfig === "function")
-            ? buildAnnotationConfig(labels)
-            : {}
-        }
+  const splitMarkerPlugin =
+    buildXbarSSplitMarkerPlugin(
+      splitAfterIndices
+    );
+
+  return new Chart(
+    canvas.getContext("2d"),
+    {
+      type: "line",
+
+      data: {
+        labels,
+        datasets
       },
-      elements: { point: { radius: 0, hoverRadius: 0 } },
-            scales: (() => {
-        const axisSettings = getAxisSettings();
-        return {
-          x: buildCategoryXAxisConfig(xLabel, axisSettings.x, labels),
-          y: buildAxisConfig(yLabel, withoutAxisBounds(axisSettings.y), {
-            suggestedMin: isFinite(suggestedMin) ? suggestedMin : undefined,
-            suggestedMax: isFinite(suggestedMax) ? suggestedMax : undefined
-          })
-        };
-      })()
+
+      plugins: [
+        splitMarkerPlugin
+      ],
+
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+
+        plugins: {
+          title:
+            buildChartTitleConfig(
+              title
+            ),
+
+          legend:
+            SPC_LEGEND,
+
+          annotation: {
+            annotations:
+              (
+                typeof buildAnnotationConfig ===
+                "function"
+              )
+                ? buildAnnotationConfig(
+                    labels
+                  )
+                : {}
+          }
+        },
+
+        elements: {
+          point: {
+            radius: 0,
+            hoverRadius: 0
+          }
+        },
+
+        scales: (() => {
+          const axisSettings =
+            getAxisSettings();
+
+          return {
+            x:
+              buildCategoryXAxisConfig(
+                xLabel,
+                axisSettings.x,
+                labels
+              ),
+
+            y:
+              buildAxisConfig(
+                yLabel,
+                withoutAxisBounds(
+                  axisSettings.y
+                ),
+                {
+                  suggestedMin:
+                    isFinite(
+                      suggestedMin
+                    )
+                      ? suggestedMin
+                      : undefined,
+
+                  suggestedMax:
+                    isFinite(
+                      suggestedMax
+                    )
+                      ? suggestedMax
+                      : undefined
+                }
+              )
+          };
+        })()
+      }
     }
-  });
+  );
 }
 
 // -----------------------------
@@ -2255,19 +3749,28 @@ function drawXbarSCombinedChart({
   lclXArr,
   clS,
   uclSArr,
-  lclSArr
+  lclSArr,
+  splitAfterIndices = []
 }) {
   if (!chartCanvas) return;
 
-  // Keep annotation + split dropdowns in sync (consistent with other charts)
-  if (typeof populateAnnotationDateOptions === "function") {
-    populateAnnotationDateOptions(labels);
-  }
-  if (typeof populateSplitOptions === "function") {
-    populateSplitOptions(labels);
+  if (
+    typeof populateAnnotationDateOptions ===
+    "function"
+  ) {
+    populateAnnotationDateOptions(
+      labels
+    );
   }
 
-    // Use shared labels helper so defaults are written into the controls
+  if (
+    typeof populateSplitOptions ===
+    "function"
+  ) {
+    populateSplitOptions(
+      labels
+    );
+  }
 
   // -------------------------
   // 1) Main chart: X̄ chart
@@ -2277,119 +3780,259 @@ function drawXbarSCombinedChart({
     currentChart = null;
   }
 
-  const mainLabels = getChartLabels("X̄ chart", "Subgroup", "X̄");
+  const mainLabels =
+    getChartLabels(
+      "X̄ chart",
+      "Subgroup",
+      "X̄"
+    );
 
   const mainDatasets = [
     {
       label: "X̄",
       data: xbarVals,
-      borderColor: SPC_STYLE.seriesBlue,
+      borderColor:
+        SPC_STYLE.seriesBlue,
       borderWidth: 2,
       fill: false,
       pointRadius: 4,
-      pointBackgroundColor: pointColoursX,
-      pointBorderColor: pointColoursX,
+      pointBackgroundColor:
+        pointColoursX,
+      pointBorderColor:
+        pointColoursX,
       tension: 0.1
     },
+
     {
       label: "Centre line",
       data: clX,
-      borderColor: SPC_STYLE.centreRed,
+      borderColor:
+        SPC_STYLE.centreRed,
       borderDash: [6, 4],
       borderWidth: 2,
       pointRadius: 0,
-      pointHoverRadius: 0
+      pointHoverRadius: 0,
+
+      segment:
+        buildXbarSSplitSegmentStyle(
+          SPC_STYLE.centreRed,
+          splitAfterIndices
+        )
     },
+
     {
       label: "UCL",
       data: uclXArr,
-      borderColor: SPC_STYLE.limitGreen,
+      borderColor:
+        SPC_STYLE.limitGreen,
       borderDash: [4, 4],
       borderWidth: 2,
       pointRadius: 0,
-      pointHoverRadius: 0
+      pointHoverRadius: 0,
+
+      segment:
+        buildXbarSSplitSegmentStyle(
+          SPC_STYLE.limitGreen,
+          splitAfterIndices
+        )
     },
+
     {
       label: "LCL",
       data: lclXArr,
-      borderColor: SPC_STYLE.limitGreen,
+      borderColor:
+        SPC_STYLE.limitGreen,
       borderDash: [4, 4],
       borderWidth: 2,
       pointRadius: 0,
-      pointHoverRadius: 0
+      pointHoverRadius: 0,
+
+      segment:
+        buildXbarSSplitSegmentStyle(
+          SPC_STYLE.limitGreen,
+          splitAfterIndices
+        )
     }
   ];
 
-  currentChart = new Chart(chartCanvas.getContext("2d"), {
-    type: "line",
-    data: { labels, datasets: mainDatasets },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        title: buildChartTitleConfig(mainLabels.title),
-        legend: SPC_LEGEND,
-        annotation: {
-          annotations: (typeof buildAnnotationConfig === "function")
-            ? buildAnnotationConfig(labels)
-            : {}
+  const centreLineLabelPlugin =
+    buildXmRMeanLabelPlugin();
+
+  const splitMarkerPlugin =
+    buildXbarSSplitMarkerPlugin(
+      splitAfterIndices
+    );
+
+  currentChart =
+    new Chart(
+      chartCanvas.getContext("2d"),
+      {
+        type: "line",
+
+        data: {
+          labels,
+          datasets:
+            mainDatasets
+        },
+
+        plugins: [
+          centreLineLabelPlugin,
+          splitMarkerPlugin
+        ],
+
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+
+          plugins: {
+            title:
+              buildChartTitleConfig(
+                mainLabels.title
+              ),
+
+            legend:
+              SPC_LEGEND,
+
+            annotation: {
+              annotations:
+                (
+                  typeof buildAnnotationConfig ===
+                  "function"
+                )
+                  ? buildAnnotationConfig(
+                      labels
+                    )
+                  : {}
+            }
+          },
+
+          elements: {
+            point: {
+              radius: 0,
+              hoverRadius: 0
+            }
+          },
+
+          scales: (() => {
+            const axisSettings =
+              getAxisSettings();
+
+            return {
+              x:
+                buildCategoryXAxisConfig(
+                  mainLabels.xLabel,
+                  axisSettings.x,
+                  labels
+                ),
+
+              y:
+                buildAxisConfig(
+                  mainLabels.yLabel,
+                  axisSettings.y
+                )
+            };
+          })()
         }
-      },
-      elements: { point: { radius: 0, hoverRadius: 0 } },
-            scales: (() => {
-        const axisSettings = getAxisSettings();
-        return {
-          x: buildCategoryXAxisConfig(mainLabels.xLabel, axisSettings.x, labels),
-          y: buildAxisConfig(mainLabels.yLabel, axisSettings.y)
-        };
-      })()
-    }
-  });
+      }
+    );
 
   // -------------------------
-  // 2) Secondary chart: S chart (in MR panel)
+  // 2) Secondary chart: S chart
   // -------------------------
-  // Kill any existing MR/S chart first
   if (mrChart) {
     mrChart.destroy();
     mrChart = null;
   }
 
-  const showSecondary = showMRCheckbox ? showMRCheckbox.checked : true;
+  const showSecondary =
+    showMRCheckbox
+      ? showMRCheckbox.checked
+      : true;
 
   if (!showSecondary) {
     if (mrPanel) {
-      mrPanel.style.display = "none";
+      mrPanel.style.display =
+        "none";
     }
+
     return;
   }
 
-  // Show the panel and rename it (optional but avoids confusion)
   if (mrPanel) {
-    mrPanel.style.display = "block";
-    const strong = mrPanel.querySelector("strong");
-    if (strong) strong.textContent = "S chart:";
+    mrPanel.style.display =
+      "block";
+
+    const strong =
+      mrPanel.querySelector(
+        "strong"
+      );
+
+    if (strong) {
+      strong.textContent =
+        "S chart:";
+    }
   }
 
   if (!mrCanvas) return;
 
-  const sLabels = getChartLabels("S chart", "Subgroup", "S");
+  
+  // The secondary S chart needs its own default labels,
+  // but must not overwrite the shared Labels-tab fields.
+  // Preserve any labels deliberately entered by the user.
+  const sLabels = {
+    title: chartTitleManuallyEdited
+      ? mainLabels.title
+      : "S chart",
 
-  // Use your existing helper so the styling matches
-  mrChart = drawSecondarySPCChart({
-    canvas: mrCanvas,
-    labels,
-    values: sVals,
-    pointColours: pointColoursS,
-    cl: clS,
-    ucl: uclSArr,
-    lcl: lclSArr,
-    title: sLabels.title,
-    xLabel: sLabels.xLabel,
-    yLabel: sLabels.yLabel,
-    suggestedMin: 0,
-    suggestedMax: undefined
-  });
+    xLabel: xAxisLabelManuallyEdited
+      ? mainLabels.xLabel
+      : "Subgroup",
+
+    yLabel: yAxisLabelManuallyEdited
+      ? mainLabels.yLabel
+      : "S"
+  };
+
+
+  mrChart =
+    drawSecondarySPCChart({
+      canvas:
+        mrCanvas,
+
+      labels,
+
+      values:
+        sVals,
+
+      pointColours:
+        pointColoursS,
+
+      cl:
+        clS,
+
+      ucl:
+        uclSArr,
+
+      lcl:
+        lclSArr,
+
+      title:
+        sLabels.title,
+
+      xLabel:
+        sLabels.xLabel,
+
+      yLabel:
+        sLabels.yLabel,
+
+      suggestedMin:
+        0,
+
+      suggestedMax:
+        undefined,
+
+      splitAfterIndices
+    });
 }
 
 
@@ -2397,9 +4040,20 @@ function drawXbarSCombinedChart({
 function resetAll() {
   // --- Clear stored data ---
   rawRows = [];
-  annotations = [];
-  splits = [];
-  lastXmRAnalysis = null;
+annotations = [];
+splits = [];
+limitExclusions = [];
+resetXmRMeanLabelState();
+
+// Clear all cached analysis from the previous chart
+lastXmRAnalysis = null;
+lastRunAnalysis = null;
+lastAttributeAnalysis = null;
+lastRareAnalysis = null;
+lastXbarSAnalysis = null;
+
+// A new chart is no longer carrying unsaved changes
+dataModelDirty = false;
 
   // --- Reset file input ---
   if (fileInput) fileInput.value = "";
@@ -2417,6 +4071,15 @@ function resetAll() {
   if (thirdColumnRow) thirdColumnRow.style.display = "none";
   if (thirdLabelEl) thirdLabelEl.textContent = "Denominator / opportunities";
   if (thirdHintEl) thirdHintEl.textContent = "";
+  if (uRateMultiplierSelect) {
+  uRateMultiplierSelect.value = "1";
+}
+
+lastURateMultiplier = 1;
+
+if (uRateMultiplierRow) {
+  uRateMultiplierRow.style.display = "none";
+}
 
   // --- Reset text inputs ---
   if (baselineInput) baselineInput.value = "";
@@ -2430,8 +4093,18 @@ function resetAll() {
   setPressed(chartTitleItalicBtn, false);
   setPressed(chartTitleUnderlineBtn, false);
   if (targetInput) targetInput.value = "";
-  if (annotationDateInput) annotationDateInput.value = "";
-  if (annotationLabelInput) annotationLabelInput.value = "";
+
+// A fresh/reset chart should show a target by default once one is entered.
+targetEnabled = true;
+if (typeof updateTargetToggleBtn === "function") {
+  updateTargetToggleBtn();
+}
+if (typeof updateTargetToggleVisibility === "function") {
+  updateTargetToggleVisibility();
+}
+
+if (annotationDateInput) annotationDateInput.value = "";
+if (annotationLabelInput) annotationLabelInput.value = "";
 
   chartTitleManuallyEdited = false;
   xAxisLabelManuallyEdited = false;
@@ -2491,10 +4164,25 @@ function resetAll() {
   const lclClampRow = document.getElementById("lclClampRow");
 
   if (shiftRulePointsInput) shiftRulePointsInput.value = "8";
-  if (trendRulePointsInput) trendRulePointsInput.value = "6";
-  if (flagSpecialCauseOnChart) flagSpecialCauseOnChart.checked = true;
-  if (clampLclAtZero) clampLclAtZero.checked = false;
-  if (lclClampRow) lclClampRow.style.display = "none";
+if (trendRulePointsInput) trendRulePointsInput.value = "6";
+if (flagSpecialCauseOnChart) flagSpecialCauseOnChart.checked = true;
+if (clampLclAtZero) clampLclAtZero.checked = false;
+if (lclClampRow) lclClampRow.style.display = "none";
+
+// Advanced rules are off by default on a new chart
+if (enableAdvancedTrendCheckbox) enableAdvancedTrendCheckbox.checked = false;
+if (enableRareRunTrendCheckbox) enableRareRunTrendCheckbox.checked = false;
+if (ruleTwoOfThreeOuterThirdCheckbox) ruleTwoOfThreeOuterThirdCheckbox.checked = false;
+if (ruleFourOfFiveOneSigmaCheckbox) ruleFourOfFiveOneSigmaCheckbox.checked = false;
+if (screenLargeMRsCheckbox) {
+  screenLargeMRsCheckbox.checked = true;
+}
+
+if (advancedRulesDetails) advancedRulesDetails.open = false;
+
+if (typeof updateRuleUIForChartType === "function") {
+  updateRuleUIForChartType("run");
+}
 
   // --- Clear any error message ---
   if (errorMessage) errorMessage.textContent = "";
@@ -2566,13 +4254,98 @@ if (typeof updateDateControlsState === "function") {
   updateDateControlsState();
 }
 
-clearFirstRunFlag();
+// Keep the user's first-run/help history when starting another chart.
+if (typeof updateFirstRunGuideVisibility === "function") {
+  updateFirstRunGuideVisibility();
+}
 
 if (typeof setGenerateNeedsRecalc === "function") setGenerateNeedsRecalc(false);
 
   console.log("All elements reset.");
 }
 
+function resetChartKeepData() {
+  // If there is no dataset to preserve, a normal full reset is enough.
+  if (!Array.isArray(rawRows) || rawRows.length === 0) {
+    resetAll();
+    return;
+  }
+
+  // Keep the current dataset in memory.
+  // resetAll() replaces rawRows with a new empty array, so a shallow
+  // copy of the existing array is sufficient here.
+  const savedRows = rawRows.slice();
+
+  // Keep data-related choices rather than chart-specific settings.
+  const savedXColumn = dateSelect?.value || "";
+  const savedYColumn = valueSelect?.value || "";
+
+  const savedAxisType =
+    document.querySelector("input[name='axisType']:checked")?.value || "date";
+
+  const savedDateFormat =
+    dateFormatPreferenceSelect?.value || "";
+
+  // Perform the normal, thoroughly defined clean reset.
+  resetAll();
+
+  // Put the existing dataset back.
+  if (!loadRows(savedRows)) {
+    showError("The existing data could not be restored after resetting the chart.");
+    return;
+  }
+
+  // Restore X and Y column selections where those columns are still available.
+  function restoreSelectValue(selectEl, value) {
+    if (!selectEl || !value) return;
+
+    const exists = Array.from(selectEl.options)
+      .some(option => option.value === value && !option.disabled);
+
+    if (exists) {
+      selectEl.value = value;
+    }
+  }
+
+  restoreSelectValue(dateSelect, savedXColumn);
+  restoreSelectValue(valueSelect, savedYColumn);
+
+  // Keep the user's interpretation of the X axis.
+  const axisRadio = document.querySelector(
+    `input[name="axisType"][value="${savedAxisType}"]`
+  );
+
+  if (axisRadio) {
+    axisRadio.checked = true;
+  }
+
+  // Keep the date parsing preference because this belongs to the dataset,
+  // rather than to the appearance/statistical setup of the chart.
+  if (dateFormatPreferenceSelect && savedDateFormat) {
+    const exists = Array.from(dateFormatPreferenceSelect.options)
+      .some(option => option.value === savedDateFormat);
+
+    if (exists) {
+      dateFormatPreferenceSelect.value = savedDateFormat;
+    }
+  }
+
+  if (typeof updateDateFormatWarning === "function") {
+    updateDateFormatWarning();
+  }
+
+  if (typeof updateDateControlsState === "function") {
+    updateDateControlsState();
+  }
+
+  // Y-axis limits have just been reset to automatic.
+  yAxisBoundsManuallyEdited = false;
+
+  // Generate the clean Run chart immediately from the retained data.
+  if (generateButton) {
+    generateButton.click();
+  }
+}
 
 function validateBeforeGenerate() {
   if (!rawRows || rawRows.length === 0) {
@@ -2594,6 +4367,27 @@ function validateBeforeGenerate() {
   if (!dateCol || !valueCol) {
     showError("Please choose both an X-axis column and a value column.");
     return false;
+  }
+
+  if (chartType === "pareto") {
+    const paretoCheck =
+      computeParetoData(
+        rawRows,
+        dateCol,
+        valueCol
+      );
+
+    if (!paretoCheck.ok) {
+      showError(
+        paretoCheck.error
+      );
+
+      return false;
+    }
+
+    // Pareto is categorical, so the ordinary numeric-value
+    // and date-axis safety checks below do not apply.
+    return true;
   }
 
   // Check at least 3 valid numeric points in the selected value column.
@@ -2912,10 +4706,10 @@ function getCandidatesForValue(chartType) {
     let hint = "";
     let disabled = false;
 
-    if ((chartType === "c" || chartType === "p" || chartType === "u") && p.hasNeg) {
+    if ((chartType === "c" || isPFamilyChartType(chartType) || isUFamilyChartType(chartType)) && p.hasNeg) {
       hint = "(has negatives)";
     }
-    if ((chartType === "c" || chartType === "p" || chartType === "u") && p.looksLikeDate) {
+    if ((chartType === "c" || isPFamilyChartType(chartType) || isUFamilyChartType(chartType)) && p.looksLikeDate) {
       hint = "(looks like date)";
     }
 
@@ -2933,8 +4727,8 @@ function getCandidatesForValue(chartType) {
 }
 
 function getCandidatesForThird(chartType) {
-  // thirdSelect: denom/opportunities (P/U), subgroup (Xbars)
-  if (chartType === "p" || chartType === "u") {
+  // thirdSelect: denominator/opportunities (P/P′/U), subgroup (Xbars)
+  if (isPFamilyChartType(chartType) || isUFamilyChartType(chartType)) {
     const cols = getNumericColumnsSorted();
     const items = [];
     for (const c of cols) {
@@ -3022,6 +4816,80 @@ function chooseDefaultsForChart(chartType) {
 
   // candidates for numeric roles
   const numericCols = allColumns.filter(c => getProfile(c)?.isNumeric && !getProfile(c)?.looksLikeDate);
+
+  if (chartType === "pareto") {
+    const categoryCandidates =
+      allColumns
+        .filter(
+          c =>
+            getProfile(c)?.nonEmpty > 0
+        )
+        .slice()
+        .sort(
+          (a, b) => {
+            function score(col) {
+              const p =
+                getProfile(col);
+
+              const name =
+                String(col || "")
+                  .toLowerCase();
+
+              let s = 0;
+
+              if (!p?.looksLikeDate) {
+                s += 40;
+              } else {
+                s -= 50;
+              }
+
+              if (!p?.isNumeric) {
+                s += 25;
+              }
+
+              if (p?.repeatsOften) {
+                s += 20;
+              }
+
+              if (
+                Number.isFinite(
+                  p?.uniqueRatio
+                ) &&
+                p.uniqueRatio < 0.75
+              ) {
+                s += 10;
+              }
+
+              if (
+                /category|type|reason|cause|group|class|location|ward|unit|issue|complaint|failure/.test(
+                  name
+                )
+              ) {
+                s += 30;
+              }
+
+              return s;
+            }
+
+            return (
+              score(b) -
+              score(a)
+            );
+          }
+        );
+
+    return {
+      xCol:
+        categoryCandidates[0] ||
+        allColumns[0] ||
+        "",
+
+      yCol:
+        PARETO_COUNT_ROWS,
+
+      thirdCol: ""
+    };
+  }
 
   // Helper for count-like numeric columns
   const countLike = numericCols
@@ -3117,7 +4985,7 @@ function chooseDefaultsForChart(chartType) {
     return { xCol, yCol, thirdCol: "" };
   }
 
-  if (chartType === "p") {
+  if (isPFamilyChartType(chartType)) {
     // choose best (numer, denom) pair among integer-ish columns
     const intCols = numericCols.filter(c => getProfile(c)?.isMostlyInteger && !getProfile(c)?.hasNeg);
     let best = { numer: "", denom: "", score: -Infinity };
@@ -3146,7 +5014,7 @@ function chooseDefaultsForChart(chartType) {
     return { xCol, yCol, thirdCol };
   }
 
-  if (chartType === "u") {
+  if (isUFamilyChartType(chartType)) {
   // choose count/opportunity pair:
   // numerator = count-like column
   // denominator = positive integer-like opportunities column, usually larger
@@ -3245,6 +5113,28 @@ function applyColumnIntelligence(chartType) {
   const valueItems = getCandidatesForValue(chartType);
   setSelectOptions(valueSelect, valueItems, { includeBlank: true, blankLabel: "(select value)" });
 
+  if (
+    chartType === "pareto" &&
+    valueSelect
+  ) {
+    const countRowsOption =
+      document.createElement(
+        "option"
+      );
+
+    countRowsOption.value =
+      PARETO_COUNT_ROWS;
+
+    countRowsOption.textContent =
+      "(count each row as 1)";
+
+    valueSelect.insertBefore(
+      countRowsOption,
+      valueSelect.options[1] ||
+      null
+    );
+  }
+
   const thirdItems = getCandidatesForThird(chartType);
   if (thirdSelect) {
     if (thirdItems.length) {
@@ -3279,46 +5169,97 @@ function applyColumnIntelligence(chartType) {
 // For count-style charts, be a bit more proactive:
 // if the current value column is numeric but clearly a poor fit
 // (e.g. mostly decimal or negative), switch to the better default.
-const currentValueProfile = valueSelect ? getProfile(valueSelect.value) : null;
-const currentThirdProfile = thirdSelect ? getProfile(thirdSelect.value) : null;
+const currentValueProfile =
+  valueSelect ? getProfile(valueSelect.value) : null;
+
+const currentThirdProfile =
+  thirdSelect ? getProfile(thirdSelect.value) : null;
+
+const isPFamily =
+  isPFamilyChartType(chartType);
+
+const isUFamily =
+  isUFamilyChartType(chartType);
 
 const currentValuePoorForCountChart =
-  !!(currentValueProfile &&
-     (chartType === "c" || chartType === "p" || chartType === "u") &&
-     (
-       !currentValueProfile.isMostlyInteger ||
-       currentValueProfile.hasNeg
-     ));
+  !!(
+    currentValueProfile &&
+    (
+      chartType === "c" ||
+      isPFamily ||
+      isUFamily
+    ) &&
+    (
+      !currentValueProfile.isMostlyInteger ||
+      currentValueProfile.hasNeg
+    )
+  );
 
 const currentThirdPoorForDenominator =
-  !!(currentThirdProfile &&
-     (chartType === "p" || chartType === "u") &&
-     (
-       !currentThirdProfile.isMostlyInteger ||
-       currentThirdProfile.hasNeg ||
-       (Number.isFinite(currentThirdProfile.min) && currentThirdProfile.min <= 0)
-     ));
+  !!(
+    currentThirdProfile &&
+    (
+      isPFamily ||
+      isUFamily
+    ) &&
+    (
+      !currentThirdProfile.isMostlyInteger ||
+      currentThirdProfile.hasNeg ||
+      (
+        Number.isFinite(currentThirdProfile.min) &&
+        currentThirdProfile.min <= 0
+      )
+    )
+  );
 
 if (currentValuePoorForCountChart && defaults.yCol) {
   valueSelect.value = defaults.yCol;
 } else {
-  setIfEmptyOrMissing(valueSelect, defaults.yCol);
+  setIfEmptyOrMissing(
+    valueSelect,
+    defaults.yCol
+  );
 }
 
-if (chartType === "p" || chartType === "u" || chartType === "xbars") {
-  if (chartType === "p" || chartType === "u") {
-    if (currentThirdPoorForDenominator && defaults.thirdCol) {
-      thirdSelect.value = defaults.thirdCol;
+if (
+  isPFamily ||
+  isUFamily ||
+  chartType === "xbars"
+) {
+  if (
+    isPFamily ||
+    isUFamily
+  ) {
+    if (
+      currentThirdPoorForDenominator &&
+      defaults.thirdCol
+    ) {
+      thirdSelect.value =
+        defaults.thirdCol;
     } else {
-      setIfEmptyOrMissing(thirdSelect, defaults.thirdCol);
+      setIfEmptyOrMissing(
+        thirdSelect,
+        defaults.thirdCol
+      );
     }
   } else {
-    setIfEmptyOrMissing(thirdSelect, defaults.thirdCol);
+    setIfEmptyOrMissing(
+      thirdSelect,
+      defaults.thirdCol
+    );
   }
 }
 
-  // avoid third == y if needed (light UX polish)
-  if ((chartType === "p" || chartType === "u" || chartType === "xbars") && thirdSelect && valueSelect) {
+// avoid third == y if needed
+if (
+  (
+    isPFamily ||
+    isUFamily ||
+    chartType === "xbars"
+  ) &&
+  thirdSelect &&
+  valueSelect
+) {
     if (thirdSelect.value && valueSelect.value && thirdSelect.value === valueSelect.value) {
       const alt = Array.from(thirdSelect.options)
         .map(o => o.value)
@@ -3352,7 +5293,17 @@ if (!axisTypeManuallyChanged) {
   const shouldUseSequenceAxis =
     xLooksLikeNumericSequence ||
     (chartType === "xbars" && xLooksLikeNonDateLabel) ||
-    ((chartType === "run" || chartType === "xmr" || chartType === "c" || chartType === "p" || chartType === "u" || chartType === "g") && xLooksLikeNonDateLabel);
+    (
+  (
+    chartType === "run" ||
+    chartType === "xmr" ||
+    chartType === "c" ||
+    isPFamily ||
+    isUFamily ||
+    chartType === "g"
+  ) &&
+  xLooksLikeNonDateLabel
+);
 
   const seqRadio = document.querySelector("input[name='axisType'][value='sequence']");
   const dateRadio = document.querySelector("input[name='axisType'][value='date']");
@@ -3404,7 +5355,7 @@ function getChartAvailability() {
   const out = {};
   const noDataReason = "Load data to assess which chart types are available.";
 
-  for (const chartType of ["run", "xmr", "c", "p", "u", "xbars", "t", "g"]) {
+  for (const chartType of ["run", "xmr", "c", "p", "pprime", "u","uprime", "xbars", "t", "g", "pareto"]) {
     out[chartType] = { enabled: true, reason: "" };
   }
 
@@ -3469,18 +5420,33 @@ function getChartAvailability() {
     }
   }
   if (!hasValidPPair) {
-    out.p = {
-      enabled: false,
-      reason: "No suitable numerator/denominator pair is available yet — P charts need two whole-number columns where the numerator is part of the denominator."
-    };
-  }
+  out.p = {
+    enabled: false,
+    reason: "No suitable numerator/denominator pair is available yet — P charts need two whole-number columns where the numerator is part of the denominator."
+  };
 
-  if (countLikeNonNegCols.length < 2 || !positiveCountLikeCols.length) {
-    out.u = {
-      enabled: false,
-      reason: "No suitable count/opportunities pair is available yet — U charts need a whole-number count column plus a positive opportunities column."
-    };
-  }
+  out.pprime = {
+    enabled: false,
+    reason: "No suitable numerator/denominator pair is available yet — P′ charts need two whole-number columns where the numerator is part of the denominator."
+  };
+}
+
+  if (
+  countLikeNonNegCols.length < 2 ||
+  !positiveCountLikeCols.length
+) {
+  out.u = {
+    enabled: false,
+    reason:
+      "No suitable count/opportunities pair is available yet — U charts need a whole-number count column plus a positive opportunities column."
+  };
+
+  out.uprime = {
+    enabled: false,
+    reason:
+      "No suitable count/opportunities pair is available yet — U′ charts need a whole-number count column plus a positive opportunities column."
+  };
+}
 
   if (!numericNonDateCols.length || !repeatingSubgroupCols.length) {
     out.xbars = {
@@ -3593,9 +5559,12 @@ function shouldFlagSpecialCauseOnChart() {
 }
 
 function shouldClampLclAtZero() {
-  // only allow if UI row is visible
-  if (!lclClampRow || lclClampRow.style.display === "none") return false;
-  return clampLclAtZeroCheckbox ? !!clampLclAtZeroCheckbox.checked : false;
+  // The saved checkbox value determines whether clamping is enabled.
+  // Do not depend on the visibility of the UI row, because visibility
+  // is determined during chart calculation.
+  return clampLclAtZeroCheckbox
+    ? !!clampLclAtZeroCheckbox.checked
+    : false;
 }
 
 function setLclClampVisibility(shouldShow) {
@@ -3770,10 +5739,18 @@ function updateRuleUIForChartType(chartType) {
     advancedContinuousCaution.style.display = (chartType === "xmr") ? "block" : "none";
   }
 
+  // XmR-specific limit calculation option
+if (mrScreeningRow) {
+  mrScreeningRow.style.display =
+    chartType === "xmr" ? "block" : "none";
+}
+
   // Conservative message for chart types with no advanced offering
   if (conservativeRulesMessage) {
     const showConservativeMessage =
-      chartType === "c" || chartType === "p" || chartType === "u";
+  chartType === "c" ||
+  isPFamilyChartType(chartType) ||
+  isUFamilyChartType(chartType);
     conservativeRulesMessage.style.display = showConservativeMessage ? "block" : "none";
   }
 }
@@ -3792,25 +5769,73 @@ function updateColumnCheckWarning(chartType) {
       For a P chart, the value column should be the numerator, e.g. number of cases/events,
       and the third column should be the denominator, e.g. total patients/episodes.
     `,
+     pprime: `
+  		<strong>Check your selected columns.</strong>
+  		For a P′ chart, the value column should be the numerator, e.g. number of cases/events,
+  		and the third column should be the denominator, e.g. total patients/episodes.
+  		P′ uses the same data structure as a P chart but adjusts the control limits using the Laney method.
+    `,
     u: `
       <strong>Check your selected columns.</strong>
       For a U chart, the value column should be the numerator, e.g. number of defects/events,
       and the third column should be the opportunities/denominator, e.g. bed days, attendances, or procedures.
+    `,
+    uprime: `
+    <strong>Check your selected columns.</strong>
+ 	 For a U′ chart, the value column should be the numerator,
+  	e.g. number of defects/events, and the third column should
+  	be the opportunities/denominator, e.g. bed days,
+ 	 attendances, procedures or inspections.
+ 	 U′ uses the same data as a U chart but adjusts the
+ 	 control limits using the Laney method.
     `,
     xbars: `
       <strong>Check your selected columns.</strong>
       For an X̄–S chart, the value column should contain the individual measurements,
       and the third column should identify the subgroup, e.g. day, week, batch, or sample.
     `,
-     t: `
-      <strong>Check your selected columns.</strong>
-      For a T chart, the event/date column should identify when each event occurred.
-      The tool will use this to calculate time between events, so check the selected date/event column carefully.
-    `,
+     
+    
+    t: tChartInputMode === "gaps"
+      ? `
+        <strong>T chart: using numeric time gaps.</strong><br>
+        Select the column containing the time between
+        consecutive events (e.g. days) as the
+        <strong>Value / Y-axis column</strong>.
+        The X-axis column provides the observation labels.
+
+        <br><br>
+        <strong>Want to use event dates instead?</strong>
+        Click <strong>Chart setup</strong> above and select
+        <strong>I have event dates</strong>.
+      `
+      : `
+        <strong>T chart: using event dates.</strong><br>
+        Select the dates or times when events occurred in
+        the <strong>Date / X-axis column</strong>.
+        SimpleSPC calculates the intervals automatically,
+        so the Value / Y-axis column is disabled.
+
+        <br><br>
+        <strong>Already have the time gaps calculated?</strong>
+        Click <strong>Chart setup</strong> above and select
+        <strong>I already have the gaps</strong>.
+        This will enable the Value / Y-axis column.
+      `,
+
+
     g: `
       <strong>Check your selected columns.</strong>
       For a G chart, the value column should usually represent the number of opportunities,
       cases, or observations between rare events. Check this is not a rate or percentage.
+    `,
+
+        pareto: `
+      <strong>Choose how you want to group the occurrences.</strong>
+      Select the category you want to compare. If every row is one occurrence,
+      choose <strong>(count each row as 1)</strong> for the frequency column.
+      If your data are already summarised, choose the numeric count column instead.
+      Pareto categories help focus investigation but should not automatically be assumed to be causes.
     `
   };
 
@@ -3839,6 +5864,13 @@ updateColumnCheckWarning(chartType);
   thirdLabelEl.textContent = "";
   thirdHintEl.textContent = "";
 
+  if (uRateMultiplierRow) {
+  uRateMultiplierRow.style.display =
+  isUFamilyChartType(chartType)
+    ? "block"
+    : "none";
+}
+
   // ---- Chart-specific UI definitions ----
   const chartUI = {
     run: {
@@ -3860,6 +5892,13 @@ updateColumnCheckWarning(chartType);
       needsThird: true
     },
 
+    pprime: {
+          yLabel: "Numerator: defectives (d)",
+         thirdLabel: "Denominator: total (n)",
+         thirdHint: "P′ chart plots a proportion: d out of n, with Laney-adjusted control limits.",
+          needsThird: true
+          },
+
     u: {
       yLabel: "Numerator: defects (c)",
       thirdLabel: "Denominator: opportunities (n)",
@@ -3867,12 +5906,21 @@ updateColumnCheckWarning(chartType);
       needsThird: true
     },
 
+    uprime: {
+ 	 yLabel: "Numerator: defects (c)",
+ 	 thirdLabel: "Denominator: opportunities (n)",
+ 	 thirdHint:
+   	 "U′ chart plots defects per opportunity, with Laney-adjusted control limits.",
+  	needsThird: true
+	},
+   
     xbars: {
-      yLabel: "Measurement value",
-      thirdLabel: "Subgroup ID (e.g. day / week / sample)",
-      thirdHint: "X̄–S needs multiple measurements per subgroup.",
-      needsThird: true
-    },
+  yLabel: "Measurement value",
+  thirdLabel: "Subgroup ID (e.g. day / week / sample)",
+  thirdHint:
+    "X̄–S needs multiple measurements per subgroup. The horizontal axis uses subgroup order automatically.",
+  needsThird: true
+},
 
     t: {
           // Labels depend on T chart input mode (event dates vs gaps)
@@ -3886,12 +5934,23 @@ updateColumnCheckWarning(chartType);
     g: {
       yLabel: "Opportunities between events",
       thirdHint: "G chart plots opportunities between rare events."
-    }
+    },
+
+        pareto: {
+      		xLabel:   "Category column",
+     		 yLabel:  "Frequency / count column"
+    	 }
+
   };
 
   // ---- Apply config (if defined) ----
   const cfg = chartUI[chartType];
   if (!cfg) return;
+
+if (cfg.xLabel) {
+  xLabelEl.textContent =
+    cfg.xLabel;
+}
 
   if (cfg.yLabel) {
     yLabelEl.textContent = cfg.yLabel;
@@ -3950,6 +6009,69 @@ if (chartType === "t" && valueSelect) {
   if (shouldDisableValue) {
     valueSelect.title = "Not used for T chart when using event dates.";
   }
+}
+
+// ---- X̄–S axis policy ----
+// X̄–S is plotted by subgroup, so its horizontal axis is categorical.
+// Do not make the calculation depend on individual rows having parseable dates.
+const axisDateRadio =
+  document.querySelector(
+    "input[name='axisType'][value='date']"
+  );
+
+const axisSequenceRadio =
+  document.querySelector(
+    "input[name='axisType'][value='sequence']"
+  );
+
+if (chartType === "xbars" ||
+  chartType === "pareto") {
+  // Force the appropriate axis mode.
+  if (typeof setAxisType === "function") {
+    setAxisType("sequence");
+  } else {
+    if (axisSequenceRadio) {
+      axisSequenceRadio.checked = true;
+    }
+
+    if (axisDateRadio) {
+      axisDateRadio.checked = false;
+    }
+  }
+
+  // Prevent an accidental switch back to Date / time.
+  if (axisDateRadio) {
+    axisDateRadio.disabled = true;
+    axisDateRadio.title =
+      "This chart uses categories on the horizontal axis."
+  }
+
+  if (axisSequenceRadio) {
+    axisSequenceRadio.disabled = false;
+    axisSequenceRadio.title =
+      "X̄–S charts use subgroup order on the horizontal axis.";
+  }
+
+} else {
+  // Restore normal axis choices for every other chart type.
+  if (axisDateRadio) {
+    axisDateRadio.disabled = false;
+    axisDateRadio.title = "";
+  }
+
+  if (axisSequenceRadio) {
+    axisSequenceRadio.disabled = false;
+    axisSequenceRadio.title = "";
+  }
+}
+
+// Keep the date-format control consistent with the forced axis mode.
+if (typeof updateDateControlsState === "function") {
+  updateDateControlsState();
+}
+
+if (typeof updateDateFormatWarning === "function") {
+  updateDateFormatWarning();
 }
 
 // Keep MR / S-chart toggle synchronized with the selected chart type
@@ -4011,31 +6133,114 @@ function computeMAD(values, centre) {
  * Common robust rule of thumb: |z| > 3.5
  * Returns { indices: number[], flags: boolean[] }
  */
-function findAstronomicalPoints(values, centre, referenceValues = null, threshold = 3.5) {
-  const ref = (Array.isArray(referenceValues) && referenceValues.length >= 3) ? referenceValues : values;
-  const refMedian = centre;
-  const mad = computeMAD(ref, refMedian);
+function findAstronomicalPoints(
+  values,
+  centre,
+  referenceValues = null,
+  threshold = 3.5
+) {
+  const source =
+    (
+      Array.isArray(
+        referenceValues
+      ) &&
+      referenceValues.length >= 3
+    )
+      ? referenceValues
+      : values;
 
-  const flags = new Array(values.length).fill(false);
+  const ref =
+    (source || [])
+      .filter(
+        v =>
+          Number.isFinite(v)
+      );
+
+  const flags =
+    new Array(
+      values.length
+    ).fill(false);
+
   const indices = [];
 
-  // If MAD is 0 (flat data), there is no sensible astronomical rule
-  if (!mad || mad === 0 || !Number.isFinite(mad)) return { indices, flags, mad: 0 };
+  if (
+    ref.length < 3 ||
+    !Number.isFinite(
+      centre
+    )
+  ) {
+    return {
+      indices,
+      flags,
+      mad: 0
+    };
+  }
 
-  // modified z-score constant
-  const c = 0.6745;
+  const refMedian =
+    centre;
 
-  for (let i = 0; i < values.length; i++) {
-    const z = (c * (values[i] - refMedian)) / mad;
-    if (Math.abs(z) > threshold) {
+  const mad =
+    computeMAD(
+      ref,
+      refMedian
+    );
+
+  if (
+    !mad ||
+    mad === 0 ||
+    !Number.isFinite(mad)
+  ) {
+    return {
+      indices,
+      flags,
+      mad: 0
+    };
+  }
+
+  const c =
+    0.6745;
+
+  for (
+    let i = 0;
+    i < values.length;
+    i++
+  ) {
+    const value =
+      values[i];
+
+    if (
+      !Number.isFinite(
+        value
+      )
+    ) {
+      continue;
+    }
+
+    const z =
+      (
+        c *
+        (
+          value -
+          refMedian
+        )
+      ) /
+      mad;
+
+    if (
+      Math.abs(z) >
+      threshold
+    ) {
       flags[i] = true;
       indices.push(i);
     }
   }
 
-  return { indices, flags, mad };
+  return {
+    indices,
+    flags,
+    mad
+  };
 }
-
 
 function computeMedian(values) {
   const sorted = [...values].sort((a, b) => a - b);
@@ -4143,62 +6348,303 @@ function populateSplitOptions(labels) {
   }
 }
 
-
+const MIN_XMR_LIMIT_POINTS = 12;
 
 /**
  * Compute XmR statistics and MR values.
+ *
+ * By default, unusually large baseline moving ranges are screened
+ * when estimating routine variation using the Nelson method:
+ *
+ *   screening threshold = 3.5 × initial average moving range
+ *
+ * Moving ranges above that threshold are excluded from the
+ * variation estimate only. The original observations and moving
+ * ranges remain in the chart.
  */
-function computeXmR(points, baselineCount, clampLclAtZero = false) {
-  const pts = [...points].sort((a, b) => a.x - b.x);
+function computeXmR(
+  points,
+  baselineCount,
+  clampLclAtZero = false,
+  screenLargeMRs = true
+) {
+  const pts =
+    [...points].sort(
+      (a, b) =>
+        a.x - b.x
+    );
 
   let baselineCountUsed;
-  if (baselineCount && baselineCount >= 2) {
-    baselineCountUsed = Math.min(baselineCount, pts.length);
+
+  if (
+    baselineCount &&
+    baselineCount >= 2
+  ) {
+    baselineCountUsed =
+      Math.min(
+        baselineCount,
+        pts.length
+      );
   } else {
-    baselineCountUsed = pts.length;
+    baselineCountUsed =
+      pts.length;
   }
 
-  const baseline = pts.slice(0, baselineCountUsed);
+  // Keep the baseline WINDOW fixed.
+  // Excluded points inside it are omitted;
+  // later observations are not pulled in.
+  const baseline =
+    pts.slice(
+      0,
+      baselineCountUsed
+    );
 
-  const mean = baseline.reduce((sum, p) => sum + p.y, 0) / baseline.length;
+  const eligibleBaseline =
+    baseline.filter(
+      p =>
+        !p._excludeFromLimits
+    );
 
+  const mean =
+    eligibleBaseline.length
+      ? eligibleBaseline.reduce(
+          (sum, p) =>
+            sum + p.y,
+          0
+        ) /
+        eligibleBaseline.length
+      : NaN;
+
+  // An excluded XmR observation removes
+  // both adjacent moving ranges.
+  // We do not bridge across it.
   const baselineMRs = [];
-  for (let i = 1; i < baseline.length; i++) {
-    baselineMRs.push(Math.abs(baseline[i].y - baseline[i - 1].y));
+
+  let manualAdjacentMRExclusions =
+    0;
+
+  for (
+    let i = 1;
+    i < baseline.length;
+    i++
+  ) {
+    if (
+      baseline[i - 1]
+        ?._excludeFromLimits ||
+      baseline[i]
+        ?._excludeFromLimits
+    ) {
+      manualAdjacentMRExclusions +=
+        1;
+
+      continue;
+    }
+
+    baselineMRs.push({
+      value:
+        Math.abs(
+          baseline[i].y -
+          baseline[i - 1].y
+        ),
+
+      fromPointIndex:
+        i - 1,
+
+      toPointIndex:
+        i
+    });
   }
 
-  const avgMR = baselineMRs.length
-    ? baselineMRs.reduce((sum, v) => sum + v, 0) / baselineMRs.length
-    : 0;
+  const baselineMRValues =
+    baselineMRs.map(
+      item =>
+        item.value
+    );
 
-  const sigma = avgMR === 0 ? 0 : avgMR / 1.128;
+  const initialAvgMR =
+    baselineMRValues.length
+      ? baselineMRValues.reduce(
+          (sum, v) =>
+            sum + v,
+          0
+        ) /
+        baselineMRValues.length
+      : 0;
 
-  const ucl = mean + 3 * sigma;
-  const rawLcl = mean - 3 * sigma;
-  const lcl = (clampLclAtZero && rawLcl < 0) ? 0 : rawLcl;
+  const mrScreeningThreshold =
+    screenLargeMRs &&
+    initialAvgMR > 0
+      ? 3.5 *
+        initialAvgMR
+      : null;
 
+  const includedBaselineMRs =
+    [];
+
+  const excludedMRs =
+    [];
+
+  baselineMRs.forEach(
+    (
+      mrInfo,
+      mrIndex
+    ) => {
+      const mr =
+        mrInfo.value;
+
+      const shouldExclude =
+        screenLargeMRs &&
+        Number.isFinite(
+          mrScreeningThreshold
+        ) &&
+        mr >
+          mrScreeningThreshold;
+
+      if (shouldExclude) {
+        excludedMRs.push({
+          mrIndex,
+
+          fromPointIndex:
+            mrInfo
+              .fromPointIndex,
+
+          toPointIndex:
+            mrInfo
+              .toPointIndex,
+
+          fromLabel:
+            baseline[
+              mrInfo
+                .fromPointIndex
+            ]?.label ??
+            null,
+
+          toLabel:
+            baseline[
+              mrInfo
+                .toPointIndex
+            ]?.label ??
+            null,
+
+          value: mr
+        });
+
+      } else {
+        includedBaselineMRs.push(
+          mr
+        );
+      }
+    }
+  );
+
+  const avgMR =
+    includedBaselineMRs.length
+      ? includedBaselineMRs.reduce(
+          (sum, v) =>
+            sum + v,
+          0
+        ) /
+        includedBaselineMRs.length
+      : initialAvgMR;
+
+  const sigma =
+    avgMR === 0
+      ? 0
+      : avgMR / 1.128;
+
+  const ucl =
+    mean +
+    3 * sigma;
+
+  const rawLcl =
+    mean -
+    3 * sigma;
+
+  const lcl =
+    (
+      clampLclAtZero &&
+      rawLcl < 0
+    )
+      ? 0
+      : rawLcl;
+
+  // Keep all observed moving ranges
+  // for display on the MR chart.
   const mrValues = [];
-  for (let i = 1; i < pts.length; i++) {
-    mrValues.push(Math.abs(pts[i].y - pts[i - 1].y));
+
+  for (
+    let i = 1;
+    i < pts.length;
+    i++
+  ) {
+    mrValues.push(
+      Math.abs(
+        pts[i].y -
+        pts[i - 1].y
+      )
+    );
   }
 
-  const flagged = pts.map(p => ({
-    ...p,
-    beyondLimits: sigma > 0 && (p.y > ucl || p.y < lcl)
-  }));
+  const flagged =
+    pts.map(
+      p => ({
+        ...p,
+
+        beyondLimits:
+          !p._excludeFromLimits &&
+          sigma > 0 &&
+          (
+            p.y > ucl ||
+            p.y < lcl
+          )
+      })
+    );
 
   return {
     points: flagged,
+
     mean,
     ucl,
     lcl,
     rawLcl,
     sigma,
     avgMR,
+
+    initialAvgMR,
+
+    mrScreeningEnabled:
+      !!screenLargeMRs,
+
+    mrScreeningThreshold,
+
+    excludedMRCount:
+      excludedMRs.length,
+
+    excludedMRs,
+
+    baselineMRCount:
+      baselineMRValues.length,
+
+    effectiveMRCount:
+      includedBaselineMRs.length,
+
+    manualExcludedPointCount:
+      baseline.filter(
+        p =>
+          p._excludeFromLimits
+      ).length,
+
+    manualAdjacentMRExclusions,
+
     baselineCountUsed,
+
+    effectiveBaselinePointCount:
+      eligibleBaseline.length,
+
     mrValues
   };
 }
+
 
 // -----------------------------
 // Attribute chart calculations (C / P / U)
@@ -4208,14 +6654,35 @@ function computeC(points, baselineCount = null) {
   const n = points.length;
   const baseN = baselineCount && baselineCount >= 1 ? Math.min(baselineCount, n) : n;
 
-  const baseVals = points.slice(0, baseN).map(p => p.y).filter(v => isFinite(v));
+  const baseVals =
+  points
+    .slice(0, baseN)
+    .filter(
+      p =>
+        !p._excludeFromLimits
+    )
+    .map(
+      p => p.y
+    )
+    .filter(
+      v => isFinite(v)
+    );
   const cbar = baseVals.reduce((a, b) => a + b, 0) / baseVals.length;
 
   const sigma = Math.sqrt(Math.max(cbar, 0));
   const ucl = cbar + 3 * sigma;
   const lcl = Math.max(0, cbar - 3 * sigma); // ✅ always clamp
 
-  const beyond = points.map(p => isFinite(p.y) && (p.y > ucl || p.y < lcl));
+  const beyond =
+  points.map(
+    p =>
+      !p._excludeFromLimits &&
+      isFinite(p.y) &&
+      (
+        p.y > ucl ||
+        p.y < lcl
+      )
+  );
   return { cbar, ucl, lcl, beyond };
 }
 
@@ -4225,7 +6692,16 @@ function computeP(points, baselineCount = null, clampLclAtZero = false) {
   const nPts = points.length;
   const baseN = baselineCount && baselineCount >= 1 ? Math.min(baselineCount, nPts) : nPts;
 
-  const base = points.slice(0, baseN).filter(p => isFinite(p.y) && isFinite(p.n) && p.n > 0);
+  const base =
+  points
+    .slice(0, baseN)
+    .filter(
+      p =>
+        !p._excludeFromLimits &&
+        isFinite(p.y) &&
+        isFinite(p.n) &&
+        p.n > 0
+    );
   const sumD = base.reduce((acc, p) => acc + p.y, 0);
   const sumN = base.reduce((acc, p) => acc + p.n, 0);
 
@@ -4256,17 +6732,564 @@ function computeP(points, baselineCount = null, clampLclAtZero = false) {
     rawLcl[i] = lRaw;
     lcl[i] = Math.max(0, Math.min(1, l));
 
-    beyond[i] = (pi > ucl[i] || pi < lcl[i]);
+    beyond[i] =
+  !points[i]
+    ?._excludeFromLimits &&
+  (
+    pi > ucl[i] ||
+    pi < lcl[i]
+  );
   }
 
   return { pbar, pVals, ucl, lcl, rawLcl, beyond };
+}
+
+function computePPrime(points, baselineCount = null) {
+  const nPts = points.length;
+
+  const baseN =
+    baselineCount && baselineCount >= 1
+      ? Math.min(baselineCount, nPts)
+      : nPts;
+
+  // Baseline data used to estimate p-bar
+  const base = points
+    .slice(0, baseN)
+    .filter(
+      p =>
+        !p._excludeFromLimits &&
+	isFinite(p.y) &&
+        isFinite(p.n) &&
+        p.n > 0
+    );
+
+  const sumD = base.reduce(
+    (acc, p) => acc + p.y,
+    0
+  );
+
+  const sumN = base.reduce(
+    (acc, p) => acc + p.n,
+    0
+  );
+
+  const pbar =
+    sumN > 0
+      ? sumD / sumN
+      : NaN;
+
+  const pVals =
+    new Array(nPts).fill(NaN);
+
+  const zValues =
+    new Array(nPts).fill(NaN);
+
+  const ucl =
+    new Array(nPts).fill(NaN);
+
+  const lcl =
+    new Array(nPts).fill(NaN);
+
+  const rawLcl =
+    new Array(nPts).fill(NaN);
+
+  const beyond =
+    new Array(nPts).fill(false);
+
+  // First calculate proportions and standardised z-values.
+  for (let i = 0; i < nPts; i++) {
+    const d = points[i].y;
+    const ni = points[i].n;
+
+    if (
+      !isFinite(d) ||
+      !isFinite(ni) ||
+      ni <= 0 ||
+      !isFinite(pbar)
+    ) {
+      continue;
+    }
+
+    const pi = d / ni;
+    pVals[i] = pi;
+
+    const standardSigma =
+      Math.sqrt(
+        Math.max(
+          pbar * (1 - pbar) / ni,
+          0
+        )
+      );
+
+    if (standardSigma > 0) {
+      zValues[i] =
+        (pi - pbar) /
+        standardSigma;
+    }
+  }
+
+  // Laney Sigma Z:
+  // moving ranges of consecutive baseline z-scores.
+  const mrValues = [];
+
+  for (let i = 1; i < baseN; i++) {
+    const zPrev = zValues[i - 1];
+    const zNow = zValues[i];
+
+    if (
+  !points[i - 1]
+    ?._excludeFromLimits &&
+  !points[i]
+    ?._excludeFromLimits &&
+  Number.isFinite(zPrev) &&
+  Number.isFinite(zNow)
+) {
+      mrValues.push(
+        Math.abs(zNow - zPrev)
+      );
+    }
+  }
+
+  const avgMR =
+    mrValues.length
+      ? mrValues.reduce(
+          (a, b) => a + b,
+          0
+        ) / mrValues.length
+      : NaN;
+
+  const sigmaZ =
+    Number.isFinite(avgMR)
+      ? avgMR / 1.128
+      : NaN;
+
+  // Apply the Laney adjustment to each subgroup's
+  // ordinary binomial standard deviation.
+  for (let i = 0; i < nPts; i++) {
+    const ni = points[i].n;
+    const pi = pVals[i];
+
+    if (
+      !Number.isFinite(pi) ||
+      !Number.isFinite(ni) ||
+      ni <= 0 ||
+      !Number.isFinite(pbar) ||
+      !Number.isFinite(sigmaZ)
+    ) {
+      continue;
+    }
+
+    const standardSigma =
+      Math.sqrt(
+        Math.max(
+          pbar * (1 - pbar) / ni,
+          0
+        )
+      );
+
+    const adjustedSigma =
+      standardSigma * sigmaZ;
+
+    const u =
+      pbar +
+      3 * adjustedSigma;
+
+    const lRaw =
+      pbar -
+      3 * adjustedSigma;
+
+    // P′ limits remain bounded between 0 and 1.
+    ucl[i] =
+      Math.min(1, u);
+
+    rawLcl[i] =
+      lRaw;
+
+    lcl[i] =
+      Math.max(
+        0,
+        Math.min(1, lRaw)
+      );
+
+    beyond[i] =
+  !points[i]
+    ?._excludeFromLimits &&
+  (
+    pi > ucl[i] ||
+    pi < lcl[i]
+  );
+  }
+
+  return {
+    pbar,
+    pVals,
+    zValues,
+    mrValues,
+    avgMR,
+    sigmaZ,
+    ucl,
+    lcl,
+    rawLcl,
+    beyond,
+    baselineCountUsed: baseN,
+    baselineMRCount: mrValues.length
+  };
+}
+
+function computePDispersionDiagnostic(
+  points,
+  baselineCount = null
+) {
+  const nPts =
+    Array.isArray(points)
+      ? points.length
+      : 0;
+
+  const baseN =
+    baselineCount && baselineCount >= 1
+      ? Math.min(baselineCount, nPts)
+      : nPts;
+
+  const base =
+    (points || [])
+      .slice(0, baseN)
+      .filter(p =>
+        !p._excludeFromLimits &&
+	Number.isFinite(Number(p.y)) &&
+        Number.isFinite(Number(p.n)) &&
+        Number(p.n) > 0 &&
+        Number(p.y) >= 0 &&
+        Number(p.y) <= Number(p.n)
+      )
+      .map(p => ({
+        d: Number(p.y),
+        n: Number(p.n)
+      }));
+
+  const m = base.length;
+
+  if (m < 4) {
+    return {
+      ok: false,
+      reason:
+        "Too few usable subgroups for the dispersion check."
+    };
+  }
+
+  const sumD =
+    base.reduce(
+      (acc, p) => acc + p.d,
+      0
+    );
+
+  const sumN =
+    base.reduce(
+      (acc, p) => acc + p.n,
+      0
+    );
+
+  const nBar =
+    sumN / m;
+
+  const pBar =
+    sumN > 0
+      ? sumD / sumN
+      : NaN;
+
+  if (
+    !Number.isFinite(nBar) ||
+    nBar <= 0 ||
+    !Number.isFinite(pBar) ||
+    pBar <= 0 ||
+    pBar >= 1
+  ) {
+    return {
+      ok: false,
+      reason:
+        "The dispersion check could not be calculated for these data."
+    };
+  }
+
+  // -------------------------------------------------
+  // P-chart diagnostic:
+  // adjust each count to the average subgroup size
+  // and apply the arcsine-square-root transformation.
+  // -------------------------------------------------
+  const transformed =
+    base
+      .map(p => {
+        const adjustedCount =
+          (p.d / p.n) * nBar;
+
+        const fraction =
+          (adjustedCount + 0.375) /
+          (nBar + 0.75);
+
+        const safeFraction =
+          Math.max(
+            0,
+            Math.min(1, fraction)
+          );
+
+        return Math.asin(
+          Math.sqrt(safeFraction)
+        );
+      })
+      .filter(Number.isFinite)
+      .sort((a, b) => a - b);
+
+  if (transformed.length < 4) {
+    return {
+      ok: false,
+      reason:
+        "The dispersion check could not be calculated for these data."
+    };
+  }
+
+  // Inverse standard-normal CDF.
+  // Uses the existing normalCdf() helper via binary search.
+  function inverseNormalCdf(probability) {
+    if (
+      !Number.isFinite(probability) ||
+      probability <= 0 ||
+      probability >= 1
+    ) {
+      return NaN;
+    }
+
+    let low = -8;
+    let high = 8;
+
+    for (let i = 0; i < 60; i++) {
+      const mid =
+        (low + high) / 2;
+
+      if (normalCdf(mid) < probability) {
+        low = mid;
+      } else {
+        high = mid;
+      }
+    }
+
+    return (low + high) / 2;
+  }
+
+  // Give tied transformed values the same
+  // normal score using their average rank.
+  const ranked = [];
+
+  let i = 0;
+
+  while (i < transformed.length) {
+    let j = i + 1;
+
+    while (
+      j < transformed.length &&
+      Math.abs(
+        transformed[j] -
+        transformed[i]
+      ) <= 1e-12
+    ) {
+      j++;
+    }
+
+    // Array indices i ... j-1 correspond
+    // to ranks i+1 ... j.
+    const meanRank =
+      ((i + 1) + j) / 2;
+
+    const probability =
+      (meanRank - 0.375) /
+      (transformed.length + 0.25);
+
+    const normalScore =
+      inverseNormalCdf(probability);
+
+    for (let k = i; k < j; k++) {
+      ranked.push({
+        x: transformed[k],
+        y: normalScore
+      });
+    }
+
+    i = j;
+  }
+
+  function quantile(sortedValues, q) {
+    if (!sortedValues.length) {
+      return NaN;
+    }
+
+    const position =
+      (sortedValues.length - 1) * q;
+
+    const lower =
+      Math.floor(position);
+
+    const upper =
+      Math.ceil(position);
+
+    if (lower === upper) {
+      return sortedValues[lower];
+    }
+
+    const fraction =
+      position - lower;
+
+    return (
+      sortedValues[lower] +
+      (
+        sortedValues[upper] -
+        sortedValues[lower]
+      ) * fraction
+    );
+  }
+
+  const q1 =
+    quantile(transformed, 0.25);
+
+  const q3 =
+    quantile(transformed, 0.75);
+
+  // Published diagnostic uses only the
+  // middle 50% for the fitted line.
+  const middle =
+    ranked.filter(item =>
+      item.x >= q1 &&
+      item.x <= q3 &&
+      Number.isFinite(item.y)
+    );
+
+  if (middle.length < 2) {
+    return {
+      ok: false,
+      reason:
+        "There were not enough usable values for the dispersion check."
+    };
+  }
+
+  const meanX =
+    middle.reduce(
+      (acc, item) => acc + item.x,
+      0
+    ) / middle.length;
+
+  const meanY =
+    middle.reduce(
+      (acc, item) => acc + item.y,
+      0
+    ) / middle.length;
+
+  let numerator = 0;
+  let denominator = 0;
+
+  middle.forEach(item => {
+    numerator +=
+      (item.x - meanX) *
+      (item.y - meanY);
+
+    denominator +=
+      Math.pow(
+        item.x - meanX,
+        2
+      );
+  });
+
+  if (
+    !Number.isFinite(denominator) ||
+    denominator <= 0
+  ) {
+    return {
+      ok: false,
+      reason:
+        "There was too little variation to calculate the dispersion check."
+    };
+  }
+
+  const slope =
+    numerator / denominator;
+
+  if (
+    !Number.isFinite(slope) ||
+    slope <= 0
+  ) {
+    return {
+      ok: false,
+      reason:
+        "The dispersion check could not be calculated reliably."
+    };
+  }
+
+  const observedVariation =
+    1 / slope;
+
+  const expectedVariation =
+    1 /
+    Math.sqrt(
+      4 * nBar
+    );
+
+  const ratio =
+    (
+      observedVariation /
+      expectedVariation
+    ) * 100;
+
+  // 95% upper confidence limit for the
+  // observed/expected variation ratio.
+  const upperLimit =
+    Math.exp(
+      0.185 +
+      (5.62 / m) +
+      (
+        0.274 /
+        (nBar * pBar)
+      )
+    ) * 100;
+
+  // Published method uses a fixed
+  // lower confidence limit of 60%.
+  const lowerLimit = 60;
+
+  let status = "expected";
+
+  if (ratio > upperLimit) {
+    status = "overdispersed";
+  } else if (ratio < lowerLimit) {
+    status = "underdispersed";
+  }
+
+  return {
+    ok: true,
+    m,
+    nBar,
+    pBar,
+    observedVariation,
+    expectedVariation,
+    ratio,
+    lowerLimit,
+    upperLimit,
+    status,
+    recommendPPrime:
+      status === "overdispersed" ||
+      status === "underdispersed"
+  };
 }
 
 function computeU(points, baselineCount = null) {
   const nPts = points.length;
   const baseN = baselineCount && baselineCount >= 1 ? Math.min(baselineCount, nPts) : nPts;
 
-  const base = points.slice(0, baseN).filter(p => isFinite(p.y) && isFinite(p.n) && p.n > 0);
+  const base =
+  points
+    .slice(0, baseN)
+    .filter(
+      p =>
+        !p._excludeFromLimits &&
+        isFinite(p.y) &&
+        isFinite(p.n) &&
+        p.n > 0
+    );
   const sumC = base.reduce((acc, p) => acc + p.y, 0);
   const sumN = base.reduce((acc, p) => acc + p.n, 0);
 
@@ -4293,12 +7316,522 @@ function computeU(points, baselineCount = null) {
     ucl[i] = u;
     lcl[i] = l;
 
-    beyond[i] = (ui > ucl[i] || ui < lcl[i]);
+    beyond[i] =
+  !points[i]
+    ?._excludeFromLimits &&
+  (
+    ui > ucl[i] ||
+    ui < lcl[i]
+  );
   }
 
   return { ubar, uVals, ucl, lcl, beyond };
 }
 
+function computeUPrime(points, baselineCount = null) {
+  const nPts = points.length;
+
+  const baseN =
+    baselineCount && baselineCount >= 1
+      ? Math.min(baselineCount, nPts)
+      : nPts;
+
+  // Baseline data used to estimate u-bar
+  const base = points
+    .slice(0, baseN)
+    .filter(
+      p =>
+	!p._excludeFromLimits &&        
+	Number.isFinite(Number(p.y)) &&
+        Number.isFinite(Number(p.n)) &&
+        Number(p.n) > 0
+    );
+
+  const sumC = base.reduce(
+    (acc, p) => acc + Number(p.y),
+    0
+  );
+
+  const sumN = base.reduce(
+    (acc, p) => acc + Number(p.n),
+    0
+  );
+
+  const ubar =
+    sumN > 0
+      ? sumC / sumN
+      : NaN;
+
+  const uVals =
+    new Array(nPts).fill(NaN);
+
+  const zValues =
+    new Array(nPts).fill(NaN);
+
+  const ucl =
+    new Array(nPts).fill(NaN);
+
+  const lcl =
+    new Array(nPts).fill(NaN);
+
+  const beyond =
+    new Array(nPts).fill(false);
+
+  // Convert each subgroup rate to a z-score.
+  for (let i = 0; i < nPts; i++) {
+    const c = Number(points[i].y);
+    const ni = Number(points[i].n);
+
+    if (
+      !Number.isFinite(c) ||
+      !Number.isFinite(ni) ||
+      ni <= 0 ||
+      !Number.isFinite(ubar)
+    ) {
+      continue;
+    }
+
+    const ui =
+      c / ni;
+
+    uVals[i] =
+      ui;
+
+    // Standard U-chart standard deviation
+    const standardSigma =
+      Math.sqrt(
+        Math.max(
+          ubar / ni,
+          0
+        )
+      );
+
+    if (standardSigma > 0) {
+      zValues[i] =
+        (ui - ubar) /
+        standardSigma;
+    }
+  }
+
+  // Laney Sigma Z:
+  // moving ranges of consecutive baseline z-scores.
+  const mrValues = [];
+
+  for (let i = 1; i < baseN; i++) {
+    const zPrev =
+      zValues[i - 1];
+
+    const zNow =
+      zValues[i];
+
+    if (
+  !points[i - 1]
+    ?._excludeFromLimits &&
+  !points[i]
+    ?._excludeFromLimits &&
+  Number.isFinite(zPrev) &&
+  Number.isFinite(zNow)
+) {
+      mrValues.push(
+        Math.abs(
+          zNow - zPrev
+        )
+      );
+    }
+  }
+
+  const avgMR =
+    mrValues.length
+      ? mrValues.reduce(
+          (a, b) => a + b,
+          0
+        ) / mrValues.length
+      : NaN;
+
+  const sigmaZ =
+    Number.isFinite(avgMR)
+      ? avgMR / 1.128
+      : NaN;
+
+  // Apply the Laney adjustment to the
+  // usual U-chart standard deviation.
+  for (let i = 0; i < nPts; i++) {
+    const ni =
+      Number(points[i].n);
+
+    const ui =
+      uVals[i];
+
+    if (
+      !Number.isFinite(ui) ||
+      !Number.isFinite(ni) ||
+      ni <= 0 ||
+      !Number.isFinite(ubar) ||
+      !Number.isFinite(sigmaZ)
+    ) {
+      continue;
+    }
+
+    const standardSigma =
+      Math.sqrt(
+        Math.max(
+          ubar / ni,
+          0
+        )
+      );
+
+    const adjustedSigma =
+      standardSigma *
+      sigmaZ;
+
+    ucl[i] =
+      ubar +
+      3 * adjustedSigma;
+
+    lcl[i] =
+      Math.max(
+        0,
+        ubar -
+        3 * adjustedSigma
+      );
+
+    beyond[i] =
+  !points[i]
+    ?._excludeFromLimits &&
+  (
+    ui > ucl[i] ||
+    ui < lcl[i]
+  );
+  }
+
+  return {
+    ubar,
+    uVals,
+    zValues,
+    mrValues,
+    avgMR,
+    sigmaZ,
+    ucl,
+    lcl,
+    beyond,
+    baselineCountUsed: baseN,
+    baselineMRCount: mrValues.length
+  };
+}
+
+function computeUDispersionDiagnostic(
+  points,
+  baselineCount = null
+) {
+  const nPts =
+    Array.isArray(points)
+      ? points.length
+      : 0;
+
+  const baseN =
+    baselineCount && baselineCount >= 1
+      ? Math.min(baselineCount, nPts)
+      : nPts;
+
+  const base =
+    (points || [])
+      .slice(0, baseN)
+      .filter(p =>
+        !p._excludeFromLimits &&
+	Number.isFinite(Number(p.y)) &&
+        Number.isFinite(Number(p.n)) &&
+        Number(p.y) >= 0 &&
+        Number(p.n) > 0
+      )
+      .map(p => ({
+        c: Number(p.y),
+        n: Number(p.n)
+      }));
+
+  const m = base.length;
+
+  if (m < 4) {
+    return {
+      ok: false,
+      reason:
+        "Too few usable subgroups for the dispersion check."
+    };
+  }
+
+  const sumC =
+    base.reduce(
+      (acc, p) => acc + p.c,
+      0
+    );
+
+  const sumN =
+    base.reduce(
+      (acc, p) => acc + p.n,
+      0
+    );
+
+  const nBar =
+    sumN / m;
+
+  const uBar =
+    sumN > 0
+      ? sumC / sumN
+      : NaN;
+
+  if (
+    !Number.isFinite(nBar) ||
+    nBar <= 0 ||
+    !Number.isFinite(uBar) ||
+    uBar <= 0
+  ) {
+    return {
+      ok: false,
+      reason:
+        "The dispersion check could not be calculated for these data."
+    };
+  }
+
+  // Adjust each subgroup count to the
+  // average subgroup size.
+  const transformed =
+    base
+      .map(p => {
+        const adjustedCount =
+          (p.c / p.n) * nBar;
+
+        return (
+          Math.sqrt(adjustedCount) +
+          Math.sqrt(adjustedCount + 1)
+        );
+      })
+      .filter(Number.isFinite)
+      .sort((a, b) => a - b);
+
+  if (transformed.length < 4) {
+    return {
+      ok: false,
+      reason:
+        "The dispersion check could not be calculated for these data."
+    };
+  }
+
+  function inverseNormalCdf(probability) {
+    if (
+      !Number.isFinite(probability) ||
+      probability <= 0 ||
+      probability >= 1
+    ) {
+      return NaN;
+    }
+
+    let low = -8;
+    let high = 8;
+
+    for (let i = 0; i < 60; i++) {
+      const mid =
+        (low + high) / 2;
+
+      if (normalCdf(mid) < probability) {
+        low = mid;
+      } else {
+        high = mid;
+      }
+    }
+
+    return (low + high) / 2;
+  }
+
+  function quantile(sortedValues, q) {
+    if (!sortedValues.length) {
+      return NaN;
+    }
+
+    const position =
+      (sortedValues.length - 1) * q;
+
+    const lower =
+      Math.floor(position);
+
+    const upper =
+      Math.ceil(position);
+
+    if (lower === upper) {
+      return sortedValues[lower];
+    }
+
+    const fraction =
+      position - lower;
+
+    return (
+      sortedValues[lower] +
+      (
+        sortedValues[upper] -
+        sortedValues[lower]
+      ) * fraction
+    );
+  }
+
+  // Give tied transformed values the same
+  // normal score using their average rank.
+  const ranked = [];
+
+  let i = 0;
+
+  while (i < transformed.length) {
+    let j = i + 1;
+
+    while (
+      j < transformed.length &&
+      Math.abs(
+        transformed[j] -
+        transformed[i]
+      ) <= 1e-12
+    ) {
+      j++;
+    }
+
+    const meanRank =
+      ((i + 1) + j) / 2;
+
+    const probability =
+      (meanRank - 0.375) /
+      (transformed.length + 0.25);
+
+    const normalScore =
+      inverseNormalCdf(probability);
+
+    for (let k = i; k < j; k++) {
+      ranked.push({
+        x: transformed[k],
+        y: normalScore
+      });
+    }
+
+    i = j;
+  }
+
+  const q1 =
+    quantile(transformed, 0.25);
+
+  const q3 =
+    quantile(transformed, 0.75);
+
+  const middle =
+    ranked.filter(item =>
+      item.x >= q1 &&
+      item.x <= q3 &&
+      Number.isFinite(item.y)
+    );
+
+  if (middle.length < 2) {
+    return {
+      ok: false,
+      reason:
+        "There were not enough usable values for the dispersion check."
+    };
+  }
+
+  const meanX =
+    middle.reduce(
+      (acc, item) => acc + item.x,
+      0
+    ) / middle.length;
+
+  const meanY =
+    middle.reduce(
+      (acc, item) => acc + item.y,
+      0
+    ) / middle.length;
+
+  let numerator = 0;
+  let denominator = 0;
+
+  middle.forEach(item => {
+    numerator +=
+      (item.x - meanX) *
+      (item.y - meanY);
+
+    denominator +=
+      Math.pow(
+        item.x - meanX,
+        2
+      );
+  });
+
+  if (
+    !Number.isFinite(denominator) ||
+    denominator <= 0
+  ) {
+    return {
+      ok: false,
+      reason:
+        "There was too little variation to calculate the dispersion check."
+    };
+  }
+
+  const slope =
+    numerator / denominator;
+
+  if (
+    !Number.isFinite(slope) ||
+    slope <= 0
+  ) {
+    return {
+      ok: false,
+      reason:
+        "The dispersion check could not be calculated reliably."
+    };
+  }
+
+  // For the U diagnostic, expected variation
+  // after transformation is 1.
+  const observedVariation =
+    1 / slope;
+
+  const expectedVariation = 1;
+
+  const ratio =
+    (
+      observedVariation /
+      expectedVariation
+    ) * 100;
+
+  const upperLimit =
+    Math.exp(
+      0.182 +
+      (5.75 / m) +
+      (
+        0.195 /
+        (nBar * uBar)
+      )
+    ) * 100;
+
+  const lowerLimit = 60;
+
+  let status = "expected";
+
+  if (ratio > upperLimit) {
+    status = "overdispersed";
+  } else if (ratio < lowerLimit) {
+    status = "underdispersed";
+  }
+
+  return {
+    ok: true,
+    m,
+    nBar,
+    uBar,
+    observedVariation,
+    expectedVariation,
+    ratio,
+    lowerLimit,
+    upperLimit,
+    status,
+    recommendUPrime:
+      status === "overdispersed" ||
+      status === "underdispersed"
+  };
+}
 
 // -----------------------------
 // X̄–S chart calculations + drawing
@@ -4339,235 +7872,1049 @@ function sampleStdDev(arr) {
   return Math.sqrt(v);
 }
 
-function drawXbarSChart(points, baselineCount, labels) {
-  // Requires third column to be subgroup ID
-  if (!thirdSelect || !thirdSelect.value) {
-    showError("X̄–S chart needs a third column: Subgroup ID.");
+function drawXbarSChart(
+  points,
+  baselineCount,
+  labels
+) {
+  if (
+    !thirdSelect ||
+    !thirdSelect.value
+  ) {
+    showError(
+      "X̄–S chart needs a third column: Subgroup ID."
+    );
+
     return;
   }
-  const subgroupCol = thirdSelect.value;
 
-  // Group measurements by subgroup
-  const groups = groupBySubgroup(points, subgroupCol);
-  const subgroupKeys = Array.from(groups.keys());
+  const subgroupCol =
+    thirdSelect.value;
+
+  const groups =
+    groupBySubgroup(
+      points,
+      subgroupCol
+    );
+
+  const subgroupKeys =
+    Array.from(
+      groups.keys()
+    );
 
   const xbarVals = [];
   const sVals = [];
   const subgroupLabels = [];
+  const subgroupSizes = [];
 
-  // Build subgroup summaries
-  subgroupKeys.forEach((k) => {
-    const arr = groups.get(k) || [];
-    const vals = arr.map(p => p.y).filter(v => isFinite(v));
-    if (vals.length < 2) return;
+  subgroupKeys.forEach(
+    (k) => {
+      const arr =
+        groups.get(k) || [];
 
-    const xbar = mean(vals);
-    const s = sampleStdDev(vals);
+      const vals =
+        arr
+          .map(
+            p => p.y
+          )
+          .filter(
+            v => isFinite(v)
+          );
 
-    xbarVals.push(xbar);
-    sVals.push(s);
-    subgroupLabels.push(String(k));
-  });
+      if (
+        vals.length < 2
+      ) {
+        return;
+      }
 
-  if (xbarVals.length < 4) {
-    showError("X̄–S needs at least 4 subgroups.");
-    return;
-  }
+      xbarVals.push(
+        mean(vals)
+      );
 
-  // Determine subgroup size (most common)
-  const mostCommonSize = (() => {
-    const count = new Map();
-    for (const k of subgroupKeys) {
-      const arr = groups.get(k) || [];
-      const n = arr.length;
-      count.set(n, (count.get(n) || 0) + 1);
+      sVals.push(
+        sampleStdDev(vals)
+      );
+
+      subgroupLabels.push(
+        String(k)
+      );
+
+      subgroupSizes.push(
+        vals.length
+      );
     }
-    const sizes = Array.from(count.keys()).sort((a, b) => a - b);
-    let bestN = sizes[0] || 0, bestC = 0;
-    for (const [n, c] of count.entries()) {
-      if (c > bestC) { bestC = c; bestN = n; }
-    }
-    return bestN;
-  })();
+  );
 
-  const nSub = mostCommonSize;
-  if (!nSub || nSub < 2) {
-    showError("X̄–S needs at least 2 measurements per subgroup.");
+  if (
+    xbarVals.length < 4
+  ) {
+    showError(
+      "X̄–S needs at least 4 subgroups."
+    );
+
     return;
   }
 
-  const consts = xbarSConstants(nSub);
-  if (!consts) {
-    showError("Could not compute X̄–S constants for this subgroup size.");
-    return;
-  }
+  const m =
+    xbarVals.length;
 
-  const m = xbarVals.length;
+    const excludedSubgroupFlags =
+    subgroupLabels.map(
+      label =>
+        isLimitExcluded(
+          getLimitExclusionScope(
+            "xbars"
+          ),
+          makeSubgroupLimitExclusionKey(
+            label
+          )
+        )
+    );
 
-  // ---- Segment definition from splits (apply to subgroups) ----
-  let effectiveSplits = Array.isArray(splits) ? splits.slice() : [];
-  effectiveSplits = effectiveSplits
-    .filter(i => Number.isInteger(i) && i >= 0 && i < m - 1)
-    .sort((a, b) => a - b);
+  // --------------------------------
+  // Define process periods from splits
+  // --------------------------------
+  let effectiveSplits =
+    Array.isArray(splits)
+      ? splits.slice()
+      : [];
+
+  effectiveSplits =
+    effectiveSplits
+      .filter(
+        i =>
+          Number.isInteger(i) &&
+          i >= 0 &&
+          i < m - 1
+      )
+      .sort(
+        (a, b) => a - b
+      );
 
   const segmentStarts = [0];
   const segmentEnds = [];
-  effectiveSplits.forEach(idx => { segmentEnds.push(idx); segmentStarts.push(idx + 1); });
-  segmentEnds.push(m - 1);
 
-  const clX = new Array(m).fill(NaN);
-  const uclXArr = new Array(m).fill(NaN);
-  const lclXArr = new Array(m).fill(NaN);
-  const clS = new Array(m).fill(NaN);
-  const uclSArr = new Array(m).fill(NaN);
-  const lclSArr = new Array(m).fill(NaN);
+  effectiveSplits.forEach(
+    idx => {
+      segmentEnds.push(
+        idx
+      );
 
-  for (let s = 0; s < segmentStarts.length; s++) {
-    const start = segmentStarts[s];
-    const end = segmentEnds[s];
+      segmentStarts.push(
+        idx + 1
+      );
+    }
+  );
 
-    const segX = xbarVals.slice(start, end + 1);
-    const segS = sVals.slice(start, end + 1);
+  segmentEnds.push(
+    m - 1
+  );
+
+  const clX =
+    new Array(m).fill(NaN);
+
+  const uclXArr =
+    new Array(m).fill(NaN);
+
+  const lclXArr =
+    new Array(m).fill(NaN);
+
+  const clS =
+    new Array(m).fill(NaN);
+
+  const uclSArr =
+    new Array(m).fill(NaN);
+
+  const lclSArr =
+    new Array(m).fill(NaN);
+
+  const segmentStats = [];
+
+  // --------------------------------
+  // Calculate limits independently
+  // for every process period
+  // --------------------------------
+  for (
+    let segmentIndex = 0;
+    segmentIndex <
+      segmentStarts.length;
+    segmentIndex++
+  ) {
+    const start =
+      segmentStarts[
+        segmentIndex
+      ];
+
+    const end =
+      segmentEnds[
+        segmentIndex
+      ];
+
+    const segX =
+      xbarVals.slice(
+        start,
+        end + 1
+      );
+
+    const segS =
+      sVals.slice(
+        start,
+        end + 1
+      );
+
+    const segN =
+      subgroupSizes.slice(
+        start,
+        end + 1
+      );
 
     const segBaselineCountUsed =
-      (s === 0 && baselineCount && baselineCount >= 2)
-        ? Math.min(baselineCount, segX.length)
+      (
+        segmentIndex === 0 &&
+        baselineCount &&
+        baselineCount >= 2
+      )
+        ? Math.min(
+            baselineCount,
+            segX.length
+          )
         : segX.length;
 
-    const xbarbar = mean(segX.slice(0, segBaselineCountUsed));
-    const sbar = mean(segS.slice(0, segBaselineCountUsed));
+        const baselineLocalIndices =
+      Array.from(
+        {
+          length:
+            segBaselineCountUsed
+        },
+        (_, i) => i
+      )
+        .filter(
+          i =>
+            !excludedSubgroupFlags[
+              start + i
+            ]
+        );
 
-    const uclX = xbarbar + consts.A3 * sbar;
-    const lclX = xbarbar - consts.A3 * sbar;
+    const baseX =
+      baselineLocalIndices
+        .map(
+          i =>
+            segX[i]
+        );
 
-    const uclS = consts.B4 * sbar;
-    const lclS = consts.B3 * sbar;
+    const baseS =
+      baselineLocalIndices
+        .map(
+          i =>
+            segS[i]
+        );
 
-    for (let i = start; i <= end; i++) {
-      clX[i] = xbarbar;
-      uclXArr[i] = uclX;
-      lclXArr[i] = lclX;
+    const baseN =
+      baselineLocalIndices
+        .map(
+          i =>
+            segN[i]
+        );
 
-      clS[i] = sbar;
-      uclSArr[i] = uclS;
-      lclSArr[i] = lclS;
+    if (
+      baseX.length < 2
+    ) {
+      showError(
+        "X̄–S needs at least 2 included baseline subgroups in each period to estimate limits."
+      );
+
+      return;
+    }
+
+    const totalBaselineN =
+      baseN.reduce(
+        (acc, n) =>
+          acc + n,
+        0
+      );
+
+    const weightedBaselineSum =
+      baseX.reduce(
+        (
+          acc,
+          xbar,
+          i
+        ) =>
+          acc +
+          xbar *
+          baseN[i],
+        0
+      );
+
+    const processMean =
+      totalBaselineN > 0
+        ? weightedBaselineSum /
+          totalBaselineN
+        : NaN;
+
+    const sigmaHat =
+      estimateXbarSSigmaFromSbar(
+        baseS,
+        baseN
+      );
+
+    if (
+      !Number.isFinite(
+        processMean
+      ) ||
+      !Number.isFinite(
+        sigmaHat
+      )
+    ) {
+      showError(
+        "Could not calculate X̄–S limits for these subgroup sizes."
+      );
+
+      return;
+    }
+
+        segmentStats.push({
+      processMean,
+      sigmaHat,
+
+      baselineCountUsed:
+        segBaselineCountUsed,
+
+      effectiveBaselineCount:
+        baseX.length,
+
+      excludedBaselineCount:
+        segBaselineCountUsed -
+        baseX.length
+    });
+
+    for (
+      let i = start;
+      i <= end;
+      i++
+    ) {
+      const ni =
+        subgroupSizes[i];
+
+      const c4 =
+        c4Constant(ni);
+
+      if (
+        !Number.isFinite(c4) ||
+        c4 <= 0 ||
+        c4 >= 1
+      ) {
+        showError(
+          "Could not calculate X̄–S constants for one or more subgroup sizes."
+        );
+
+        return;
+      }
+
+      const c5 =
+        Math.sqrt(
+          Math.max(
+            1 -
+            c4 * c4,
+            0
+          )
+        );
+
+      // X̄ chart
+      clX[i] =
+        processMean;
+
+      uclXArr[i] =
+        processMean +
+        (
+          3 *
+          sigmaHat /
+          Math.sqrt(ni)
+        );
+
+      lclXArr[i] =
+        processMean -
+        (
+          3 *
+          sigmaHat /
+          Math.sqrt(ni)
+        );
+
+      // S chart
+      clS[i] =
+        c4 *
+        sigmaHat;
+
+      uclSArr[i] =
+        (
+          c4 +
+          3 * c5
+        ) *
+        sigmaHat;
+
+      lclSArr[i] =
+        Math.max(
+          0,
+          (
+            c4 -
+            3 * c5
+          ) *
+          sigmaHat
+        );
     }
   }
 
-    const flagOnChart =
-    (typeof shouldFlagSpecialCauseOnChart === "function")
+  const flagOnChart =
+    (
+      typeof shouldFlagSpecialCauseOnChart ===
+      "function"
+    )
       ? shouldFlagSpecialCauseOnChart()
       : true;
 
-  const axX = analyzeAttributeChart({
-    chartType: "xbars",
-    labels: subgroupLabels,
-    values: xbarVals,
-    cl: clX,
-    ucl: uclXArr,
-    lcl: lclXArr
-  });
+  const pointColoursX =
+    new Array(m).fill(
+      SPC_STYLE.seriesBlue
+    );
 
-  const axS = analyzeAttributeChart({
-    chartType: "xbars",
-    labels: subgroupLabels,
-    values: sVals,
-    cl: clS,
-    ucl: uclSArr,
-    lcl: lclSArr
-  });
+  const pointColoursS =
+    new Array(m).fill(
+      SPC_STYLE.seriesBlue
+    );
 
-  const pointColoursX = xbarVals.map((v, i) => {
-    if (!flagOnChart) return SPC_STYLE.seriesBlue;
-    if (axX.flags?.beyond?.[i]) return SPC_STYLE.pointBeyond;
-    if (axX.flags?.special?.[i]) return SPC_STYLE.pointSpecial;
-    return SPC_STYLE.seriesBlue;
-  });
+  const periodAnalyses = [];
 
-  const pointColoursS = sVals.map((v, i) => {
-    if (!flagOnChart) return SPC_STYLE.seriesBlue;
-    if (axS.flags?.beyond?.[i]) return SPC_STYLE.pointBeyond;
-    if (axS.flags?.special?.[i]) return SPC_STYLE.pointSpecial;
-    return SPC_STYLE.seriesBlue;
-  });
+  // --------------------------------
+  // Analyse each period independently.
+  // Rules restart after every split.
+  // --------------------------------
+  for (
+    let segmentIndex = 0;
+    segmentIndex <
+      segmentStarts.length;
+    segmentIndex++
+  ) {
+    const start =
+      segmentStarts[
+        segmentIndex
+      ];
 
-  // Draw as a combined chart (your existing approach)
+    const end =
+      segmentEnds[
+        segmentIndex
+      ];
+
+    const localLabels =
+      subgroupLabels.slice(
+        start,
+        end + 1
+      );
+
+    const xAnalysis =
+      analyzeAttributeChart({
+        chartType:
+          "xbars",
+
+	        excludedIndices:
+          Array.from(
+            {
+              length:
+                end -
+                start +
+                1
+            },
+            (_, j) => j
+          )
+            .filter(
+              j =>
+                excludedSubgroupFlags[
+                  start + j
+                ]
+            ),
+
+        labels:
+          localLabels,
+
+        values:
+          xbarVals.slice(
+            start,
+            end + 1
+          ),
+
+        cl:
+          clX.slice(
+            start,
+            end + 1
+          ),
+
+        ucl:
+          uclXArr.slice(
+            start,
+            end + 1
+          ),
+
+        lcl:
+          lclXArr.slice(
+            start,
+            end + 1
+          )
+      });
+
+    const sAnalysis =
+      analyzeAttributeChart({
+        chartType:
+          "xbars",
+	
+	        excludedIndices:
+          Array.from(
+            {
+              length:
+                end -
+                start +
+                1
+            },
+            (_, j) => j
+          )
+            .filter(
+              j =>
+                excludedSubgroupFlags[
+                  start + j
+                ]
+            ),
+
+        labels:
+          localLabels,
+
+        values:
+          sVals.slice(
+            start,
+            end + 1
+          ),
+
+        cl:
+          clS.slice(
+            start,
+            end + 1
+          ),
+
+        ucl:
+          uclSArr.slice(
+            start,
+            end + 1
+          ),
+
+        lcl:
+          lclSArr.slice(
+            start,
+            end + 1
+          )
+      });
+
+    if (flagOnChart) {
+      for (
+        let j = 0;
+        j <=
+          end - start;
+        j++
+      ) {
+        const globalIndex =
+          start + j;
+
+        if (
+          xAnalysis.flags
+            ?.beyond
+            ?.[j]
+        ) {
+          pointColoursX[
+            globalIndex
+          ] =
+            SPC_STYLE.pointBeyond;
+
+        } else if (
+          xAnalysis.flags
+            ?.special
+            ?.[j]
+        ) {
+          pointColoursX[
+            globalIndex
+          ] =
+            SPC_STYLE.pointSpecial;
+        }
+
+        if (
+          sAnalysis.flags
+            ?.beyond
+            ?.[j]
+        ) {
+          pointColoursS[
+            globalIndex
+          ] =
+            SPC_STYLE.pointBeyond;
+
+        } else if (
+          sAnalysis.flags
+            ?.special
+            ?.[j]
+        ) {
+          pointColoursS[
+            globalIndex
+          ] =
+            SPC_STYLE.pointSpecial;
+        }
+      }
+    }
+
+    const periodSizes =
+      subgroupSizes.slice(
+        start,
+        end + 1
+      );
+
+    const uniqueSizes =
+      Array.from(
+        new Set(
+          periodSizes
+        )
+      );
+
+    const variableSubgroupSizes =
+      uniqueSizes.length > 1;
+
+    const periodXUcl =
+      uclXArr
+        .slice(
+          start,
+          end + 1
+        )
+        .filter(
+          Number.isFinite
+        );
+
+    const periodXLcl =
+      lclXArr
+        .slice(
+          start,
+          end + 1
+        )
+        .filter(
+          Number.isFinite
+        );
+
+    const periodSCl =
+      clS
+        .slice(
+          start,
+          end + 1
+        )
+        .filter(
+          Number.isFinite
+        );
+
+    const periodSUcl =
+      uclSArr
+        .slice(
+          start,
+          end + 1
+        )
+        .filter(
+          Number.isFinite
+        );
+
+    const periodSLcl =
+      lclSArr
+        .slice(
+          start,
+          end + 1
+        )
+        .filter(
+          Number.isFinite
+        );
+
+    const stats =
+      segmentStats[
+        segmentIndex
+      ] || {};
+
+    periodAnalyses.push({
+      xbar:
+        xAnalysis,
+
+      s:
+        sAnalysis,
+
+      periodIndex:
+        segmentIndex + 1,
+
+      periodCount:
+        segmentStarts.length,
+
+      startIndex:
+        start,
+
+      endIndex:
+        end,
+
+      labelStart:
+        subgroupLabels[start],
+
+      labelEnd:
+        subgroupLabels[end],
+
+      stats: {
+        subgroupSize:
+          variableSubgroupSizes
+            ? null
+            : periodSizes[0],
+
+        subgroupSizes:
+          periodSizes.slice(),
+
+        subgroupSizeMin:
+          Math.min(
+            ...periodSizes
+          ),
+
+        subgroupSizeMax:
+          Math.max(
+            ...periodSizes
+          ),
+
+        variableSubgroupSizes,
+
+        processSigma:
+          stats.sigmaHat,
+
+                baselineCountUsed:
+          stats.baselineCountUsed,
+
+        effectiveBaselineCount:
+          stats.effectiveBaselineCount,
+
+        excludedBaselineCount:
+          stats.excludedBaselineCount,
+
+        xbarbar:
+          stats.processMean,
+
+        sbar:
+          variableSubgroupSizes
+            ? null
+            : clS[start],
+
+        uclX:
+          variableSubgroupSizes
+            ? null
+            : uclXArr[start],
+
+        lclX:
+          variableSubgroupSizes
+            ? null
+            : lclXArr[start],
+
+        uclS:
+          variableSubgroupSizes
+            ? null
+            : uclSArr[start],
+
+        lclS:
+          variableSubgroupSizes
+            ? null
+            : lclSArr[start],
+
+        xUclMin:
+          periodXUcl.length
+            ? Math.min(
+                ...periodXUcl
+              )
+            : NaN,
+
+        xUclMax:
+          periodXUcl.length
+            ? Math.max(
+                ...periodXUcl
+              )
+            : NaN,
+
+        xLclMin:
+          periodXLcl.length
+            ? Math.min(
+                ...periodXLcl
+              )
+            : NaN,
+
+        xLclMax:
+          periodXLcl.length
+            ? Math.max(
+                ...periodXLcl
+              )
+            : NaN,
+
+        sClMin:
+          periodSCl.length
+            ? Math.min(
+                ...periodSCl
+              )
+            : NaN,
+
+        sClMax:
+          periodSCl.length
+            ? Math.max(
+                ...periodSCl
+              )
+            : NaN,
+
+        sUclMin:
+          periodSUcl.length
+            ? Math.min(
+                ...periodSUcl
+              )
+            : NaN,
+
+        sUclMax:
+          periodSUcl.length
+            ? Math.max(
+                ...periodSUcl
+              )
+            : NaN,
+
+        sLclMin:
+          periodSLcl.length
+            ? Math.min(
+                ...periodSLcl
+              )
+            : NaN,
+
+        sLclMax:
+          periodSLcl.length
+            ? Math.max(
+                ...periodSLcl
+              )
+            : NaN
+      }
+    });
+  }
+
+  // --------------------------------
+  // Draw charts
+  // --------------------------------
   drawXbarSCombinedChart({
-    labels: subgroupLabels,
+    labels:
+      subgroupLabels,
+
     xbarVals,
     sVals,
+
     pointColoursX,
     pointColoursS,
+
     clX,
     uclXArr,
     lclXArr,
+
     clS,
     uclSArr,
-    lclSArr
+    lclSArr,
+
+    splitAfterIndices:
+      effectiveSplits
   });
 
-  // Latest period analysis (last segment only)
-  const lastSeg = segmentStarts.length - 1;
-  const start = segmentStarts[lastSeg];
-  const end = segmentEnds[lastSeg];
+  attachSubgroupLimitExclusionContext(
+    currentChart,
+    subgroupLabels
+  );
 
-  lastXbarSAnalysis = {
-    xbar: analyzeAttributeChart({
-      chartType: "xbars",
-      labels: subgroupLabels.slice(start, end + 1),
-      values: xbarVals.slice(start, end + 1),
-      cl: clX.slice(start, end + 1),
-      ucl: uclXArr.slice(start, end + 1),
-      lcl: lclXArr.slice(start, end + 1)
-    }),
-    s: analyzeAttributeChart({
-      chartType: "xbars",
-      labels: subgroupLabels.slice(start, end + 1),
-      values: sVals.slice(start, end + 1),
-      cl: clS.slice(start, end + 1),
-      ucl: uclSArr.slice(start, end + 1),
-      lcl: lclSArr.slice(start, end + 1)
-    })
-  };
+  if (mrChart) {
+    attachSubgroupLimitExclusionContext(
+      mrChart,
+      subgroupLabels
+    );
+  }
 
-  lastXbarSAnalysis.periodIndex = lastSeg + 1;
-  lastXbarSAnalysis.periodCount = segmentStarts.length;
-  lastXbarSAnalysis.startIndex = start;
-  lastXbarSAnalysis.endIndex = end;
-  lastXbarSAnalysis.labelStart = subgroupLabels[start];
-  lastXbarSAnalysis.labelEnd = subgroupLabels[end];
+  // Keep the existing helper contract:
+  // lastXbarSAnalysis remains the
+  // latest process period.
+  lastXbarSAnalysis =
+    periodAnalyses.length
+      ? periodAnalyses[
+          periodAnalyses.length - 1
+        ]
+      : null;
 
-   lastXbarSAnalysis.stats = {
-    subgroupSize: nSub,
-    xbarbar: clX[start],
-    sbar: clS[start],
-    uclX: uclXArr[start],
-    lclX: lclXArr[start],
-    uclS: uclSArr[start],
-    lclS: lclSArr[start]
-  };
-
-  if (typeof renderXbarSSummary === "function") {
-    renderXbarSSummary(lastXbarSAnalysis, subgroupLabels.length);
-  } else if (summaryDiv) {
-    const xStable = lastXbarSAnalysis.xbar.isStable;
-    const sStable = lastXbarSAnalysis.s.isStable;
-
-    summaryDiv.innerHTML = `
-      <h3>X̄–S summary (latest period)</h3>
-      <ul>
-        <li><strong>Coverage:</strong> subgroups ${start + 1}–${end + 1}.</li>
-        <li><strong>Typical subgroup size:</strong> ${nSub} measurement${nSub === 1 ? "" : "s"} per subgroup.</li>
-        <li><strong>X̄ chart centre line:</strong> ${Number.isFinite(clX[start]) ? clX[start].toFixed(3) : "not available"}; limits: LCL = ${Number.isFinite(lclXArr[start]) ? lclXArr[start].toFixed(3) : "not available"}, UCL = ${Number.isFinite(uclXArr[start]) ? uclXArr[start].toFixed(3) : "not available"}.</li>
-        <li><strong>S chart centre line:</strong> ${Number.isFinite(clS[start]) ? clS[start].toFixed(3) : "not available"}; limits: LCL = ${Number.isFinite(lclSArr[start]) ? lclSArr[start].toFixed(3) : "not available"}, UCL = ${Number.isFinite(uclSArr[start]) ? uclSArr[start].toFixed(3) : "not available"}.</li>
-        <li><strong>X̄ chart:</strong> ${xStable ? "stable (no clear signal of change)." : ("signal(s): " + lastXbarSAnalysis.xbar.signals.join("; "))}</li>
-        <li><strong>S chart:</strong> ${sStable ? "stable (no clear signal of change)." : ("signal(s): " + lastXbarSAnalysis.s.signals.join("; "))}</li>
-        <li><strong>Tip:</strong> If the S chart is unstable, the X̄ limits may not be reliable until the spread settles.</li>
-      </ul>
-    `;
+  if (
+    typeof renderXbarSSummary ===
+    "function"
+  ) {
+    renderXbarSSummary(
+      periodAnalyses,
+      subgroupLabels.length
+    );
   }
 }
 
+function computeTLimits(
+  values,
+  baselineCount = null
+) {
+  const vals =
+    (values || [])
+      .map(Number)
+      .filter(
+        v =>
+          Number.isFinite(v) &&
+          v >= 0
+      );
+
+  if (!vals.length) {
+    return {
+      mean: NaN,
+      ucl: NaN,
+      lcl: 0,
+      baselineCountUsed: 0
+    };
+  }
+
+  const baselineCountUsed =
+    (
+      baselineCount &&
+      baselineCount >= 1
+    )
+      ? Math.min(
+          baselineCount,
+          vals.length
+        )
+      : vals.length;
+
+  const base =
+    vals.slice(
+      0,
+      baselineCountUsed
+    );
+
+  const mean =
+    base.reduce(
+      (a, b) => a + b,
+      0
+    ) /
+    base.length;
+
+  const qHigh =
+    0.99865;
+
+  const ucl =
+    -mean *
+    Math.log(
+      1 - qHigh
+    );
+
+  return {
+    mean,
+    ucl,
+    lcl: 0,
+    baselineCountUsed
+  };
+}
+
+function computeGLimits(
+  values,
+  baselineCount = null
+) {
+  const vals =
+    (values || [])
+      .map(Number)
+      .filter(
+        v =>
+          Number.isFinite(v) &&
+          v >= 1
+      );
+
+  if (!vals.length) {
+    return {
+      mean: NaN,
+      p: NaN,
+      ucl: NaN,
+      lcl: NaN,
+      baselineCountUsed: 0
+    };
+  }
+
+  const baselineCountUsed =
+    (
+      baselineCount &&
+      baselineCount >= 1
+    )
+      ? Math.min(
+          baselineCount,
+          vals.length
+        )
+      : vals.length;
+
+  const base =
+    vals.slice(
+      0,
+      baselineCountUsed
+    );
+
+  const mean =
+    base.reduce(
+      (a, b) => a + b,
+      0
+    ) /
+    base.length;
+
+  const p =
+    mean > 0
+      ? 1 / mean
+      : NaN;
+
+  if (
+    !Number.isFinite(p) ||
+    p <= 0 ||
+    p >= 1
+  ) {
+    return {
+      mean,
+      p,
+      ucl: NaN,
+      lcl: NaN,
+      baselineCountUsed
+    };
+  }
+
+  function geomQuantile(
+    q
+  ) {
+    const k =
+      Math.log(
+        1 - q
+      ) /
+      Math.log(
+        1 - p
+      );
+
+    return Math.max(
+      1,
+      Math.ceil(k)
+    );
+  }
+
+  return {
+    mean,
+    p,
+
+    ucl:
+      geomQuantile(
+        0.99865
+      ),
+
+    lcl:
+      geomQuantile(
+        0.00135
+      ),
+
+    baselineCountUsed
+  };
+}
 
 // -----------------------------
 // T chart: time between events (Exponential limits via percentiles)
@@ -5446,9 +9793,17 @@ const draggableAnnotationLabelsPlugin = {
 
     let drag = null;
 
+    
     function getHitAnnotation(event) {
+      // Pareto charts do not support draggable user annotations.
+      // Their 80% reference line must remain untouched.
+      if (chart.$disableUserAnnotations) {
+        return null;
+      }
+
       const rect = canvas.getBoundingClientRect();
       const mouseX = event.clientX - rect.left;
+
 
       const labels = chart.data.labels || [];
       const xScale = chart.scales.x;
@@ -5918,14 +10273,21 @@ if (useHeaders !== autoGuess) {
 }
 
       const rows = sheetToObjects(headers, body);
+if (!rows || rows.length === 0) {
+  showError("Paste at least one row of data.");
+  return;
+}
 
-      if (!rows || rows.length === 0) {
-        showError("Paste at least one row of data.");
-        return;
-      }
+// Applying data from a newly opened Excel workbook means "new chart".
+// Applying data from the normal data editor means "edit current chart".
+const isNewExcelImport = dataEditorSourceMode === "excel";
 
-      if (!loadRows(rows)) return;
-      loadedOk = true;
+if (isNewExcelImport) {
+  if (!prepareForNewImportedChart(rows)) return;
+}
+
+if (!loadRows(rows)) return;
+loadedOk = true;
 
             clearError();
 
@@ -5948,8 +10310,20 @@ if (useHeaders !== autoGuess) {
       const hint = document.getElementById("noDataYetHint");
       if (hint) hint.style.display = "none";
 
-      try { if (generateButton) generateButton.click(); }
-      catch (genErr) { console.warn("Auto-generate failed:", genErr); }
+      if (isNewExcelImport) {
+  // A genuinely new Excel dataset should pause at chart choice
+  // rather than immediately implying that the default Run chart
+  // is necessarily the right choice.
+  showNewDataChartPrompt();
+} else {
+  // Editing the existing dataset should retain the current behaviour:
+  // redraw the existing chart immediately.
+  try {
+    if (generateButton) generateButton.click();
+  } catch (genErr) {
+    console.warn("Auto-generate failed:", genErr);
+  }
+}
 
     } catch (e) {
       console.error(e);
@@ -6028,6 +10402,16 @@ function getRuleSettingsSafe() {
    ============================================================ */
 
 const RULE_POLICY = {
+
+  // Pareto is a prioritisation / drill-down display, not a control chart.
+  pareto: {
+    beyondLimits: "blocked",
+    runShift: "blocked",
+    trend: "blocked",
+    zone23: "blocked",
+    zone45: "blocked"
+  },
+
   // Attribute charts: conservative defaults only
   c: {
     beyondLimits: "on",
@@ -6043,6 +10427,13 @@ const RULE_POLICY = {
     zone23: "blocked",
     zone45: "blocked"
   },
+  pprime: {
+ 	 beyondLimits: "on",
+ 	 runShift: "on",
+ 	 trend: "blocked",
+ 	 zone23: "blocked",
+ 	 zone45: "blocked"
+     },
   u: {
     beyondLimits: "on",
     runShift: "on",
@@ -6050,6 +10441,14 @@ const RULE_POLICY = {
     zone23: "blocked",
     zone45: "blocked"
   },
+
+  uprime: {
+  beyondLimits: "on",
+  runShift: "on",
+  trend: "blocked",
+  zone23: "blocked",
+  zone45: "blocked"
+},
 
   // Rare-event charts: beyond limits by default; run/trend only behind warning
   t: {
@@ -6170,28 +10569,49 @@ function findShiftWindow(values, cl, shiftLength) {
 
   for (let i = 0; i < values.length; i++) {
     const v = values[i];
-    if (!isFinite(v) || !isFinite(cl)) {
+
+    const centre =
+      Array.isArray(cl)
+        ? cl[i]
+        : cl;
+
+    if (
+      !isFinite(v) ||
+      !isFinite(centre)
+    ) {
       run = 0;
       side = 0;
       continue;
     }
 
-    const s = v > cl ? 1 : (v < cl ? -1 : 0);
+    const s =
+      v > centre
+        ? 1
+        : (
+            v < centre
+              ? -1
+              : 0
+          );
+
     if (s === 0) {
       run = 0;
       side = 0;
       continue;
     }
 
-    if (s === side) run += 1;
-    else {
+    if (s === side) {
+      run += 1;
+    } else {
       side = s;
       run = 1;
     }
 
     if (run >= shiftLength) {
       return {
-        start: i - shiftLength + 1,
+        start:
+          i -
+          shiftLength +
+          1,
         end: i,
         side
       };
@@ -6200,6 +10620,7 @@ function findShiftWindow(values, cl, shiftLength) {
 
   return null;
 }
+
 
 function findTrendWindow(values, trendLength) {
   let inc = 1;
@@ -6372,131 +10793,424 @@ function analyzeLimits({ labels, values, cl, ucl, lcl }) {
   return out;
 }
 
-function analyzeAttributeChart({ chartType, labels, values, cl, ucl, lcl }) {
-  const rs = (typeof getEffectiveRuleSettingsForChart === "function")
-    ? getEffectiveRuleSettingsForChart(chartType)
-    : {
-        shiftLength: 8,
-        trendLength: 6,
-        allowRunShift: true,
-        allowTrend: false,
-        allowZone23: false,
-        allowZone45: false
-      };
+function analyzeAttributeChart({
+  chartType,
+  labels,
+  values,
+  cl,
+  ucl,
+  lcl,
+  excludedIndices = []
+}) {
+  const rs =
+    (
+      typeof
+        getEffectiveRuleSettingsForChart ===
+        "function"
+    )
+      ? getEffectiveRuleSettingsForChart(
+          chartType
+        )
+      : {
+          shiftLength: 8,
+          trendLength: 6,
+          allowRunShift: true,
+          allowTrend: false,
+          allowZone23: false,
+          allowZone45: false
+        };
 
   const signals = [];
-  const n = values.length;
 
-  // Normalize limits to arrays
-  const clArr = Array.isArray(cl) ? cl : new Array(n).fill(cl);
-  const uclArr = Array.isArray(ucl) ? ucl : new Array(n).fill(ucl);
-  const lclArr = Array.isArray(lcl) ? lcl : new Array(n).fill(lcl);
+  const n =
+    values.length;
 
-  const clScalar = clArr.find(v => Number.isFinite(v));
+  const excludedSet =
+    new Set(
+      Array.isArray(
+        excludedIndices
+      )
+        ? excludedIndices.filter(
+            Number.isInteger
+          )
+        : []
+    );
+
+  // NaN deliberately breaks run/trend/zone
+  // sequences at an excluded point.
+  const analysisValues =
+    values.map(
+      (
+        value,
+        index
+      ) =>
+        excludedSet.has(
+          index
+        )
+          ? NaN
+          : value
+    );
+
+  const clArr =
+    Array.isArray(cl)
+      ? cl
+      : new Array(n)
+          .fill(cl);
+
+  const uclArr =
+    Array.isArray(ucl)
+      ? ucl
+      : new Array(n)
+          .fill(ucl);
+
+  const lclArr =
+    Array.isArray(lcl)
+      ? lcl
+      : new Array(n)
+          .fill(lcl);
+
+  const hasFiniteCentreLine =
+    clArr.some(
+      v =>
+        Number.isFinite(v)
+    );
 
   // 1) Beyond limits
   let outOfControl = [];
-  if (ucl !== undefined && lcl !== undefined) {
-    outOfControl = analyzeLimits({ labels, values, cl: clArr, ucl: uclArr, lcl: lclArr });
 
-    const hasAbove = outOfControl.some(o => o.type === "aboveUCL");
-    const hasBelow = outOfControl.some(o => o.type === "belowLCL");
+  if (
+    ucl !== undefined &&
+    lcl !== undefined
+  ) {
+    outOfControl =
+      analyzeLimits({
+        labels,
 
-    if (hasAbove) signals.push("One or more points above the upper limit");
-    if (hasBelow) signals.push("One or more points below the lower limit");
-  }
+        values:
+          analysisValues,
 
-  // 2) Shift / run
-  let shiftWindow = null;
-  if (rs.allowRunShift && Number.isFinite(clScalar)) {
-    shiftWindow = findShiftWindow(values, clScalar, rs.shiftLength);
-    if (shiftWindow) {
-      const sideText = shiftWindow.side > 0 ? "above" : "below";
-      const aLab = labels?.[shiftWindow.start] ?? `point ${shiftWindow.start + 1}`;
-      const bLab = labels?.[shiftWindow.end] ?? `point ${shiftWindow.end + 1}`;
-      signals.push(`Shift: ${rs.shiftLength}+ points in a row ${sideText} the centre line (from ${aLab} to ${bLab})`);
+        cl:
+          clArr,
+
+        ucl:
+          uclArr,
+
+        lcl:
+          lclArr
+      });
+
+    const hasAbove =
+      outOfControl.some(
+        o =>
+          o.type ===
+          "aboveUCL"
+      );
+
+    const hasBelow =
+      outOfControl.some(
+        o =>
+          o.type ===
+          "belowLCL"
+      );
+
+    if (hasAbove) {
+      signals.push(
+        "One or more points above the upper limit"
+      );
+    }
+
+    if (hasBelow) {
+      signals.push(
+        "One or more points below the lower limit"
+      );
     }
   }
 
-   // 3) Trend
-  let trendWindow = null;
+  // 2) Shift / run
+  let shiftWindow =
+    null;
+
+  if (
+    rs.allowRunShift &&
+    hasFiniteCentreLine
+  ) {
+    shiftWindow =
+      findShiftWindow(
+        analysisValues,
+        clArr,
+        rs.shiftLength
+      );
+
+    if (shiftWindow) {
+      const sideText =
+        shiftWindow.side > 0
+          ? "above"
+          : "below";
+
+      const aLab =
+        labels
+          ?.[shiftWindow.start] ??
+        `point ${
+          shiftWindow.start +
+          1
+        }`;
+
+      const bLab =
+        labels
+          ?.[shiftWindow.end] ??
+        `point ${
+          shiftWindow.end +
+          1
+        }`;
+
+      signals.push(
+        `Shift: ${rs.shiftLength}+ points in a row ${sideText} the centre line (from ${aLab} to ${bLab})`
+      );
+    }
+  }
+
+  // 3) Trend
+  let trendWindow =
+    null;
+
   if (rs.allowTrend) {
-    trendWindow = findTrendWindow(values, rs.trendLength);
+    trendWindow =
+      findTrendWindow(
+        analysisValues,
+        rs.trendLength
+      );
+
     if (trendWindow) {
-      const dirText = trendWindow.direction === "up" ? "increasing" : "decreasing";
-      const aLab = labels?.[trendWindow.start] ?? `point ${trendWindow.start + 1}`;
-      const bLab = labels?.[trendWindow.end] ?? `point ${trendWindow.end + 1}`;
-      signals.push(`Trend: ${rs.trendLength}+ points steadily ${dirText} (from ${aLab} to ${bLab})`);
+      const dirText =
+        trendWindow.direction ===
+        "up"
+          ? "increasing"
+          : "decreasing";
+
+      const aLab =
+        labels
+          ?.[trendWindow.start] ??
+        `point ${
+          trendWindow.start +
+          1
+        }`;
+
+      const bLab =
+        labels
+          ?.[trendWindow.end] ??
+        `point ${
+          trendWindow.end +
+          1
+        }`;
+
+      signals.push(
+        `Trend: ${rs.trendLength}+ points steadily ${dirText} (from ${aLab} to ${bLab})`
+      );
     }
   }
 
   // 4) Zone rules
-  let zone23Flags = new Array(n).fill(false);
-  let zone45Flags = new Array(n).fill(false);
+  let zone23Flags =
+    new Array(n)
+      .fill(false);
 
-  if ((rs.allowZone23 || rs.allowZone45) && ucl !== undefined && lcl !== undefined) {
-    const oneUp = new Array(n).fill(NaN);
-    const oneDown = new Array(n).fill(NaN);
-    const twoUp = new Array(n).fill(NaN);
-    const twoDown = new Array(n).fill(NaN);
+  let zone45Flags =
+    new Array(n)
+      .fill(false);
 
-    for (let i = 0; i < n; i++) {
-      const z = zoneThresholdsFromBand(clArr[i], uclArr[i], lclArr[i]);
-      oneUp[i] = z.oneUp;
-      oneDown[i] = z.oneDown;
-      twoUp[i] = z.twoUp;
-      twoDown[i] = z.twoDown;
+  if (
+    (
+      rs.allowZone23 ||
+      rs.allowZone45
+    ) &&
+    ucl !== undefined &&
+    lcl !== undefined
+  ) {
+    const oneUp =
+      new Array(n)
+        .fill(NaN);
+
+    const oneDown =
+      new Array(n)
+        .fill(NaN);
+
+    const twoUp =
+      new Array(n)
+        .fill(NaN);
+
+    const twoDown =
+      new Array(n)
+        .fill(NaN);
+
+    for (
+      let i = 0;
+      i < n;
+      i++
+    ) {
+      const z =
+        zoneThresholdsFromBand(
+          clArr[i],
+          uclArr[i],
+          lclArr[i]
+        );
+
+      oneUp[i] =
+        z.oneUp;
+
+      oneDown[i] =
+        z.oneDown;
+
+      twoUp[i] =
+        z.twoUp;
+
+      twoDown[i] =
+        z.twoDown;
     }
 
-    if (rs.allowZone23) {
-      const res23 = detectTwoOfThreeOuterThird(values, twoUp, twoDown);
-      zone23Flags = res23.flags || zone23Flags;
+    if (
+      rs.allowZone23
+    ) {
+      const res23 =
+        detectTwoOfThreeOuterThird(
+          analysisValues,
+          twoUp,
+          twoDown
+        );
 
-      if (res23.hits && res23.hits.length) {
-        const h = res23.hits[0];
-        const aLab = labels?.[h.start] ?? `point ${h.start + 1}`;
-        const bLab = labels?.[h.end] ?? `point ${h.end + 1}`;
-        signals.push(`Zone: 2 of 3 points in the outer third (from ${aLab} to ${bLab})`);
+      zone23Flags =
+        res23.flags ||
+        zone23Flags;
+
+      if (
+        res23.hits &&
+        res23.hits.length
+      ) {
+        const h =
+          res23.hits[0];
+
+        const aLab =
+          labels
+            ?.[h.start] ??
+          `point ${
+            h.start + 1
+          }`;
+
+        const bLab =
+          labels
+            ?.[h.end] ??
+          `point ${
+            h.end + 1
+          }`;
+
+        signals.push(
+          `Zone: 2 of 3 points in the outer third (from ${aLab} to ${bLab})`
+        );
       }
     }
 
-    if (rs.allowZone45) {
-      const res45 = detectFourOfFiveOneSigma(values, oneUp, oneDown);
-      zone45Flags = res45.flags || zone45Flags;
+    if (
+      rs.allowZone45
+    ) {
+      const res45 =
+        detectFourOfFiveOneSigma(
+          analysisValues,
+          oneUp,
+          oneDown
+        );
 
-      if (res45.hits && res45.hits.length) {
-        const h = res45.hits[0];
-        const aLab = labels?.[h.start] ?? `point ${h.start + 1}`;
-        const bLab = labels?.[h.end] ?? `point ${h.end + 1}`;
-        signals.push(`Zone: 4 of 5 points beyond 1-sigma (from ${aLab} to ${bLab})`);
+      zone45Flags =
+        res45.flags ||
+        zone45Flags;
+
+      if (
+        res45.hits &&
+        res45.hits.length
+      ) {
+        const h =
+          res45.hits[0];
+
+        const aLab =
+          labels
+            ?.[h.start] ??
+          `point ${
+            h.start + 1
+          }`;
+
+        const bLab =
+          labels
+            ?.[h.end] ??
+          `point ${
+            h.end + 1
+          }`;
+
+        signals.push(
+          `Zone: 4 of 5 points beyond 1-sigma (from ${aLab} to ${bLab})`
+        );
       }
     }
   }
 
-  // Flags for chart colouring
-  const beyondFlags = new Array(n).fill(false);
-  outOfControl.forEach(o => {
-    if (typeof o.i === "number" && o.i >= 0 && o.i < n) {
-      beyondFlags[o.i] = true;
-    }
-  });
+  const beyondFlags =
+    new Array(n)
+      .fill(false);
 
-  const shiftFlags = new Array(n).fill(false);
+  outOfControl.forEach(
+    o => {
+      if (
+        typeof o.i ===
+          "number" &&
+        o.i >= 0 &&
+        o.i < n
+      ) {
+        beyondFlags[o.i] =
+          true;
+      }
+    }
+  );
+
+  const shiftFlags =
+    new Array(n)
+      .fill(false);
+
   if (shiftWindow) {
-    for (let i = shiftWindow.start; i <= shiftWindow.end; i++) {
-      shiftFlags[i] = true;
+    for (
+      let i =
+        shiftWindow.start;
+      i <=
+        shiftWindow.end;
+      i++
+    ) {
+      shiftFlags[i] =
+        true;
     }
   }
 
-  const trendFlags = new Array(n).fill(false);
+  const trendFlags =
+    new Array(n)
+      .fill(false);
+
   if (trendWindow) {
-    for (let i = trendWindow.start; i <= trendWindow.end; i++) {
-      trendFlags[i] = true;
+    for (
+      let i =
+        trendWindow.start;
+      i <=
+        trendWindow.end;
+      i++
+    ) {
+      trendFlags[i] =
+        true;
     }
   }
 
-  const specialFlags = new Array(n).fill(false);
-  for (let i = 0; i < n; i++) {
+  const specialFlags =
+    new Array(n)
+      .fill(false);
+
+  for (
+    let i = 0;
+    i < n;
+    i++
+  ) {
     specialFlags[i] =
       beyondFlags[i] ||
       shiftFlags[i] ||
@@ -6507,29 +11221,59 @@ function analyzeAttributeChart({ chartType, labels, values, cl, ucl, lcl }) {
 
   return {
     chartType,
-    isStable: signals.length === 0,
+
+    isStable:
+      signals.length === 0,
+
     signals,
     outOfControl,
-    shiftLength: rs.shiftLength,
-    trendLength: rs.trendLength,
+
+    shiftLength:
+      rs.shiftLength,
+
+    trendLength:
+      rs.trendLength,
+
     rulePolicy: {
-      allowRunShift: rs.allowRunShift,
-      allowTrend: rs.allowTrend,
-      allowZone23: rs.allowZone23,
-      allowZone45: rs.allowZone45
+      allowRunShift:
+        rs.allowRunShift,
+
+      allowTrend:
+        rs.allowTrend,
+
+      allowZone23:
+        rs.allowZone23,
+
+      allowZone45:
+        rs.allowZone45
     },
+
     flags: {
-      beyond: beyondFlags,
-      shift: shiftFlags,
-      trend: trendFlags,
-      zone23: zone23Flags,
-      zone45: zone45Flags,
-      special: specialFlags
+      beyond:
+        beyondFlags,
+
+      shift:
+        shiftFlags,
+
+      trend:
+        trendFlags,
+
+      zone23:
+        zone23Flags,
+
+      zone45:
+        zone45Flags,
+
+      special:
+        specialFlags
     },
-    firstOutOfControl: outOfControl.length ? outOfControl[0] : null
+
+    firstOutOfControl:
+      outOfControl.length
+        ? outOfControl[0]
+        : null
   };
 }
-
 
 function analyzeRareChart({ chartType, labels, values, cl, ucl, lcl }) {
   // Rare charts use the same engine, but the policy layer decides
@@ -6540,98 +11284,450 @@ function analyzeRareChart({ chartType, labels, values, cl, ucl, lcl }) {
 function renderAttributeMultiSummary(segmentAnalyses, totalPoints) {
   if (!summaryDiv) return;
 
-  const nameMap = { c: "C chart", p: "P chart", u: "U chart" };
-  const chartType = segmentAnalyses?.[0]?.chartType;
-  const chartName = nameMap[chartType] || "Chart";
+  const nameMap = {
+    c: "C chart",
+    p: "P chart",
+    pprime: "P′ chart",
+    u: "U chart",
+ uprime: "U′ chart"
+  };
+
+  const chartType =
+    segmentAnalyses?.[0]?.chartType;
+
+  const chartName =
+    nameMap[chartType] || "Chart";
 
   const fmt = (v) =>
     Number.isFinite(v)
-      ? (typeof formatNumber === "function" ? formatNumber(v, 3) : Number(v).toFixed(3))
+      ? (
+          typeof formatNumber === "function"
+            ? formatNumber(v, 3)
+            : Number(v).toFixed(3)
+        )
       : "—";
 
-  const sym = (t) => (t === "c" ? "c\u0304" : t === "p" ? "p\u0304" : t === "u" ? "\u016B" : "CL");
+  const sym = (t) =>
+  t === "c"
+    ? "c̄"
+    : (
+        t === "p" ||
+        t === "pprime"
+      )
+      ? "p̄"
+      : (
+          t === "u" ||
+          t === "uprime"
+        )
+        ? "ū"
+        : "CL";
 
-  let html = `<h3>Summary (${chartName})</h3>`;
-  html += `<p>Total number of points: <strong>${totalPoints}</strong>. `;
-  html += `The chart is divided into <strong>${segmentAnalyses.length}</strong> period${segmentAnalyses.length !== 1 ? "s" : ""} `;
-  html += `(based on the baseline and any splits).</p>`;
+  let html =
+    `<h3>Summary (${chartName})</h3>`;
+
+  html +=
+    `<p>Total number of points: <strong>${totalPoints}</strong>. `;
+
+  html +=
+    `The chart is divided into <strong>${segmentAnalyses.length}</strong> ` +
+    `period${segmentAnalyses.length !== 1 ? "s" : ""} `;
+
+  html +=
+    `(based on the baseline and any splits).</p>`;
+
+  if (isUFamilyChartType(chartType)) {
+    const multiplier =
+      getURateMultiplier();
+
+    html +=
+      `<p>Rates are displayed per <strong>${formatURateMultiplier(multiplier)}</strong> ` +
+      `${multiplier === 1 ? "opportunity" : "opportunities"}.</p>`;
+  }
 
   segmentAnalyses.forEach((a, idx) => {
-  html += `<div class="pdf-avoid-break">`;
-  html += segmentAnalyses.length > 1 ? `<h4>Period ${idx + 1}</h4>` : `<h4>Single period</h4>`;
-  html += `<ul>`;
+    html +=
+      `<div class="pdf-avoid-break">`;
+
+    html +=
+      segmentAnalyses.length > 1
+        ? `<h4>Period ${idx + 1}</h4>`
+        : `<h4>Single period</h4>`;
+
+    html += `<ul>`;
 
     // Coverage
-    if (a.startIndex != null && a.endIndex != null && a.labelStart && a.labelEnd) {
-      const n = (a.endIndex - a.startIndex + 1);
-      html += `<li><strong>Coverage:</strong> <strong>points ${a.startIndex + 1}–${a.endIndex + 1}</strong> (${a.labelStart} to ${a.labelEnd}) – ${n} points.</li>`;
+    if (
+      a.startIndex != null &&
+      a.endIndex != null &&
+      a.labelStart &&
+      a.labelEnd
+    ) {
+      const n =
+        a.endIndex -
+        a.startIndex +
+        1;
+
+      html +=
+        `<li><strong>Coverage:</strong> ` +
+        `<strong>points ${a.startIndex + 1}–${a.endIndex + 1}</strong> ` +
+        `(${a.labelStart} to ${a.labelEnd}) – ${n} points.</li>`;
+
     } else if (a.nPoints != null) {
-      html += `<li><strong>Coverage:</strong> ${a.nPoints} points.</li>`;
+      html +=
+        `<li><strong>Coverage:</strong> ${a.nPoints} points.</li>`;
     }
 
-    // Baseline
-    if (a.baselineCountUsed != null) {
-      html += `<li><strong>Baseline for this period:</strong> first ${a.baselineCountUsed} points used to calculate centre line and limits.</li>`;
-    }
+        // Baseline
+    if (
+      a.baselineCountUsed !=
+      null
+    ) {
+      const periodStart =
+        Number.isInteger(
+          a.startIndex
+        )
+          ? a.startIndex
+          : 0;
 
-    // -------- Stats (prefer a.stats) --------
-    const st = a.stats || null;
+      const excludedSet =
+        new Set(
+          currentChart
+            ?.$limitExcludedIndices ||
+          []
+        );
 
-       // Centre line + limits
-    if (st && Number.isFinite(st.cl)) {
-      if (a.chartType === "c") {
-        html += `<li><strong>Centre line (${sym(a.chartType)}):</strong> ${fmt(st.cl)}; <strong>control limits:</strong> LCL = ${fmt(st.lcl)}, UCL = ${fmt(st.ucl)}.</li>`;
-      } else if (a.chartType === "p" || a.chartType === "u") {
-        html += `<li><strong>Centre line (${sym(a.chartType)}):</strong> ${fmt(st.cl)}; ` +
-                `<strong>control limits:</strong> ` +
-                `LCL = ${fmt(st.lclAvg)} (range ${fmt(st.lclMin)}–${fmt(st.lclMax)}), ` +
-                `UCL = ${fmt(st.uclAvg)} (range ${fmt(st.uclMin)}–${fmt(st.uclMax)}).</li>`;
-      } else {
-        html += `<li><strong>Centre line:</strong> ${fmt(st.cl)}</li>`;
+      let excludedInBaseline =
+        0;
+
+      for (
+        let i = 0;
+        i <
+          a.baselineCountUsed;
+        i++
+      ) {
+        if (
+          excludedSet.has(
+            periodStart + i
+          )
+        ) {
+          excludedInBaseline +=
+            1;
+        }
       }
+
+      const usedInBaseline =
+        Math.max(
+          0,
+          a.baselineCountUsed -
+          excludedInBaseline
+        );
+
+      html +=
+        `<li><strong>Baseline for this period:</strong> ` +
+        `first ${a.baselineCountUsed} points define the baseline window; ` +
+        `${usedInBaseline} used to calculate centre line and limits` +
+        `${
+          excludedInBaseline
+            ? `, ${excludedInBaseline} excluded`
+            : ""
+        }.</li>`;
+    }
+
+    // Stats
+    const st =
+      a.stats || null;
+
+    // Centre line + limits
+    if (
+      st &&
+      Number.isFinite(st.cl)
+    ) {
+      if (a.chartType === "c") {
+        html +=
+          `<li><strong>Centre line (${sym(a.chartType)}):</strong> ` +
+          `${fmt(st.cl)}; ` +
+          `<strong>control limits:</strong> ` +
+          `LCL = ${fmt(st.lcl)}, ` +
+          `UCL = ${fmt(st.ucl)}.</li>`;
+
+      } else if (
+  a.chartType === "p" ||
+  a.chartType === "pprime" ||
+  a.chartType === "u" ||
+  a.chartType === "uprime"
+) {
+        html +=
+          `<li><strong>Centre line (${sym(a.chartType)}):</strong> ${fmt(st.cl)}; ` +
+          `<strong>control limits:</strong> ` +
+          `LCL = ${fmt(st.lclAvg)} ` +
+          `(range ${fmt(st.lclMin)}–${fmt(st.lclMax)}), ` +
+          `UCL = ${fmt(st.uclAvg)} ` +
+          `(range ${fmt(st.uclMin)}–${fmt(st.uclMax)}).</li>`;
+
+      } else {
+        html +=
+          `<li><strong>Centre line:</strong> ${fmt(st.cl)}</li>`;
+      }
+
     } else {
-      // Fallback (older logic) if st missing
       const fallbackCL =
-        (typeof a.cl === "number" && Number.isFinite(a.cl)) ? a.cl :
-        (typeof a.centerLine === "number" && Number.isFinite(a.centerLine)) ? a.centerLine :
-        null;
+        (
+          typeof a.cl === "number" &&
+          Number.isFinite(a.cl)
+        )
+          ? a.cl
+          : (
+              typeof a.centerLine === "number" &&
+              Number.isFinite(a.centerLine)
+            )
+            ? a.centerLine
+            : null;
 
       if (fallbackCL != null) {
-        html += `<li><strong>Centre line:</strong> ${fmt(fallbackCL)}</li>`;
+        html +=
+          `<li><strong>Centre line:</strong> ${fmt(fallbackCL)}</li>`;
       }
     }
 
+  if (
+  a.chartType === "u" &&
+  st?.dispersionDiagnostic?.ok
+) {
+  const d =
+    st.dispersionDiagnostic;
 
-    // Signals (keep brief, like XmR)
-    if (!a.isStable && Array.isArray(a.signals) && a.signals.length) {
-      html += `<li><strong>Signals:</strong> ${a.signals.join("; ")}.</li>`;
+  const ratioText =
+    Number(d.ratio).toFixed(1);
+
+  const lowerText =
+    Number(d.lowerLimit).toFixed(1);
+
+  const upperText =
+    Number(d.upperLimit).toFixed(1);
+
+  if (d.status === "overdispersed") {
+    html +=
+      `<li>` +
+      `<strong>U′ may be a better fit for these data.</strong> ` +
+      `The rates vary more from point to point than a standard U chart expects for the amount of opportunity. ` +
+      `This can make a standard U chart produce limits that are too narrow and create extra alerts. ` +
+      `A U′ chart adjusts the limits for this extra variation while keeping the same rates and centre line.` +
+      `<div style="margin-top:0.45rem; font-size:0.92em;">` +
+      `<strong>Technical check:</strong> observed variation = ${ratioText}% of expected; ` +
+      `diagnostic upper limit = ${upperText}%.` +
+      `</div>` +
+      `<div style="margin-top:0.55rem;">` +
+      `<button type="button" onclick="switchUToUPrime()">` +
+      `Use U′ chart instead` +
+      `</button>` +
+      `</div>` +
+      `</li>`;
+
+  } else if (
+    d.status === "underdispersed"
+  ) {
+    html +=
+      `<li>` +
+      `<strong>U′ may be a better fit for these data.</strong> ` +
+      `The rates vary less from point to point than a standard U chart expects. ` +
+      `This can make standard U-chart limits too wide and make genuine changes harder to detect. ` +
+      `A U′ chart adjusts the limits to better match the variation actually seen in the data.` +
+      `<div style="margin-top:0.45rem; font-size:0.92em;">` +
+      `<strong>Technical check:</strong> observed variation = ${ratioText}% of expected; ` +
+      `diagnostic lower limit = ${lowerText}%.` +
+      `</div>` +
+      `<div style="margin-top:0.55rem;">` +
+      `<button type="button" onclick="switchUToUPrime()">` +
+      `Use U′ chart instead` +
+      `</button>` +
+      `</div>` +
+      `</li>`;
+
+  } else {
+    html +=
+      `<li>` +
+      `<strong>A standard U chart looks appropriate for these data.</strong> ` +
+      `The amount of variation is within the range expected for defect-rate data, ` +
+      `so there is no clear reason to use a U′ chart instead.` +
+      `<div style="margin-top:0.45rem; font-size:0.92em;">` +
+      `<strong>Technical check:</strong> observed variation = ${ratioText}% of expected; ` +
+      `expected range = ${lowerText}%–${upperText}%.` +
+      `</div>` +
+      `</li>`;
+  }
+}
+
+if (
+  a.chartType === "uprime" &&
+  Number.isFinite(st?.sigmaZ)
+) {
+  let adjustmentText = "";
+
+  if (st.sigmaZ > 1) {
+    adjustmentText =
+      "These data vary more than a standard U chart expects, so the U′ chart uses wider control limits.";
+  } else if (st.sigmaZ < 1) {
+    adjustmentText =
+      "These data vary less than a standard U chart expects, so the U′ chart uses narrower control limits.";
+  } else {
+    adjustmentText =
+      "The amount of variation is very close to what a standard U chart expects, so the adjustment is small.";
+  }
+
+  html +=
+    `<li>` +
+    `<strong>Why are these limits different?</strong> ` +
+    `${adjustmentText} ` +
+    `This helps the control limits better reflect the amount of variation actually seen in the data.` +
+    `<div style="margin-top:0.45rem; font-size:0.92em;">` +
+    `<strong>Technical detail:</strong> Sigma Z = ${fmt(st.sigmaZ)}.` +
+    `</div>` +
+    `</li>`;
+}
+
+    // P vs P′ dispersion diagnostic
+    if (
+      a.chartType === "p" &&
+      st?.dispersionDiagnostic?.ok
+    ) {
+      const d =
+        st.dispersionDiagnostic;
+
+      const ratioText =
+        Number(d.ratio).toFixed(1);
+
+      const lowerText =
+        Number(d.lowerLimit).toFixed(1);
+
+      const upperText =
+        Number(d.upperLimit).toFixed(1);
+
+      if (d.status === "overdispersed") {
+        html +=
+  `<li>` +
+  `<strong>P′ may be a better fit for these data.</strong> ` +
+  `The proportions vary more from point to point than a standard P chart expects for these sample sizes. ` +
+  `This can make a standard P chart produce limits that are too narrow and create extra alerts. ` +
+  `A P′ chart adjusts the limits for this extra variation while keeping the same proportions and centre line.` +
+  `<div style="margin-top:0.45rem; font-size:0.92em;">` +
+  `<strong>Technical check:</strong> observed variation = ${ratioText}% of expected; ` +
+  `diagnostic upper limit = ${upperText}%.` +
+  `</div>` +
+  `<div style="margin-top:0.55rem;">` +
+  `<button type="button" onclick="switchPToPPrime()">` +
+  `Use P′ chart instead` +
+  `</button>` +
+  `</div>` +
+  `</li>`;
+
+      } else if (
+        d.status === "underdispersed"
+      ) {
+        html +=
+  `<li>` +
+  `<strong>P′ may be a better fit for these data.</strong> ` +
+  `The proportions vary less from point to point than a standard P chart expects. ` +
+  `This can make standard P-chart limits too wide and make genuine changes harder to detect. ` +
+  `A P′ chart adjusts the limits to better match the variation actually seen in the data.` +
+  `<div style="margin-top:0.45rem; font-size:0.92em;">` +
+  `<strong>Technical check:</strong> observed variation = ${ratioText}% of expected; ` +
+  `diagnostic lower limit = ${lowerText}%.` +
+  `</div>` +
+  `<div style="margin-top:0.55rem;">` +
+  `<button type="button" onclick="switchPToPPrime()">` +
+  `Use P′ chart instead` +
+  `</button>` +
+  `</div>` +
+  `</li>`;
+
+      } else {
+        html +=
+  `<li>` +
+  `<strong>A standard P chart looks appropriate for these data.</strong> ` +
+  `The amount of variation is within the range expected for proportion data of these sample sizes, ` +
+  `so there is no clear reason to use a P′ chart instead.` +
+  `<div style="margin-top:0.45rem; font-size:0.92em;">` +
+  `<strong>Technical check:</strong> observed variation = ${ratioText}% of expected; ` +
+  `expected range = ${lowerText}%–${upperText}%.` +
+  `</div>` +
+  `</li>`;
+      }
     }
 
-     // Interpretation (safer wording: clear + cautious)
-    const interpretation = a.isStable
-      ? "Based on the selected rules, no clear special-cause signals were detected in this period. This suggests the pattern is consistent with routine (common-cause) variation."
-      : "Based on the selected rules, special-cause signals were detected in this period (a pattern unlikely to be routine variation alone).";
+    // Laney P′ adjustment
+    if (
+      a.chartType === "pprime" &&
+      Number.isFinite(st?.sigmaZ)
+    ) {
+      let adjustmentText = "";
+
+      if (st.sigmaZ > 1) {
+  adjustmentText =
+    "These data vary more than a standard P chart expects, so the P′ chart uses wider control limits.";
+} else if (st.sigmaZ < 1) {
+  adjustmentText =
+    "These data vary less than a standard P chart expects, so the P′ chart uses narrower control limits.";
+} else {
+  adjustmentText =
+    "The amount of variation is very close to what a standard P chart expects, so the adjustment is small.";
+}
+
+      html +=
+        `<li>` +
+`<strong>Why are these limits different?</strong> ` +
+`${adjustmentText} ` +
+`This helps the control limits better reflect the amount of variation actually seen in the data.` +
+`<div style="margin-top:0.45rem; font-size:0.92em;">` +
+`<strong>Technical detail:</strong> Sigma Z = ${fmt(st.sigmaZ)}.` +
+`</div>` +
+`</li>`;
+    }
+
+    // Signals
+    if (
+      !a.isStable &&
+      Array.isArray(a.signals) &&
+      a.signals.length
+    ) {
+      html +=
+        `<li><strong>Signals:</strong> ${a.signals.join("; ")}.</li>`;
+    }
+
+    // Interpretation
+    const interpretation =
+      a.isStable
+        ? "Based on the selected rules, no clear special-cause signals were detected in this period. This suggests the pattern is consistent with routine (common-cause) variation."
+        : "Based on the selected rules, special-cause signals were detected in this period (a pattern unlikely to be routine variation alone).";
 
     const caution =
       "These rules are prompts, not absolute answers. Interpret alongside local context (changes in process, staffing, demand, definitions/coding) and consider basic SPC assumptions (e.g. reasonably consistent measurement and opportunity over time).";
 
-    html += `<li><strong>Interpretation:</strong> ${interpretation}</li>`;
-    html += `<li><strong>Note:</strong> ${caution}</li>`;
+    html +=
+      `<li><strong>Interpretation:</strong> ${interpretation}</li>`;
+
+    html +=
+      `<li><strong>Note:</strong> ${caution}</li>`;
 
     html += `</ul>`;
     html += `</div>`;
   });
 
-  summaryDiv.innerHTML = html;
+  summaryDiv.innerHTML =
+    html;
 }
-
 
 
 
 function renderAttributeSummary(a) {
   if (!summaryDiv) return;
 
-  const nameMap = { c: "C chart", p: "P chart", u: "U chart" };
+  const nameMap = {
+  c: "C chart",
+  p: "P chart",
+  pprime: "P′ chart",
+  uprime: "U′ chart",
+  u: "U chart"
+};
   const chartName = nameMap[a.chartType] || "Chart";
 
   const stableLine = a.isStable
@@ -6662,9 +11758,15 @@ function renderAttributeSummary(a) {
   // Gentle chart-type hint (reduces misuse)
   if (a.chartType === "c") {
     html += `<li><strong>Best used when:</strong> Each time period is broadly comparable (similar time window / similar-sized service).</li>`;
-  } else if (a.chartType === "p") {
+  } else if (
+  a.chartType === "p" ||
+  a.chartType === "pprime"
+) {
     html += `<li><strong>Best used when:</strong> You have a number out of a total each time (a proportion or %).</li>`;
-  } else if (a.chartType === "u") {
+  } else if (
+  a.chartType === "u" ||
+  a.chartType === "uprime"
+) {
     html += `<li><strong>Best used when:</strong> You have a rate where the “out of how many” changes (e.g., per 1,000 bed days).</li>`;
   }
 
@@ -7024,11 +12126,47 @@ function updateXmRMultiSummary(segments, totalPoints) {
 
   segments.forEach((seg, idx) => {
     const { startIndex, endIndex, labelStart, labelEnd, result } = seg;
-    const { mean, ucl, lcl, sigma, avgMR, baselineCountUsed } = result;
+    const {
+  mean,
+  ucl,
+  lcl,
+  sigma,
+  avgMR,
+  baselineCountUsed,
+   effectiveBaselinePointCount,
+     manualExcludedPointCount,
+     manualAdjacentMRExclusions,
+  initialAvgMR,
+  mrScreeningEnabled,
+  mrScreeningThreshold,
+  excludedMRCount
+} = result;
 
     const points = result.points || [];
     const n = points.length;
-    const values = points.map(p => p.y);
+    const values =
+  points.map(
+    p =>
+      p?._excludeFromLimits
+        ? NaN
+        : p.y
+  );
+
+   const limitEstimatePointCount =
+  Number.isFinite(
+    effectiveBaselinePointCount
+  )
+    ? effectiveBaselinePointCount
+    : (
+        Number.isFinite(
+          baselineCountUsed
+        )
+          ? baselineCountUsed
+          : n
+      );
+
+const hasEnoughPointsForInterpretation =
+  limitEstimatePointCount >= MIN_XMR_LIMIT_POINTS;
 
     // --- Special-cause detection (simple, lay-focused labels) ---
     // 1) Points beyond limits
@@ -7072,27 +12210,47 @@ if (rs.allowTrend) {
     // Build simple signals list
     const signals = [];
 
-    if (beyondIdx.length > 0) {
-      signals.push("one or more points are outside the control limits");
-    }
+// Only interpret SPC signals once enough observations have been used
+// to establish the XmR limits for this period.
+if (hasEnoughPointsForInterpretation) {
+  if (beyondIdx.length > 0) {
+    signals.push("one or more points are outside the control limits");
+  }
 
-    if (runRanges.length > 0) {
-      signals.push("a sustained shift (many points on the same side of the mean)");
-    }
+  if (runRanges.length > 0) {
+    signals.push(
+      "a sustained shift (many points on the same side of the mean)"
+    );
+  }
 
-    if (rs.allowTrend && trendRanges.length > 0) {
-  signals.push("a sustained trend (steady increase or decrease)");
+  if (rs.allowTrend && trendRanges.length > 0) {
+    signals.push(
+      "a sustained trend (steady increase or decrease)"
+    );
+  }
+
+  if (astro.indices && astro.indices.length > 0) {
+    signals.push(
+      "an unusual outlier (an ‘astronomical’ point)"
+    );
+  }
 }
-
-    if (astro.indices && astro.indices.length > 0) {
-      signals.push("an unusual outlier (an ‘astronomical’ point)");
-    }
 
     // Capability (only if target exists and sigma > 0)
     let capability = null;
-    if (target !== null && sigma > 0) {
-      capability = computeTargetCapability(mean, sigma, target, direction);
-    }
+
+if (
+  hasEnoughPointsForInterpretation &&
+  target !== null &&
+  sigma > 0
+) {
+  capability = computeTargetCapability(
+    mean,
+    sigma,
+    target,
+    direction
+  );
+}
 
     // Target coverage in this period
     let targetCoverageText = "";
@@ -7128,24 +12286,139 @@ const rangeText =
     html += `<ul>`;
     html += `<li>Coverage: <strong>${rangeText}</strong> – ${n} point${n !== 1 ? "s" : ""}.</li>`;
 
-    if (baselineCountUsed && baselineCountUsed < n) {
-      html += `<li>Baseline for this period: first <strong>${baselineCountUsed}</strong> point${baselineCountUsed !== 1 ? "s" : ""} used to calculate mean and limits.</li>`;
+        const baselineWindowCount =
+      Number.isFinite(
+        baselineCountUsed
+      )
+        ? baselineCountUsed
+        : n;
+
+    const baselineUsedCount =
+      Number.isFinite(
+        effectiveBaselinePointCount
+      )
+        ? effectiveBaselinePointCount
+        : Math.max(
+            0,
+            baselineWindowCount -
+            (
+              manualExcludedPointCount ||
+              0
+            )
+          );
+
+    if (
+      baselineWindowCount < n ||
+      (
+        manualExcludedPointCount ||
+        0
+      ) > 0
+    ) {
+      html +=
+        `<li>Baseline for this period: first <strong>${baselineWindowCount}</strong> point${baselineWindowCount !== 1 ? "s" : ""} define the baseline window; ` +
+        `<strong>${baselineUsedCount}</strong> used to calculate mean and limits` +
+        `${
+          manualExcludedPointCount
+            ? `, ${manualExcludedPointCount} excluded`
+            : ""
+        }.</li>`;
+
     } else {
-      html += `<li>Baseline for this period: all points in this period used to calculate mean and limits.</li>`;
+      html +=
+        `<li>Baseline for this period: all points in this period used to calculate mean and limits.</li>`;
     }
 
     html += `<li>Mean: <strong>${mean.toFixed(3)}</strong>; control limits: <strong>LCL = ${lcl.toFixed(3)}</strong>, <strong>UCL = ${ucl.toFixed(3)}</strong>.</li>`;
     html += `<li>Estimated σ (from MR): <strong>${sigma.toFixed(3)}</strong> (average MR = ${avgMR.toFixed(3)}).</li>`;
+    if (
+  manualAdjacentMRExclusions >
+  0
+) {
+  html +=
+    `<li><strong>Excluded point adjustment:</strong> ` +
+    `${manualAdjacentMRExclusions} adjacent moving range${
+      manualAdjacentMRExclusions === 1
+        ? " was"
+        : "s were"
+    } not used in the variation estimate because ${
+      manualAdjacentMRExclusions === 1
+        ? "it involves"
+        : "they involve"
+    } an excluded point. ` +
+    `SimpleSPC does not create an artificial moving range across an excluded point.</li>`;
+}
 
-    if (target !== null) {
+// Explain XmR moving-range screening only when it is relevant.
+// Keep the main wording simple, with the technical method second.
+if (mrScreeningEnabled && excludedMRCount > 0) {
+  const changeWord =
+    excludedMRCount === 1
+      ? "change was"
+      : "changes were";
+
+  html += `
+    <li>
+      <strong>XmR limit calculation:</strong>
+      ${excludedMRCount} unusually large point-to-point
+      ${changeWord} not used when estimating routine variation.
+      All data points remain shown on the chart.
+    </li>
+  `;
+
+  if (
+    Number.isFinite(initialAvgMR) &&
+    Number.isFinite(mrScreeningThreshold)
+  ) {
+    html += `
+      <li class="hint">
+        Nelson moving-range screening was used:
+        initial average MR = ${initialAvgMR.toFixed(3)};
+        screening threshold = ${mrScreeningThreshold.toFixed(3)};
+        revised average MR = ${avgMR.toFixed(3)}.
+      </li>
+    `;
+  }
+} else if (mrScreeningEnabled === false) {
+  html += `
+    <li>
+      <strong>XmR limit calculation:</strong>
+      Moving-range screening is turned off, so all baseline
+      point-to-point changes were used to estimate routine variation.
+    </li>
+  `;
+}
+
+if (!hasEnoughPointsForInterpretation) {
+  html += `
+    <li>
+      <strong>Provisional limits:</strong>
+      only <strong>${limitEstimatePointCount}</strong>
+      point${limitEstimatePointCount !== 1 ? "s were" : " was"}
+      used to estimate the limits for this period.
+      SimpleSPC needs at least <strong>${MIN_XMR_LIMIT_POINTS}</strong>
+      points before interpreting special-cause signals or capability.
+      The displayed limits are shown for context only.
+    </li>
+  `;
+}
+
+if (target !== null) {
       html += `<li>Target: <strong>${target}</strong> (${direction === "above" ? "at or above is better" : "at or below is better"}). `;
       html += targetCoverageText ? (targetCoverageText + `</li>`) : `Target coverage not calculated for this period.</li>`;
     }
 
     // Simple, clearly labelled interpretation
-    if (signals.length === 0) {
-      html += `<li><strong>Interpretation:</strong> No clear special-cause signals were detected in this period. The pattern is consistent with natural/common variation (still interpret in clinical context).</li>`;
-    } else {
+    if (!hasEnoughPointsForInterpretation) {
+  html += `
+    <li>
+      <strong>Interpretation:</strong>
+      Not yet assessed — more data are needed before this period
+      can be interpreted as showing routine or special-cause variation.
+    </li>
+  `;
+} else if (signals.length === 0) {
+  html += `<li><strong>Interpretation:</strong> No clear special-cause signals were detected in this period. The pattern is consistent with natural/common variation (still interpret in clinical context).</li>`;
+} else {
       html += `<li><strong>Interpretation:</strong> This period shows special-cause signals: ${signals.join("; ")}.</li>`;
 
       // Optional: very short “where” hints (kept minimal)
@@ -7182,7 +12455,10 @@ const rangeText =
     if (idx === segments.length - 1) {
       lastPeriodSignals = signals;
       lastPeriodCapability = capability;
-      lastPeriodHasCapability = sigma > 0 && !!capability;
+      lastPeriodHasCapability =
+  hasEnoughPointsForInterpretation &&
+  sigma > 0 &&
+  !!capability;
 
       const hasTrend = trendRanges.length > 0;
       const hasRunViolation = runRanges.length > 0;
@@ -7190,13 +12466,25 @@ const rangeText =
       const nBeyond = beyondIdx.length;
 
       lastXmRAnalysis = {
-        mean,
-        ucl,
-        lcl,
-        sigma,
-        avgMR,
-        n,
-        signals: signals.slice(),
+  mean,
+  ucl,
+  lcl,
+  sigma,
+
+  // Moving-range calculation
+  avgMR,
+  initialAvgMR: result.initialAvgMR,
+  mrScreeningEnabled: result.mrScreeningEnabled,
+  mrScreeningThreshold: result.mrScreeningThreshold,
+  excludedMRCount: result.excludedMRCount,
+  excludedMRs: Array.isArray(result.excludedMRs)
+    ? result.excludedMRs.map(item => ({ ...item }))
+    : [],
+  baselineMRCount: result.baselineMRCount,
+  effectiveMRCount: result.effectiveMRCount,
+
+  n,
+  signals: signals.slice(),
         hasTrend,
         hasRunViolation,
         hasAstronomical,
@@ -7204,8 +12492,16 @@ const rangeText =
         baselineCountUsed,
         target,
         direction,
-        capability,
-        isStable: signals.length === 0,
+                capability,
+
+        hasEnoughPointsForInterpretation,
+        limitEstimatePointCount,
+        minimumPointsForInterpretation: MIN_XMR_LIMIT_POINTS,
+
+        isStable: hasEnoughPointsForInterpretation
+          ? signals.length === 0
+          : null,
+
         // thresholds used (handy for helper explanations)
         shiftLength,
         trendLength,
@@ -7272,107 +12568,354 @@ const rangeText =
   }
 }
 
-function renderXbarSSummary(latestAnalysis, totalSubgroups) {
-  if (!summaryDiv || !latestAnalysis) return;
+function renderXbarSSummary(
+  periodAnalyses,
+  totalSubgroups
+) {
+  if (!summaryDiv) return;
 
-  const x = latestAnalysis.xbar;
-  const s = latestAnalysis.s;
+  const periods =
+    Array.isArray(
+      periodAnalyses
+    )
+      ? periodAnalyses.filter(
+          Boolean
+        )
+      : periodAnalyses
+        ? [periodAnalyses]
+        : [];
 
-  const xStable = !!x?.isStable;
-  const sStable = !!s?.isStable;
-
-  const periodIndex = latestAnalysis.periodIndex || 1;
-  const periodCount = latestAnalysis.periodCount || 1;
-  const startIndex = latestAnalysis.startIndex ?? 0;
-  const endIndex = latestAnalysis.endIndex ?? 0;
-  const labelStart = latestAnalysis.labelStart;
-  const labelEnd = latestAnalysis.labelEnd;
-
-  const stats = latestAnalysis.stats || {};
-  const subgroupSizeText = Number.isFinite(stats.subgroupSize)
-    ? `${stats.subgroupSize}`
-    : "not stated";
-
-  const xbarbarText = Number.isFinite(stats.xbarbar)
-    ? stats.xbarbar.toFixed(3)
-    : "not available";
-
-  const sbarText = Number.isFinite(stats.sbar)
-    ? stats.sbar.toFixed(3)
-    : "not available";
-
-  const uclXText = Number.isFinite(stats.uclX)
-    ? stats.uclX.toFixed(3)
-    : "not available";
-
-  const lclXText = Number.isFinite(stats.lclX)
-    ? stats.lclX.toFixed(3)
-    : "not available";
-
-  const uclSText = Number.isFinite(stats.uclS)
-    ? stats.uclS.toFixed(3)
-    : "not available";
-
-  const lclSText = Number.isFinite(stats.lclS)
-    ? stats.lclS.toFixed(3)
-    : "not available";
-
-  const base = `subgroups ${startIndex + 1}–${endIndex + 1}`;
-  const rangeText =
-    (typeof getAxisType === "function" &&
-      getAxisType() === "date" &&
-      labelStart !== undefined &&
-      labelEnd !== undefined)
-      ? `${base} (${formatDateOnlyLabel(labelStart)} to ${formatDateOnlyLabel(labelEnd)})`
-      : base;
-
-  const xSignals = Array.isArray(x?.signals) ? x.signals : [];
-  const sSignals = Array.isArray(s?.signals) ? s.signals : [];
-
-  let overallInterpretation = "";
-  if (xStable && sStable) {
-    overallInterpretation =
-      "Both the subgroup averages (X̄) and within-subgroup variation (S) look stable in the latest period. No clear special-cause signals were detected in the latest X̄–S period. This suggests the process may be behaving consistently, but it should still be monitored and interpreted with local context.";
-  } else if (!xStable && sStable) {
-    overallInterpretation =
-      "The subgroup averages (X̄) show special-cause signals, but the within-subgroup variation (S) looks stable. This suggests that the process level may have shifted while within-group variation stayed broadly consistent.";
-  } else if (xStable && !sStable) {
-    overallInterpretation =
-      "The subgroup averages (X̄) look stable, but the within-subgroup variation (S) shows special-cause signals. This suggests the average level may be steady while consistency within subgroups has changed.";
-  } else {
-    overallInterpretation =
-      "Both the subgroup averages (X̄) and the within-subgroup variation (S) show special-cause signals. This suggests the process level and its consistency may both have changed.";
+  if (!periods.length) {
+    return;
   }
 
-  let html = `<h3>X̄–S summary (latest period)</h3>`;
-  html += `<p>Total number of subgroups: <strong>${totalSubgroups}</strong>. `;
-  html += `Showing interpretation for <strong>period ${periodIndex} of ${periodCount}</strong>.</p>`;
+  const fmt =
+    (value) =>
+      Number.isFinite(value)
+        ? Number(value)
+            .toFixed(3)
+        : "not available";
 
-  html += `<div class="pdf-avoid-break">`;
-  html += `<ul>`;
-  html += `<li><strong>Coverage:</strong> ${rangeText}.</li>`;
-  html += `<li><strong>Typical subgroup size:</strong> ${subgroupSizeText} measurement${subgroupSizeText === "1" ? "" : "s"} per subgroup.</li>`;
-  html += `<li><strong>X̄ chart centre line:</strong> ${xbarbarText}; limits: LCL = ${lclXText}, UCL = ${uclXText}.</li>`;
-  html += `<li><strong>S chart centre line:</strong> ${sbarText}; limits: LCL = ${lclSText}, UCL = ${uclSText}.</li>`;
+  const signalText =
+    (
+      analysis,
+      stableText
+    ) => {
+      if (
+        analysis?.isStable
+      ) {
+        return stableText;
+      }
 
-  if (xStable) {
-    html += `<li><strong>X̄ chart:</strong> stable (no clear signal of change in subgroup averages).</li>`;
+      const signals =
+        Array.isArray(
+          analysis?.signals
+        )
+          ? analysis.signals
+              .filter(Boolean)
+          : [];
+
+      return signals.length
+        ? (
+            `signal(s): ` +
+            `${signals.join("; ")}.`
+          )
+        : (
+            "one or more special-cause signals were detected."
+          );
+    };
+
+  let html =
+    `<h3>X̄–S summary</h3>`;
+
+  html +=
+    `<p>Total number of subgroups: ` +
+    `<strong>${totalSubgroups}</strong>. ` +
+    `The chart is divided into ` +
+    `<strong>${periods.length}</strong> ` +
+    `period${periods.length === 1 ? "" : "s"} ` +
+    `(based on the baseline and any splits).</p>`;
+
+  periods.forEach(
+    (
+      period,
+      index
+    ) => {
+      const x =
+        period.xbar;
+
+      const s =
+        period.s;
+
+      const stats =
+        period.stats || {};
+
+      const xStable =
+        !!x?.isStable;
+
+      const sStable =
+        !!s?.isStable;
+
+      const variableSubgroupSizes =
+        !!stats.variableSubgroupSizes;
+
+      const subgroupSizeText =
+        (
+          variableSubgroupSizes &&
+          Number.isFinite(
+            stats.subgroupSizeMin
+          ) &&
+          Number.isFinite(
+            stats.subgroupSizeMax
+          )
+        )
+          ? (
+              `${stats.subgroupSizeMin}–` +
+              `${stats.subgroupSizeMax} ` +
+              `(varies by subgroup)`
+            )
+          : Number.isFinite(
+              stats.subgroupSize
+            )
+            ? `${stats.subgroupSize}`
+            : "not stated";
+
+      const coverage =
+        (
+          period.labelStart !==
+            undefined &&
+          period.labelEnd !==
+            undefined
+        )
+          ? (
+              `${period.labelStart} ` +
+              `to ` +
+              `${period.labelEnd}`
+            )
+          : (
+              `subgroups ` +
+              `${period.startIndex + 1}–` +
+              `${period.endIndex + 1}`
+            );
+
+      let interpretation =
+        "";
+
+      if (
+        xStable &&
+        sStable
+      ) {
+        interpretation =
+          "Both the subgroup averages (X̄) and within-subgroup variation (S) look stable in this period.";
+
+      } else if (
+        !xStable &&
+        sStable
+      ) {
+        interpretation =
+          "The subgroup averages (X̄) show special-cause signals, while within-subgroup variation (S) looks stable.";
+
+      } else if (
+        xStable &&
+        !sStable
+      ) {
+        interpretation =
+          "The subgroup averages (X̄) look stable, while within-subgroup variation (S) shows special-cause signals.";
+
+      } else {
+        interpretation =
+          "Both the subgroup averages (X̄) and within-subgroup variation (S) show special-cause signals.";
+      }
+
+      html +=
+        `<div class="pdf-avoid-break">`;
+
+      html +=
+        `<h4>Period ${index + 1} of ` +
+        `${periods.length}: ` +
+        `${coverage}</h4>`;
+
+      html += `<ul>`;
+
+      html +=
+        `<li>` +
+        `<strong>Subgroup size:</strong> ` +
+        `${subgroupSizeText} ` +
+        `measurement${stats.subgroupSize === 1 ? "" : "s"} ` +
+        `per subgroup.` +
+        `</li>`;
+
+            if (
+        Number.isFinite(
+          stats.baselineCountUsed
+        ) &&
+        (
+          index === 0 ||
+          Number(
+            stats.excludedBaselineCount
+          ) > 0
+        )
+      ) {
+        const usedBaseline =
+          Number.isFinite(
+            stats.effectiveBaselineCount
+          )
+            ? stats.effectiveBaselineCount
+            : stats.baselineCountUsed;
+
+        const excludedBaseline =
+          Number.isFinite(
+            stats.excludedBaselineCount
+          )
+            ? stats.excludedBaselineCount
+            : 0;
+
+        html +=
+          `<li>` +
+          `<strong>Baseline:</strong> ` +
+          `the first ${stats.baselineCountUsed} subgroup${stats.baselineCountUsed === 1 ? "" : "s"} define the calculation window; ` +
+          `${usedBaseline} used to estimate the limits` +
+          `${
+            excludedBaseline
+              ? `, ${excludedBaseline} excluded`
+              : ""
+          }.` +
+          `</li>`;
+      }
+
+      if (
+        variableSubgroupSizes
+      ) {
+        html +=
+          `<li>` +
+          `<strong>X̄ chart centre line:</strong> ` +
+          `${fmt(stats.xbarbar)}; ` +
+          `<strong>control limits vary with subgroup size:</strong> ` +
+          `LCL range = ` +
+          `${fmt(stats.xLclMin)}–${fmt(stats.xLclMax)}, ` +
+          `UCL range = ` +
+          `${fmt(stats.xUclMin)}–${fmt(stats.xUclMax)}.` +
+          `</li>`;
+
+        html +=
+          `<li>` +
+          `<strong>S chart:</strong> ` +
+          `the expected S and its control limits vary with subgroup size. ` +
+          `Centre-line range = ` +
+          `${fmt(stats.sClMin)}–${fmt(stats.sClMax)}; ` +
+          `LCL range = ` +
+          `${fmt(stats.sLclMin)}–${fmt(stats.sLclMax)}; ` +
+          `UCL range = ` +
+          `${fmt(stats.sUclMin)}–${fmt(stats.sUclMax)}.` +
+          `</li>`;
+
+        html +=
+          `<li>` +
+          `<strong>Estimated process standard deviation:</strong> ` +
+          `${fmt(stats.processSigma)}.` +
+          `</li>`;
+
+      } else {
+        html +=
+          `<li>` +
+          `<strong>X̄ chart centre line:</strong> ` +
+          `${fmt(stats.xbarbar)}; limits: ` +
+          `LCL = ${fmt(stats.lclX)}, ` +
+          `UCL = ${fmt(stats.uclX)}.` +
+          `</li>`;
+
+        html +=
+          `<li>` +
+          `<strong>S chart centre line:</strong> ` +
+          `${fmt(stats.sbar)}; limits: ` +
+          `LCL = ${fmt(stats.lclS)}, ` +
+          `UCL = ${fmt(stats.uclS)}.` +
+          `</li>`;
+      }
+
+      html +=
+        `<li>` +
+        `<strong>X̄ chart:</strong> ` +
+        `${signalText(
+          x,
+          "stable (no clear signal of change in subgroup averages)."
+        )}` +
+        `</li>`;
+
+      html +=
+        `<li>` +
+        `<strong>S chart:</strong> ` +
+        `${signalText(
+          s,
+          "stable (no clear signal of change in within-subgroup variation)."
+        )}` +
+        `</li>`;
+
+      html +=
+        `<li>` +
+        `<strong>Interpretation:</strong> ` +
+        `${interpretation}` +
+        `</li>`;
+
+      html += `</ul>`;
+      html += `</div>`;
+    }
+  );
+
+  const latest =
+    periods[
+      periods.length - 1
+    ];
+
+  const latestXStable =
+    !!latest
+      ?.xbar
+      ?.isStable;
+
+  const latestSStable =
+    !!latest
+      ?.s
+      ?.isStable;
+
+  let latestText = "";
+
+  if (
+    latestXStable &&
+    latestSStable
+  ) {
+    latestText =
+      "The latest period looks stable on both parts of the X̄–S chart. " +
+      "That means the current process level and within-subgroup variation are behaving broadly consistently under the current rule settings.";
+
+  } else if (
+    !latestXStable &&
+    latestSStable
+  ) {
+    latestText =
+      "The latest period shows possible change in the subgroup averages, while within-subgroup variation remains stable.";
+
+  } else if (
+    latestXStable &&
+    !latestSStable
+  ) {
+    latestText =
+      "The latest period shows possible change in within-subgroup variation, while the subgroup averages remain stable.";
+
   } else {
-    html += `<li><strong>X̄ chart:</strong> signal(s): ${xSignals.join("; ")}.</li>`;
+    latestText =
+      "The latest period shows possible special-cause variation in both the subgroup averages and within-subgroup variation.";
   }
 
-  if (sStable) {
-    html += `<li><strong>S chart:</strong> stable (no clear signal of change in within-subgroup variation).</li>`;
-  } else {
-    html += `<li><strong>S chart:</strong> signal(s): ${sSignals.join("; ")}.</li>`;
-  }
+  html +=
+    `<div class="pdf-avoid-break">` +
+    `<p><strong>Latest period:</strong> ` +
+    `${latestText}</p>` +
+    `</div>`;
 
-  html += `<li><strong>Interpretation:</strong> ${overallInterpretation}</li>`;
-  html += `</ul>`;
-  html += `</div>`;
-
-  summaryDiv.innerHTML = html;
+  summaryDiv.innerHTML =
+    html;
 }
+
 
 // Approximate standard normal CDF Φ(z)
 function normalCdf(z) {
@@ -7937,16 +13480,27 @@ function handleValidationResult(result, { manual = true } = {}) {
 
 
 // ---- Generate chart button ----
-generateButton.addEventListener("click", () => {
-  lastGenerateWasManual = true;
+generateButton.addEventListener("click", (evt) => {
+  lastGenerateWasManual = !!evt.isTrusted;
   clearError();
+
 
 
   if (summaryDiv) summaryDiv.innerHTML = "";
   if (capabilityDiv) capabilityDiv.innerHTML = "";
-
   if (typeof validateAxisSettings === "function" && !validateAxisSettings()) return;
   if (!validateBeforeGenerate()) return;
+
+  // A previous SPC helper answer may describe a different
+  // chart, dataset, target or analysis setting.
+  // Clear it before generating the updated analysis.
+  if (spcHelperOutput) {
+    spcHelperOutput.innerHTML = "";
+  }
+
+  if (aiQuestionInput) {
+    aiQuestionInput.value = "";
+  }
 
   try {
     const dateCol = dateSelect.value;
@@ -7954,6 +13508,57 @@ generateButton.addEventListener("click", () => {
     const axisType = getAxisType();
 
         const chartType = getSelectedChartType_NoSideEffects();
+
+    if (
+      chartType ===
+      "pareto"
+    ) {
+      if (currentChart) {
+        currentChart.destroy();
+        currentChart = null;
+      }
+
+      if (mrChart) {
+        mrChart.destroy();
+        mrChart = null;
+      }
+
+      if (mrPanel) {
+        mrPanel.style.display =
+          "none";
+      }
+
+      drawParetoChart(
+        rawRows,
+        dateCol,
+        valueCol
+      );
+
+      if (
+        yAxisBoundsManuallyEdited &&
+        currentChart
+      ) {
+        applyCurrentChartYBoundsToInputs(
+          currentChart
+        );
+      }
+
+      if (
+        typeof updateYAxisInputStep ===
+        "function"
+      ) {
+        updateYAxisInputStep();
+      }
+
+      if (
+        typeof clearDataModelDirty ===
+        "function"
+      ) {
+        clearDataModelDirty();
+      }
+
+      return;
+    }
 
     // --- 1) Build points depending on axis type and chart type ---
     let parsedPoints;
@@ -8125,174 +13730,377 @@ if (chartType === "run") {
 
   drawCChart(points, baselineCount, labels);
 
-} else if (chartType === "p" || chartType === "u") {
-  // P/U require a third column (denominator/opportunities)
-  if (!thirdSelect || !thirdSelect.value) {
-    showError(`The ${getChartTypeDisplayName(chartType)} needs a third column. Please choose ${chartType === "p" ? "a denominator (total)" : "an opportunities column"} before generating the chart.`);
+} else if (
+  isPFamilyChartType(chartType) ||
+  isUFamilyChartType(chartType)
+) {
+  const isPFamily =
+    isPFamilyChartType(chartType);
+
+  const isUFamily =
+    isUFamilyChartType(chartType);
+
+  // P/P′ and U/U′ require a third column
+  // (denominator or opportunities).
+  if (
+    !thirdSelect ||
+    !thirdSelect.value
+  ) {
+    showError(
+      `The ${getChartTypeDisplayName(chartType)} needs a third column. ` +
+      `Please choose ${
+        isPFamily
+          ? "a denominator (total)"
+          : "an opportunities column"
+      } before generating the chart.`
+    );
+
     return;
   }
 
-  const denomCol = thirdSelect.value;
+  const denomCol =
+    thirdSelect.value;
 
-  // Build points with denominator using original row index saved on each point
-  const pointsWithNOrdered = points.map((p, i) => {
-    const row = rawRows[p._rowIndex];
-    const numerator = toNumericValue(row[valueSelect.value]);
-    const denom = toNumericValue(row[denomCol]);
+  // Build points with denominator/opportunities
+  // using the original source-row index.
+  const pointsWithNOrdered =
+    points.map((p, i) => {
+      const row =
+        rawRows[p._rowIndex];
 
-    return {
-      x: p.x,
-      y: numerator,  // P chart: numerator (d); U chart: numerator (c)
-      n: denom,      // denominator/opportunities
-      label: labels[i],
-      _rowIndex: p._rowIndex
-    };
-  });
+      const numerator =
+        toNumericValue(
+          row[valueSelect.value]
+        );
 
-  // -----------------------------
-  // VALIDATION: P / U charts
-  // -----------------------------
-  const numerArr = pointsWithNOrdered.map(p => p.y);
-  const denomArr = pointsWithNOrdered.map(p => p.n);
+      const denom =
+        toNumericValue(
+          row[denomCol]
+        );
 
-  // Block: non-numeric or negative numerator
-    const currentNumer = valueSelect?.value || "";
-  const currentDenom = thirdSelect?.value || "";
-  const fallback = (typeof chooseDefaultsForChart === "function")
-    ? chooseDefaultsForChart(chartType)
-    : null;
+      return {
+        x: p.x,
+        y: numerator,
+        n: denom,
+        label: labels[i],
+        _rowIndex: p._rowIndex
+      };
+    });
 
-  const fallbackNumer = fallback?.yCol || "";
-  const fallbackDenom = fallback?.thirdCol || "";
+  const numerArr =
+    pointsWithNOrdered.map(
+      p => p.y
+    );
 
-  if (!handleValidationResult(
-    validateNonNegativeNumbers(
-      numerArr,
-      chartType === "p" ? "P chart numerator (d)" : "U chart numerator (c)",
-      {
-        columnName: currentNumer,
-        alternativeColumn: fallbackNumer && fallbackNumer !== currentNumer ? fallbackNumer : "",
-        purposeText: chartType === "p" ? "numerator column" : "count column"
-      }
+  const denomArr =
+    pointsWithNOrdered.map(
+      p => p.n
+    );
+
+  const currentNumer =
+    valueSelect?.value || "";
+
+  const currentDenom =
+    thirdSelect?.value || "";
+
+  const fallback =
+    (
+      typeof chooseDefaultsForChart ===
+      "function"
     )
-  )) return;
+      ? chooseDefaultsForChart(
+          chartType
+        )
+      : null;
 
-  // Extra UX recovery for P / U:
-  // if the current pair is poor for the chosen chart type,
-  // try the tool's preferred default pair before showing a hard error.
-  if (chartType === "p" || chartType === "u") {
-    
+  const fallbackNumer =
+    fallback?.yCol || "";
 
-    const canTryFallback =
-      fallbackNumer &&
-      fallbackDenom &&
-      fallbackNumer !== fallbackDenom &&
-      (fallbackNumer !== currentNumer || fallbackDenom !== currentDenom);
+  const fallbackDenom =
+    fallback?.thirdCol || "";
 
-    let shouldFallback = false;
+  // Numerator/count must be numeric and non-negative.
+  if (
+    !handleValidationResult(
+      validateNonNegativeNumbers(
+        numerArr,
+        isPFamily
+          ? "P/P′ chart numerator (d)"
+          : "U/U′ chart numerator (c)",
+        {
+          columnName:
+            currentNumer,
 
-    if (chartType === "p") {
-      const pPairValidation = validateNumeratorNotGreaterThanDenom(numerArr, denomArr, {
-  numeratorColumn: currentNumer,
-  denominatorColumn: currentDenom,
-  alternativeNumerator: fallbackNumer && fallbackNumer !== currentNumer ? fallbackNumer : "",
-  alternativeDenominator: fallbackDenom && fallbackDenom !== currentDenom ? fallbackDenom : ""
-});
-      if (pPairValidation) {
-        if (canTryFallback && valueSelect && thirdSelect) {
-          valueSelect.value = fallbackNumer;
-          thirdSelect.value = fallbackDenom;
+          alternativeColumn:
+            fallbackNumer &&
+            fallbackNumer !== currentNumer
+              ? fallbackNumer
+              : "",
 
-          showChartMessage(
-            "I changed the numerator and denominator columns to a more suitable pair for a P chart."
-          );
-
-          if (generateButton) {
-            lastGenerateWasManual = false;
-            generateButton.click();
-          }
-          return;
+          purposeText:
+            isPFamily
+              ? "numerator column"
+              : "count column"
         }
+      )
+    )
+  ) {
+    return;
+  }
 
-        if (!handleValidationResult(pPairValidation)) return;
-      }
-    }
+  const canTryFallback =
+    fallbackNumer &&
+    fallbackDenom &&
+    fallbackNumer !== fallbackDenom &&
+    (
+      fallbackNumer !== currentNumer ||
+      fallbackDenom !== currentDenom
+    );
 
-    if (chartType === "u") {
-      const invalidDenominator =
-        denomArr.some(d => !Number.isFinite(d) || d <= 0);
+  // -------------------------------------------------
+  // P / P′ only:
+  // numerator cannot be greater than denominator.
+  // -------------------------------------------------
+  if (isPFamily) {
+    const pPairValidation =
+      validateNumeratorNotGreaterThanDenom(
+        numerArr,
+        denomArr,
+        {
+          numeratorColumn:
+            currentNumer,
 
-      const sameColumnChosen =
-        currentNumer &&
-        currentDenom &&
-        currentNumer === currentDenom;
+          denominatorColumn:
+            currentDenom,
 
-      if (invalidDenominator || sameColumnChosen) {
-        shouldFallback = true;
-      }
+          alternativeNumerator:
+            fallbackNumer &&
+            fallbackNumer !== currentNumer
+              ? fallbackNumer
+              : "",
 
-      if (shouldFallback && canTryFallback && valueSelect && thirdSelect) {
-        valueSelect.value = fallbackNumer;
-        thirdSelect.value = fallbackDenom;
+          alternativeDenominator:
+            fallbackDenom &&
+            fallbackDenom !== currentDenom
+              ? fallbackDenom
+              : ""
+        }
+      );
+
+    if (pPairValidation) {
+      if (
+        canTryFallback &&
+        valueSelect &&
+        thirdSelect
+      ) {
+        valueSelect.value =
+          fallbackNumer;
+
+        thirdSelect.value =
+          fallbackDenom;
 
         showChartMessage(
-          "I changed the count and opportunities columns to a more suitable pair for a U chart."
+          "I changed the numerator and denominator columns to a more suitable pair for a P/P′ chart."
         );
 
         if (generateButton) {
-          lastGenerateWasManual = false;
+          lastGenerateWasManual =
+            false;
+
           generateButton.click();
         }
+
+        return;
+      }
+
+      if (
+        !handleValidationResult(
+          pPairValidation
+        )
+      ) {
         return;
       }
     }
   }
 
-  // Block: denominator must be > 0
-    if (!handleValidationResult(
-    validateDenominatorPositive(
-      denomArr,
-      chartType === "p"
-        ? "P chart denominator (n)"
-        : "U chart denominator/opportunities (n)",
+  // -------------------------------------------------
+  // U / U′ only:
+  // counts may exceed opportunities, but the
+  // opportunities must be positive and the selected
+  // columns must be different.
+  // -------------------------------------------------
+  if (isUFamily) {
+    const invalidDenominator =
+      denomArr.some(
+        d =>
+          !Number.isFinite(d) ||
+          d <= 0
+      );
+
+    const sameColumnChosen =
+      currentNumer &&
+      currentDenom &&
+      currentNumer === currentDenom;
+
+    if (
+      (
+        invalidDenominator ||
+        sameColumnChosen
+      ) &&
+      canTryFallback &&
+      valueSelect &&
+      thirdSelect
+    ) {
+      valueSelect.value =
+        fallbackNumer;
+
+      thirdSelect.value =
+        fallbackDenom;
+
+      showChartMessage(
+        "I changed the count and opportunities columns to a more suitable pair for a U/U′ chart."
+      );
+
+      if (generateButton) {
+        lastGenerateWasManual =
+          false;
+
+        generateButton.click();
+      }
+
+      return;
+    }
+  }
+
+  // Denominator / opportunities must be positive.
+  if (
+    !handleValidationResult(
+      validateDenominatorPositive(
+        denomArr,
+        isPFamily
+          ? "P/P′ chart denominator (n)"
+          : "U/U′ chart denominator/opportunities (n)",
+        {
+          columnName:
+            currentDenom,
+
+          alternativeColumn:
+            fallbackDenom &&
+            fallbackDenom !== currentDenom
+              ? fallbackDenom
+              : "",
+
+          purposeText:
+            isPFamily
+              ? "denominator column"
+              : "opportunities column"
+        }
+      )
+    )
+  ) {
+    return;
+  }
+
+  // Soft warning for non-integer numerator/count.
+  if (
+    !handleValidationResult(
+      warnIfNonInteger(
+        numerArr,
+        isPFamily
+          ? "P/P′ chart numerator (d)"
+          : "U/U′ chart numerator (c)",
+        {
+          columnName:
+            currentNumer,
+
+          alternativeColumn:
+            fallbackNumer &&
+            fallbackNumer !== currentNumer
+              ? fallbackNumer
+              : "",
+
+          purposeText:
+            isPFamily
+              ? "numerator column"
+              : "count column"
+        }
+      ),
       {
-        columnName: currentDenom,
-        alternativeColumn: fallbackDenom && fallbackDenom !== currentDenom ? fallbackDenom : "",
-        purposeText: chartType === "p" ? "denominator column" : "opportunities column"
+        manual:
+          lastGenerateWasManual
       }
     )
-  )) return;
+  ) {
+    return;
+  }
 
-  // Warn: non-integers (allow user to continue)
-    if (!handleValidationResult(
-    warnIfNonInteger(
-      numerArr,
-      chartType === "p" ? "P chart numerator (d)" : "U chart numerator (c)",
+  // Soft warning for non-integer denominator/opportunities.
+  if (
+    !handleValidationResult(
+      warnIfNonInteger(
+        denomArr,
+        isPFamily
+          ? "P/P′ chart denominator (n)"
+          : "U/U′ chart denominator/opportunities (n)",
+        {
+          columnName:
+            currentDenom,
+
+          alternativeColumn:
+            fallbackDenom &&
+            fallbackDenom !== currentDenom
+              ? fallbackDenom
+              : "",
+
+          purposeText:
+            isPFamily
+              ? "denominator column"
+              : "opportunities column"
+        }
+      ),
       {
-        columnName: currentNumer,
-        alternativeColumn: fallbackNumer && fallbackNumer !== currentNumer ? fallbackNumer : "",
-        purposeText: chartType === "p" ? "numerator column" : "count column"
+        manual:
+          lastGenerateWasManual
       }
     )
-  )) return;
+  ) {
+    return;
+  }
 
-  if (!handleValidationResult(
-    warnIfNonInteger(
-      denomArr,
-      chartType === "p" ? "P chart denominator (n)" : "U chart denominator/opportunities (n)",
-      {
-        columnName: currentDenom,
-        alternativeColumn: fallbackDenom && fallbackDenom !== currentDenom ? fallbackDenom : "",
-        purposeText: chartType === "p" ? "denominator column" : "opportunities column"
-      }
-    )
-  )) return;
-
-  // Draw chart
+  // Draw the selected attribute chart.
   if (chartType === "p") {
-    drawPChart(pointsWithNOrdered, baselineCount, labels);
-  } else {
-    drawUChart(pointsWithNOrdered, baselineCount, labels);
+    drawPChart(
+      pointsWithNOrdered,
+      baselineCount,
+      labels
+    );
+
+  } else if (
+    chartType === "pprime"
+  ) {
+    drawPPrimeChart(
+      pointsWithNOrdered,
+      baselineCount,
+      labels
+    );
+
+  } else if (
+    chartType === "u"
+  ) {
+    drawUChart(
+      pointsWithNOrdered,
+      baselineCount,
+      labels
+    );
+
+  } else if (
+    chartType === "uprime"
+  ) {
+    drawUPrimeChart(
+      pointsWithNOrdered,
+      baselineCount,
+      labels
+    );
   }
 
 } else if (chartType === "xbars") {
@@ -8431,6 +14239,8 @@ if (chartType === "run") {
   showError(`Chart type "${chartType}" is not implemented yet.`);
   return;
 }
+
+    appendLimitExclusionSummary();
 
     // Keep Y-axis inputs blank when the user has not manually set bounds.
 // Blank inputs mean "automatic range", which prevents old auto-bounds
@@ -8599,7 +14409,7 @@ function drawRunChart(points, baselineCount, labels) {
     }
   ];
 
-  if (target !== null) {
+  if (targetEnabled &&  target !== null) {
     datasets.push({
       label: "Target",
       data: values.map(() => target),
@@ -8612,10 +14422,18 @@ function drawRunChart(points, baselineCount, labels) {
     });
   }
 
-  currentChart = new Chart(chartCanvas, {
-    type: "line",
-    data: { labels, datasets },
-    options: {
+  const centreLineLabelPlugin =
+  buildXmRMeanLabelPlugin();
+
+currentChart = new Chart(chartCanvas, {
+  type: "line",
+  data: { labels, datasets },
+
+  plugins: [
+    centreLineLabelPlugin
+  ],
+
+  options: {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
@@ -8685,11 +14503,689 @@ function drawRunChart(points, baselineCount, labels) {
   }
 }
 
+
+// -----------------------------
+// Pareto chart
+// -----------------------------
+
+function computeParetoData(
+  rows,
+  categoryCol,
+  countCol
+) {
+  if (
+    !Array.isArray(rows) ||
+    !rows.length
+  ) {
+    return {
+      ok: false,
+      error:
+        "No data are available for the Pareto chart."
+    };
+  }
+
+  if (!categoryCol) {
+    return {
+      ok: false,
+      error:
+        "Please choose a category column for the Pareto chart."
+    };
+  }
+
+  if (!countCol) {
+    return {
+      ok: false,
+      error:
+        "Please choose how the Pareto frequencies should be counted."
+    };
+  }
+
+  const countRowsMode =
+    countCol ===
+    PARETO_COUNT_ROWS;
+
+  const totals =
+    new Map();
+
+  let blankCategoryRows = 0;
+  let invalidCountRows = 0;
+  let sourceRowsUsed = 0;
+
+  for (
+    const row of rows
+  ) {
+    const rawCategory =
+      row?.[categoryCol];
+
+    const category =
+      rawCategory === null ||
+      rawCategory === undefined
+        ? ""
+        : String(
+            rawCategory
+          ).trim();
+
+    if (!category) {
+      blankCategoryRows += 1;
+      continue;
+    }
+
+    let amount = 1;
+
+    if (!countRowsMode) {
+      amount =
+        toNumericValue(
+          row?.[countCol]
+        );
+
+      if (
+        !Number.isFinite(amount) ||
+        amount < 0 ||
+        !Number.isInteger(amount)
+      ) {
+        invalidCountRows += 1;
+        continue;
+      }
+    }
+
+    sourceRowsUsed += 1;
+
+    totals.set(
+      category,
+      (
+        totals.get(category) ||
+        0
+      ) +
+      amount
+    );
+  }
+
+  if (
+    invalidCountRows > 0
+  ) {
+    return {
+      ok: false,
+
+      error:
+        `${invalidCountRows} row${
+          invalidCountRows === 1
+            ? ""
+            : "s"
+        } contain an invalid frequency/count value. ` +
+        "A classic Pareto chart needs non-negative whole-number counts. " +
+        "Please correct those values or choose '(count each row as 1)'."
+    };
+  }
+
+  let items =
+    Array.from(
+      totals.entries()
+    )
+      .map(
+        ([category, count]) => ({
+          category,
+          count
+        })
+      )
+      .filter(
+        item =>
+          Number.isFinite(
+            item.count
+          ) &&
+          item.count > 0
+      );
+
+  items.sort(
+    (a, b) => {
+      if (
+        b.count !==
+        a.count
+      ) {
+        return (
+          b.count -
+          a.count
+        );
+      }
+
+      return String(
+        a.category
+      ).localeCompare(
+        String(
+          b.category
+        )
+      );
+    }
+  );
+
+  if (
+    items.length < 2
+  ) {
+    return {
+      ok: false,
+
+      error:
+        "A Pareto chart needs at least 2 categories with occurrences."
+    };
+  }
+
+  const total =
+    items.reduce(
+      (sum, item) =>
+        sum +
+        item.count,
+      0
+    );
+
+  if (
+    !Number.isFinite(total) ||
+    total <= 0
+  ) {
+    return {
+      ok: false,
+      error:
+        "No positive occurrence counts were found for the Pareto chart."
+    };
+  }
+
+  let running = 0;
+
+  items =
+    items.map(
+      item => {
+        running +=
+          item.count;
+
+        return {
+          ...item,
+
+          share:
+            item.count /
+            total,
+
+          cumulativeCount:
+            running,
+
+          cumulativePct:
+            (
+              running /
+              total
+            ) *
+            100
+        };
+      }
+    );
+
+  const cutoffIndex =
+    items.findIndex(
+      item =>
+        item.cumulativePct >=
+        80
+    );
+
+  const cutoff80Count =
+    cutoffIndex >= 0
+      ? cutoffIndex + 1
+      : items.length;
+
+  const cutoff80Pct =
+    items[
+      cutoff80Count - 1
+    ]?.cumulativePct ??
+    100;
+
+  const top3Count =
+    items
+      .slice(0, 3)
+      .reduce(
+        (sum, item) =>
+          sum +
+          item.count,
+        0
+      );
+
+  return {
+    ok: true,
+
+    chartType:
+      "pareto",
+
+    items,
+    total,
+
+    categoryCount:
+      items.length,
+
+    cutoff80Count,
+    cutoff80Pct,
+
+    top3Count,
+
+    top3Share:
+      top3Count /
+      total,
+
+    countRowsMode,
+
+    sourceRowsUsed,
+    blankCategoryRows
+  };
+}
+
+function drawParetoChart(
+  rows,
+  categoryCol,
+  countCol
+) {
+  if (!chartCanvas) {
+    return;
+  }
+
+  const result =
+    computeParetoData(
+      rows,
+      categoryCol,
+      countCol
+    );
+
+  if (!result.ok) {
+    showError(
+      result.error
+    );
+
+    return;
+  }
+
+  const labels =
+    result.items.map(
+      item =>
+        item.category
+    );
+
+  const counts =
+    result.items.map(
+      item =>
+        item.count
+    );
+
+  const cumulative =
+    result.items.map(
+      item =>
+        item.cumulativePct
+    );
+
+  if (
+    typeof populateAnnotationDateOptions ===
+    "function"
+  ) {
+    populateAnnotationDateOptions(
+      labels
+    );
+  }
+
+  const chartLabels =
+    getChartLabels(
+      "Pareto chart",
+      "Category",
+      "Count"
+    );
+
+  const axisSettings =
+    getAxisSettings();
+
+  currentChart =
+    new Chart(
+      chartCanvas.getContext(
+        "2d"
+      ),
+      {
+        data: {
+          labels,
+
+          datasets: [
+            {
+              type:
+                "bar",
+
+              label:
+                "Count",
+
+              data:
+                counts,
+
+              yAxisID:
+                "y",
+
+              backgroundColor:
+                SPC_STYLE.seriesBlue,
+
+              borderColor:
+                SPC_STYLE.seriesBlue,
+
+              borderWidth:
+                1
+            },
+
+            {
+              type:
+                "line",
+
+              label:
+                "Cumulative %",
+
+              data:
+                cumulative,
+
+              yAxisID:
+                "y1",
+
+              borderColor:
+                SPC_STYLE.centreRed,
+
+              backgroundColor:
+                SPC_STYLE.centreRed,
+
+              borderWidth:
+                2,
+
+              pointRadius:
+                3,
+
+              pointHoverRadius:
+                5,
+
+              fill:
+                false,
+
+              tension:
+                0
+            }
+          ]
+        },
+
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+
+          interaction: {
+            mode: "index",
+            intersect: false
+          },
+
+          plugins: {
+            title:
+              buildChartTitleConfig(
+                chartLabels.title
+              ),
+
+            legend: {
+              display: true,
+              position:
+                "bottom",
+              align:
+                "center"
+            },
+
+            tooltip: {
+              callbacks: {
+                label(context) {
+                  const i =
+                    context.dataIndex;
+
+                  const item =
+                    result.items[i];
+
+                  if (!item) {
+                    return "";
+                  }
+
+                  if (
+                    context.dataset
+                      .yAxisID ===
+                    "y1"
+                  ) {
+                    return (
+                      `Cumulative: ` +
+                      `${item.cumulativePct.toFixed(1)}%`
+                    );
+                  }
+
+                  return (
+                    `Count: ${item.count} ` +
+                    `(${(item.share * 100).toFixed(1)}% of total)`
+                  );
+                },
+
+                afterBody(items) {
+                  const i =
+                    items?.[0]
+                      ?.dataIndex;
+
+                  const item =
+                    result.items[i];
+
+                  if (!item) {
+                    return [];
+                  }
+
+                  return [
+                    `Cumulative through this category: ${item.cumulativePct.toFixed(1)}%`
+                  ];
+                }
+              }
+            },
+
+            annotation: {
+              annotations: {
+                pareto80: {
+                  type:
+                    "line",
+
+                  yScaleID:
+                    "y1",
+
+                  yMin:
+                    80,
+
+                  yMax:
+                    80,
+
+                  borderColor:
+                    "rgba(90,90,90,0.65)",
+
+                  borderWidth:
+                    1,
+
+                  borderDash:
+                    [5, 5]
+                }
+              }
+            }
+          },
+
+          scales: {
+            x:
+              buildCategoryXAxisConfig(
+                chartLabels.xLabel,
+                axisSettings.x,
+                labels
+              ),
+
+            y:
+              buildAxisConfig(
+                chartLabels.yLabel,
+                axisSettings.y,
+                {
+                  beginAtZero:
+                    true
+                }
+              ),
+
+            y1: {
+              type:
+                "linear",
+
+              position:
+                "right",
+
+              min:
+                0,
+
+              max:
+                100,
+
+              grid: {
+                drawOnChartArea:
+                  false
+              },
+
+              title: {
+                display:
+                  true,
+
+                text:
+                  "Cumulative %"
+              },
+
+              ticks: {
+                callback(value) {
+                  return (
+                    `${value}%`
+                  );
+                }
+              }
+            }
+          }
+        }
+      }
+
+    );
+
+  // Pareto uses Chart.js annotations for its 80% guide,
+  // but does not support draggable user annotations.
+  currentChart.$disableUserAnnotations = true;
+
+  const top =
+    result.items[0];
+
+
+  let html =
+    `<h3>Summary (Pareto chart)</h3>`;
+
+  html +=
+    `<p>` +
+    `Total occurrences: ` +
+    `<strong>${result.total}</strong> across ` +
+    `<strong>${result.categoryCount}</strong> categories.` +
+    `</p>`;
+
+  html +=
+    `<ul>`;
+
+  html +=
+    `<li>` +
+    `<strong>Largest category:</strong> ` +
+    `${escapeHtml(top.category)} — ` +
+    `${top.count} occurrence${top.count === 1 ? "" : "s"} ` +
+    `(${(top.share * 100).toFixed(1)}% of the total).` +
+    `</li>`;
+
+  html +=
+    `<li>` +
+    `<strong>Top three categories:</strong> ` +
+    `${result.top3Count} occurrences ` +
+    `(${(result.top3Share * 100).toFixed(1)}% of the total).` +
+    `</li>`;
+
+  html +=
+    `<li>` +
+    `<strong>80% guide:</strong> ` +
+    `the first ${result.cutoff80Count} categor${
+      result.cutoff80Count === 1
+        ? "y"
+        : "ies"
+    } account for ` +
+    `<strong>${result.cutoff80Pct.toFixed(1)}%</strong> ` +
+    `of the occurrences. ` +
+    `The dashed 80% line is a prioritisation guide, not a statistical control limit.` +
+    `</li>`;
+
+  if (
+    result.total < 30
+  ) {
+    html +=
+      `<li>` +
+      `<strong>Caution:</strong> ` +
+      `this Pareto chart contains fewer than 30 occurrences. ` +
+      `With small numbers, the apparent ranking can be unstable, so interpret it cautiously.` +
+      `</li>`;
+  }
+
+  if (
+    result.blankCategoryRows >
+    0
+  ) {
+    html +=
+      `<li>` +
+      `<strong>Data check:</strong> ` +
+      `${result.blankCategoryRows} row${
+        result.blankCategoryRows === 1
+          ? " was"
+          : "s were"
+      } ignored because the category was blank.` +
+      `</li>`;
+  }
+
+  html +=
+    `<li>` +
+    `<strong>Interpretation:</strong> ` +
+    `the categories on the left are the most frequent and may be useful places to focus further investigation or improvement effort. ` +
+    `A category is not automatically a cause of the problem.` +
+    `</li>`;
+
+  html +=
+    `<li>` +
+    `<strong>SPC note:</strong> ` +
+    `a Pareto chart is not time ordered and cannot tell you whether variation is common cause or special cause. ` +
+    `Where relevant, interpret it alongside an appropriate run or Shewhart chart.` +
+    `</li>`;
+
+  html +=
+    `</ul>`;
+
+  summaryDiv.innerHTML =
+    html;
+
+  lastParetoAnalysis = {
+    ...result,
+
+    categoryColumn:
+      categoryCol,
+
+    countColumn:
+      countCol,
+
+    topCategory:
+      top.category,
+
+    topCount:
+      top.count,
+
+    topShare:
+      top.share
+  };
+}
+
+
 // -----------------------------
 // Draw C / P / U charts
 // -----------------------------
 
 function drawCChart(points, baselineCount, labels) {
+  points =
+    markLimitExclusionsOnPoints(
+      "c",
+      points
+    );
   if (!chartCanvas) return;
 
   const n = points.length;
@@ -8734,7 +15230,13 @@ function drawCChart(points, baselineCount, labels) {
       clArr[i] = res.cbar;
       uclArr[i] = res.ucl;
       lclArr[i] = res.lcl;
-      beyond[i] = isFinite(values[i]) && (values[i] > res.ucl || values[i] < res.lcl);
+      beyond[i] =
+  !points[i]?._excludeFromLimits &&
+  isFinite(values[i]) &&
+  (
+    values[i] > res.ucl ||
+    values[i] < res.lcl
+  );
     }
   }
 
@@ -8753,6 +15255,12 @@ function drawCChart(points, baselineCount, labels) {
     showLCL: true
   });
 
+  attachRowLimitExclusionContext(
+    currentChart,
+    "c",
+    points
+  );
+
     // ---- Multi-period analysis (ALL segments) ----
   const analyses = [];
 
@@ -8770,6 +15278,10 @@ function drawCChart(points, baselineCount, labels) {
 
     const a = analyzeAttributeChart({
       chartType: "c",
+	excludedIndices:
+  getMarkedExcludedIndices(
+    segPoints
+  ),
       labels: labels.slice(start, end + 1),
       values: values.slice(start, end + 1),
       cl: clArr.slice(start, end + 1),
@@ -8811,6 +15323,11 @@ function drawCChart(points, baselineCount, labels) {
 
 
 function drawPChart(pointsWithN, baselineCount, labels) {
+  pointsWithN =
+    markLimitExclusionsOnPoints(
+      "p",
+      pointsWithN
+    );
   if (!chartCanvas) return;
 
   const n = pointsWithN.length;
@@ -8879,6 +15396,12 @@ function drawPChart(pointsWithN, baselineCount, labels) {
     showLCL: true
   });
 
+  attachRowLimitExclusionContext(
+    currentChart,
+    "p",
+    pointsWithN
+  );
+
     // ---- Multi-period analysis (ALL segments) ----
   const analyses = [];
 
@@ -8895,6 +15418,10 @@ function drawPChart(pointsWithN, baselineCount, labels) {
 
     const a = analyzeAttributeChart({
       chartType: "p",
+	excludedIndices:
+  getMarkedExcludedIndices(
+    segPoints
+  ),
       labels: labels.slice(start, end + 1),
       values: values.slice(start, end + 1),
       cl: clArr.slice(start, end + 1),
@@ -8910,14 +15437,27 @@ const segLCL = lclArr.slice(start, end + 1);
 const uRange = rangeFinite(segUCL);
 const lRange = rangeFinite(segLCL);
 
+const dispersionDiagnostic =
+  computePDispersionDiagnostic(
+    segPoints,
+    segBaselineCountUsed
+  );
+
 a.stats = {
-  cl: segCL.find(v => Number.isFinite(v)),     // p̄
+  cl:
+    segCL.find(
+      v => Number.isFinite(v)
+    ),
+
   uclMin: uRange.min,
   uclMax: uRange.max,
-  uclAvg: meanFinite(segUCL),                  
+  uclAvg: meanFinite(segUCL),
+
   lclMin: lRange.min,
   lclMax: lRange.max,
-  lclAvg: meanFinite(segLCL)                   
+  lclAvg: meanFinite(segLCL),
+
+  dispersionDiagnostic
 };
 
 
@@ -8942,7 +15482,249 @@ a.stats = {
 
 }
 
+function drawPPrimeChart(pointsWithN, baselineCount, labels) {
+  pointsWithN =
+    markLimitExclusionsOnPoints(
+      "pprime",
+      pointsWithN
+    );
+  if (!chartCanvas) return;
+
+  const n = pointsWithN.length;
+
+  if (n < 2) {
+    showError("P′ chart needs at least 2 points.");
+    return;
+  }
+
+  // ---- Segment definition from splits ----
+  let effectiveSplits =
+    Array.isArray(splits) ? splits.slice() : [];
+
+  effectiveSplits = effectiveSplits
+    .filter(
+      i =>
+        Number.isInteger(i) &&
+        i >= 0 &&
+        i < n - 1
+    )
+    .sort((a, b) => a - b);
+
+  const segmentStarts = [0];
+  const segmentEnds = [];
+
+  effectiveSplits.forEach(idx => {
+    segmentEnds.push(idx);
+    segmentStarts.push(idx + 1);
+  });
+
+  segmentEnds.push(n - 1);
+
+  const values =
+    new Array(n).fill(NaN);
+
+  const clArr =
+    new Array(n).fill(NaN);
+
+  const uclArr =
+    new Array(n).fill(NaN);
+
+  const lclArr =
+    new Array(n).fill(NaN);
+
+  const beyond =
+    new Array(n).fill(false);
+
+  const segmentResults = [];
+
+  // ---- Calculate each period ----
+  for (let s = 0; s < segmentStarts.length; s++) {
+    const start = segmentStarts[s];
+    const end = segmentEnds[s];
+
+    const segPoints =
+      pointsWithN.slice(start, end + 1);
+
+    const segBaselineCountUsed =
+      (
+        s === 0 &&
+        baselineCount &&
+        baselineCount >= 1
+      )
+        ? Math.min(
+            baselineCount,
+            segPoints.length
+          )
+        : segPoints.length;
+
+    const res =
+      computePPrime(
+        segPoints,
+        segBaselineCountUsed
+      );
+
+    segmentResults.push(res);
+
+    for (let j = 0; j < segPoints.length; j++) {
+      const i = start + j;
+
+      values[i] =
+        res.pVals[j];
+
+      clArr[i] =
+        res.pbar;
+
+      uclArr[i] =
+        res.ucl[j];
+
+      lclArr[i] =
+        res.lcl[j];
+
+      beyond[i] =
+        res.beyond[j];
+    }
+  }
+
+  const pointColours =
+    values.map(
+      (v, i) =>
+        beyond[i]
+          ? SPC_STYLE.pointBeyond
+          : SPC_STYLE.seriesBlue
+    );
+
+  drawSimpleSPCChart({
+    labels,
+    values,
+    pointColours,
+    cl: clArr,
+    ucl: uclArr,
+    lcl: lclArr,
+    chartTitleFallback: "P′ chart",
+    yAxisLabelFallback: "Proportion / %",
+    showUCL: true,
+    showLCL: true
+  });
+
+  attachRowLimitExclusionContext(
+    currentChart,
+    "pprime",
+    pointsWithN
+  );
+
+  // ---- Multi-period analysis ----
+  const analyses = [];
+
+  for (let s = 0; s < segmentStarts.length; s++) {
+    const start = segmentStarts[s];
+    const end = segmentEnds[s];
+
+    const segPoints =
+      pointsWithN.slice(start, end + 1);
+
+    const segBaselineCountUsed =
+      (
+        s === 0 &&
+        baselineCount &&
+        baselineCount >= 1
+      )
+        ? Math.min(
+            baselineCount,
+            segPoints.length
+          )
+        : segPoints.length;
+
+    const res =
+      segmentResults[s];
+
+    const a =
+      analyzeAttributeChart({
+        chartType: "pprime",
+	excludedIndices:
+  getMarkedExcludedIndices(
+    segPoints
+  ),
+        labels:
+          labels.slice(start, end + 1),
+        values:
+          values.slice(start, end + 1),
+        cl:
+          clArr.slice(start, end + 1),
+        ucl:
+          uclArr.slice(start, end + 1),
+        lcl:
+          lclArr.slice(start, end + 1)
+      });
+
+    const segCL =
+      clArr.slice(start, end + 1);
+
+    const segUCL =
+      uclArr.slice(start, end + 1);
+
+    const segLCL =
+      lclArr.slice(start, end + 1);
+
+    const uRange =
+      rangeFinite(segUCL);
+
+    const lRange =
+      rangeFinite(segLCL);
+
+    a.stats = {
+      cl:
+        segCL.find(
+          v => Number.isFinite(v)
+        ),
+
+      uclMin: uRange.min,
+      uclMax: uRange.max,
+      uclAvg: meanFinite(segUCL),
+
+      lclMin: lRange.min,
+      lclMax: lRange.max,
+      lclAvg: meanFinite(segLCL),
+
+      sigmaZ: res?.sigmaZ,
+      avgMR: res?.avgMR
+    };
+
+    a.periodIndex = s + 1;
+    a.periodCount =
+      segmentStarts.length;
+
+    a.startIndex = start;
+    a.endIndex = end;
+
+    a.labelStart =
+      labels[start];
+
+    a.labelEnd =
+      labels[end];
+
+    a.baselineCountUsed =
+      segBaselineCountUsed;
+
+    analyses.push(a);
+  }
+
+  renderAttributeMultiSummary(
+    analyses,
+    labels.length
+  );
+
+  lastAttributeAnalysis =
+    analyses[
+      analyses.length - 1
+    ];
+}
+
 function drawUChart(pointsWithN, baselineCount, labels) {
+  pointsWithN =
+    markLimitExclusionsOnPoints(
+      "u",
+      pointsWithN
+    );
   if (!chartCanvas) return;
 
   const n = pointsWithN.length;
@@ -8950,6 +15732,8 @@ function drawUChart(pointsWithN, baselineCount, labels) {
     showError("U chart needs at least 2 points.");
     return;
   }
+
+  const rateMultiplier = getURateMultiplier();
 
   const clampLcl =
     (typeof shouldClampLclAtZero === "function")
@@ -8988,11 +15772,14 @@ function drawUChart(pointsWithN, baselineCount, labels) {
 
     for (let j = 0; j < segPoints.length; j++) {
       const i = start + j;
-      values[i] = res.uVals[j];
-      clArr[i] = res.ubar;
-      uclArr[i] = res.ucl[j];
-      lclArr[i] = res.lcl[j];
-      beyond[i] = res.beyond[j];
+      // computeU() remains in the natural "per 1" scale.
+// Apply the user's multiplier only to displayed values.
+values[i] = res.uVals[j] * rateMultiplier;
+clArr[i] = res.ubar * rateMultiplier;
+uclArr[i] = res.ucl[j] * rateMultiplier;
+lclArr[i] = res.lcl[j] * rateMultiplier;
+
+beyond[i] = res.beyond[j];
     }
   }
 
@@ -9006,10 +15793,19 @@ function drawUChart(pointsWithN, baselineCount, labels) {
     ucl: uclArr,
     lcl: lclArr,
     chartTitleFallback: "U chart",
-    yAxisLabelFallback: "Rate per unit",
+    yAxisLabelFallback:
+  rateMultiplier === 1
+    ? "Rate per opportunity"
+    : `Rate per ${formatURateMultiplier(rateMultiplier)} opportunities`,
     showUCL: true,
     showLCL: true
   });
+
+  attachRowLimitExclusionContext(
+    currentChart,
+    "u",
+    pointsWithN
+  );
 
     // ---- Multi-period analysis (ALL segments) ----
   const analyses = [];
@@ -9027,6 +15823,10 @@ function drawUChart(pointsWithN, baselineCount, labels) {
 
     const a = analyzeAttributeChart({
       chartType: "u",
+	excludedIndices:
+  getMarkedExcludedIndices(
+    segPoints
+  ),
       labels: labels.slice(start, end + 1),
       values: values.slice(start, end + 1),
       cl: clArr.slice(start, end + 1),
@@ -9042,6 +15842,12 @@ const segLCL = lclArr.slice(start, end + 1);
 const uRange = rangeFinite(segUCL);
 const lRange = rangeFinite(segLCL);
 
+const dispersionDiagnostic =
+  computeUDispersionDiagnostic(
+    segPoints,
+    segBaselineCountUsed
+  );
+
 a.stats = {
   cl: segCL.find(v => Number.isFinite(v)),     // ū
   uclMin: uRange.min,
@@ -9049,7 +15855,9 @@ a.stats = {
   uclAvg: meanFinite(segUCL),                  // ✅
   lclMin: lRange.min,
   lclMax: lRange.max,
-  lclAvg: meanFinite(segLCL)                   // ✅
+  lclAvg: meanFinite(segLCL),                   // ✅
+
+  dispersionDiagnostic
 };
 
 
@@ -9072,6 +15880,325 @@ a.stats = {
   // Keep "latest" available for anything else that expects it
   lastAttributeAnalysis = analyses[analyses.length - 1];
 
+}
+
+function drawUPrimeChart(pointsWithN, baselineCount, labels) {
+  pointsWithN =
+    markLimitExclusionsOnPoints(
+      "uprime",
+      pointsWithN
+    );
+  if (!chartCanvas) return;
+
+  const n =
+    pointsWithN.length;
+
+  if (n < 2) {
+    showError(
+      "U′ chart needs at least 2 points."
+    );
+    return;
+  }
+
+  const rateMultiplier =
+    getURateMultiplier();
+
+  let effectiveSplits =
+    Array.isArray(splits)
+      ? splits.slice()
+      : [];
+
+  effectiveSplits =
+    effectiveSplits
+      .filter(
+        i =>
+          Number.isInteger(i) &&
+          i >= 0 &&
+          i < n - 1
+      )
+      .sort((a, b) => a - b);
+
+  const segmentStarts = [0];
+  const segmentEnds = [];
+
+  effectiveSplits.forEach(idx => {
+    segmentEnds.push(idx);
+    segmentStarts.push(idx + 1);
+  });
+
+  segmentEnds.push(n - 1);
+
+  const values =
+    new Array(n).fill(NaN);
+
+  const clArr =
+    new Array(n).fill(NaN);
+
+  const uclArr =
+    new Array(n).fill(NaN);
+
+  const lclArr =
+    new Array(n).fill(NaN);
+
+  const beyond =
+    new Array(n).fill(false);
+
+  const segmentResults = [];
+
+  for (
+    let s = 0;
+    s < segmentStarts.length;
+    s++
+  ) {
+    const start =
+      segmentStarts[s];
+
+    const end =
+      segmentEnds[s];
+
+    const segPoints =
+      pointsWithN.slice(
+        start,
+        end + 1
+      );
+
+    const segBaselineCountUsed =
+      (
+        s === 0 &&
+        baselineCount &&
+        baselineCount >= 1
+      )
+        ? Math.min(
+            baselineCount,
+            segPoints.length
+          )
+        : segPoints.length;
+
+    const res =
+      computeUPrime(
+        segPoints,
+        segBaselineCountUsed
+      );
+
+    segmentResults.push(res);
+
+    for (
+      let j = 0;
+      j < segPoints.length;
+      j++
+    ) {
+      const i =
+        start + j;
+
+      values[i] =
+        res.uVals[j] *
+        rateMultiplier;
+
+      clArr[i] =
+        res.ubar *
+        rateMultiplier;
+
+      uclArr[i] =
+        res.ucl[j] *
+        rateMultiplier;
+
+      lclArr[i] =
+        res.lcl[j] *
+        rateMultiplier;
+
+      beyond[i] =
+        res.beyond[j];
+    }
+  }
+
+  const pointColours =
+    values.map(
+      (v, i) =>
+        beyond[i]
+          ? SPC_STYLE.pointBeyond
+          : SPC_STYLE.seriesBlue
+    );
+
+  drawSimpleSPCChart({
+    labels,
+    values,
+    pointColours,
+    cl: clArr,
+    ucl: uclArr,
+    lcl: lclArr,
+
+    chartTitleFallback:
+      "U′ chart",
+
+    yAxisLabelFallback:
+      rateMultiplier === 1
+        ? "Rate per opportunity"
+        : `Rate per ${formatURateMultiplier(rateMultiplier)} opportunities`,
+
+    showUCL: true,
+    showLCL: true
+  });
+
+  attachRowLimitExclusionContext(
+    currentChart,
+    "uprime",
+    pointsWithN
+  );
+
+  const analyses = [];
+
+  for (
+    let s = 0;
+    s < segmentStarts.length;
+    s++
+  ) {
+    const start =
+      segmentStarts[s];
+
+    const end =
+      segmentEnds[s];
+
+    const segPoints =
+      pointsWithN.slice(
+        start,
+        end + 1
+      );
+
+    const segBaselineCountUsed =
+      (
+        s === 0 &&
+        baselineCount &&
+        baselineCount >= 1
+      )
+        ? Math.min(
+            baselineCount,
+            segPoints.length
+          )
+        : segPoints.length;
+
+    const res =
+      segmentResults[s];
+
+    const a =
+      analyzeAttributeChart({
+        chartType: "uprime",
+
+	excludedIndices:
+  getMarkedExcludedIndices(
+    segPoints
+  ),
+
+        labels:
+          labels.slice(
+            start,
+            end + 1
+          ),
+
+        values:
+          values.slice(
+            start,
+            end + 1
+          ),
+
+        cl:
+          clArr.slice(
+            start,
+            end + 1
+          ),
+
+        ucl:
+          uclArr.slice(
+            start,
+            end + 1
+          ),
+
+        lcl:
+          lclArr.slice(
+            start,
+            end + 1
+          )
+      });
+
+    const segCL =
+      clArr.slice(
+        start,
+        end + 1
+      );
+
+    const segUCL =
+      uclArr.slice(
+        start,
+        end + 1
+      );
+
+    const segLCL =
+      lclArr.slice(
+        start,
+        end + 1
+      );
+
+    const uRange =
+      rangeFinite(segUCL);
+
+    const lRange =
+      rangeFinite(segLCL);
+
+    a.stats = {
+      cl:
+        segCL.find(
+          v => Number.isFinite(v)
+        ),
+
+      uclMin: uRange.min,
+      uclMax: uRange.max,
+      uclAvg:
+        meanFinite(segUCL),
+
+      lclMin: lRange.min,
+      lclMax: lRange.max,
+      lclAvg:
+        meanFinite(segLCL),
+
+      sigmaZ:
+        res?.sigmaZ,
+
+      avgMR:
+        res?.avgMR
+    };
+
+    a.periodIndex =
+      s + 1;
+
+    a.periodCount =
+      segmentStarts.length;
+
+    a.startIndex =
+      start;
+
+    a.endIndex =
+      end;
+
+    a.labelStart =
+      labels[start];
+
+    a.labelEnd =
+      labels[end];
+
+    a.baselineCountUsed =
+      segBaselineCountUsed;
+
+    analyses.push(a);
+  }
+
+  renderAttributeMultiSummary(
+    analyses,
+    labels.length
+  );
+
+  lastAttributeAnalysis =
+    analyses[
+      analyses.length - 1
+    ];
 }
 
 
@@ -9165,9 +16292,9 @@ function drawSimpleSPCChart({
     });
   }
 
-  // Optional target line – consistent with Run/XmR
-  const target = getTargetValue();
-  if (target !== null) {
+  // Optional target line
+const target = getTargetValue();
+if (targetEnabled && target !== null) {
     datasets.push({
       label: "Target",
       data: values.map(() => target),
@@ -9180,10 +16307,18 @@ function drawSimpleSPCChart({
     });
   }
 
+  const centreLineLabelPlugin =
+  buildXmRMeanLabelPlugin();
+
   currentChart = new Chart(chartCanvas.getContext("2d"), {
-    type: "line",
-    data: { labels, datasets },
-    options: {
+  type: "line",
+  data: { labels, datasets },
+
+  plugins: [
+    centreLineLabelPlugin
+  ],
+
+  options: {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
@@ -9210,16 +16345,626 @@ function drawSimpleSPCChart({
   });
 }
 
+// ===============================
+// XmR mean labels
+// ===============================
 
+// ===============================
+// XmR mean labels
+// ===============================
+
+// Display preference.
+// Save/load persistence will be added later.
+let showXmRMeanLabels = false;
+
+// Horizontal position of each period label.
+// Stored as a fraction from 0 = left side of period
+// to 1 = right side of period.
+let xmrMeanLabelPositions = {};
+let xmrMeanLabelVerticalPositions = {};
+let xmrHiddenMeanLabels = new Set();
+
+function resetXmRMeanLabelState() {
+  showXmRMeanLabels = false;
+  xmrMeanLabelPositions = {};
+  xmrMeanLabelVerticalPositions = {};
+  xmrHiddenMeanLabels = new Set();
+}
+
+function buildXmRMeanLabelPlugin(segmentSummaries = null) {
+
+  function getPointerPosition(chart, evt) {
+    const canvas = chart.canvas;
+    const rect = canvas.getBoundingClientRect();
+
+    return {
+      x:
+        (evt.clientX - rect.left) *
+        (chart.width / rect.width),
+
+      y:
+        (evt.clientY - rect.top) *
+        (chart.height / rect.height)
+    };
+  }
+
+  function findMeanLabelHitbox(chart, x, y) {
+    const boxes = chart.$xmrMeanLabelHitboxes || [];
+
+    return boxes.find(box =>
+      x >= box.x &&
+      x <= box.x + box.width &&
+      y >= box.y &&
+      y <= box.y + box.height
+    ) || null;
+  }
+
+  return {
+    id: "xmrMeanLabels",
+
+    afterInit(chart) {
+      const canvas = chart.canvas;
+      if (!canvas) return;
+
+      const onPointerDown = (evt) => {
+        if (!showXmRMeanLabels) return;
+        if (evt.button !== 0) return;
+
+        const pos = getPointerPosition(chart, evt);
+        const hit = findMeanLabelHitbox(
+          chart,
+          pos.x,
+          pos.y
+        );
+
+        if (!hit) return;
+
+        chart.$xmrMeanLabelDrag = {
+          segmentIndex: hit.segmentIndex,
+          offsetX: pos.x - hit.x
+        };
+
+        if (canvas.setPointerCapture) {
+          try {
+            canvas.setPointerCapture(evt.pointerId);
+          } catch (_) {
+            // Safe fallback if pointer capture is unavailable
+          }
+        }
+
+        evt.preventDefault();
+      };
+
+      const onPointerMove = (evt) => {
+        if (!showXmRMeanLabels) {
+          canvas.style.cursor = "";
+          return;
+        }
+
+        const pos = getPointerPosition(chart, evt);
+        const drag = chart.$xmrMeanLabelDrag;
+
+        // Actively dragging a label
+        if (drag) {
+          const hit =
+            (chart.$xmrMeanLabelHitboxes || [])
+              .find(
+                box =>
+                  box.segmentIndex ===
+                  drag.segmentIndex
+              );
+
+          if (!hit) return;
+
+          let newX =
+            pos.x - drag.offsetX;
+
+          newX = Math.max(
+            hit.minX,
+            Math.min(newX, hit.maxX)
+          );
+
+          const availableWidth =
+            hit.maxX - hit.minX;
+
+          xmrMeanLabelPositions[
+            drag.segmentIndex
+          ] =
+            availableWidth > 0
+              ? (newX - hit.minX) /
+                availableWidth
+              : 0;
+
+         // Snap vertically to either side of the mean line.
+xmrMeanLabelVerticalPositions[
+  drag.segmentIndex
+] =
+  pos.y < hit.meanY
+    ? "above"
+    : "below";
+
+          chart.draw();
+
+          evt.preventDefault();
+          return;
+        }
+
+        // Change cursor when hovering over a label
+        const hit = findMeanLabelHitbox(
+          chart,
+          pos.x,
+          pos.y
+        );
+
+        canvas.style.cursor =
+ 	 hit ? "move" : "";
+      };
+
+      const onPointerUp = (evt) => {
+        chart.$xmrMeanLabelDrag = null;
+
+        if (
+          canvas.releasePointerCapture &&
+          canvas.hasPointerCapture?.(
+            evt.pointerId
+          )
+        ) {
+          try {
+            canvas.releasePointerCapture(
+              evt.pointerId
+            );
+          } catch (_) {
+            // Safe fallback
+          }
+        }
+      };
+
+      canvas.addEventListener(
+        "pointerdown",
+        onPointerDown
+      );
+
+      canvas.addEventListener(
+        "pointermove",
+        onPointerMove
+      );
+
+      canvas.addEventListener(
+        "pointerup",
+        onPointerUp
+      );
+
+      canvas.addEventListener(
+        "pointercancel",
+        onPointerUp
+      );
+
+      chart.$xmrMeanLabelHandlers = {
+        onPointerDown,
+        onPointerMove,
+        onPointerUp
+      };
+    },
+
+    afterDatasetsDraw(chart) {
+      // Always clear old hitboxes first
+      chart.$xmrMeanLabelHitboxes = [];
+
+      if (!showXmRMeanLabels) return;
+
+const ctx = chart.ctx;
+const chartArea = chart.chartArea;
+const xScale = chart.scales?.x;
+const yScale = chart.scales?.y;
+
+if (
+  !ctx ||
+  !chartArea ||
+  !xScale ||
+  !yScale
+) {
+  return;
+}
+
+// Find the chart's centre-line dataset.
+// Run = Median
+// XmR = Mean
+// Other SPC charts = Centre line
+const centreDataset =
+  chart.data?.datasets?.find(ds =>
+    ds.label === "Mean" ||
+    ds.label === "Median" ||
+    ds.label === "Centre line"
+  );
+
+if (
+  !centreDataset ||
+  !Array.isArray(centreDataset.data) ||
+  !centreDataset.data.length
+) {
+  return;
+}
+
+const lineColour =
+  centreDataset.borderColor || "#d33";
+
+let labelSegments = [];
+
+// XmR already provides explicit segment summaries,
+// so continue using those when available.
+if (
+  Array.isArray(segmentSummaries) &&
+  segmentSummaries.length
+) {
+  labelSegments =
+    segmentSummaries.map(seg => ({
+      startIndex:
+        Number(seg?.startIndex),
+
+      endIndex:
+        Number(seg?.endIndex),
+
+      value:
+        Number(seg?.result?.mean),
+
+      label:
+        "Mean"
+    }));
+
+} else {
+  // For every other chart, derive the periods from
+  // the chart labels and the current split positions.
+  const totalPoints =
+    chart.data?.labels?.length ||
+    centreDataset.data.length;
+
+  let effectiveSplits =
+    Array.isArray(splits)
+      ? splits.slice()
+      : [];
+
+  effectiveSplits =
+    effectiveSplits
+      .filter(
+        i =>
+          Number.isInteger(i) &&
+          i >= 0 &&
+          i < totalPoints - 1
+      )
+      .sort((a, b) => a - b);
+
+  const segmentStarts = [0];
+  const segmentEnds = [];
+
+  effectiveSplits.forEach(idx => {
+    segmentEnds.push(idx);
+    segmentStarts.push(idx + 1);
+  });
+
+  segmentEnds.push(totalPoints - 1);
+
+  const labelName =
+    centreDataset.label === "Median"
+      ? "Median"
+      : centreDataset.label === "Mean"
+        ? "Mean"
+        : "Centre line";
+
+  labelSegments =
+    segmentStarts.map((startIndex, segmentIndex) => {
+      const endIndex =
+        segmentEnds[segmentIndex];
+
+      let value = NaN;
+
+      // Find the first valid centre-line value
+      // within this process period.
+      for (
+        let i = startIndex;
+        i <= endIndex;
+        i++
+      ) {
+        const candidate =
+          Number(centreDataset.data[i]);
+
+        if (Number.isFinite(candidate)) {
+          value = candidate;
+          break;
+        }
+      }
+
+      return {
+        startIndex,
+        endIndex,
+        value,
+        label: labelName
+      };
+    });
+}
+
+ctx.save();
+
+ctx.font =
+  "600 12px Arial, sans-serif";
+
+ctx.textBaseline = "middle";
+
+labelSegments.forEach(
+  (seg, segmentIndex) => {
+
+    if (xmrHiddenMeanLabels.has(segmentIndex)) {
+      return;
+    }
+
+    const centreValue =
+      Number(seg?.value);
+
+    const startIndex =
+      Number(seg?.startIndex);
+
+    const endIndex =
+      Number(seg?.endIndex);
+
+    if (
+      !Number.isFinite(centreValue) ||
+      !Number.isFinite(startIndex) ||
+      !Number.isFinite(endIndex)
+    ) {
+      return;
+    }
+
+          const startX =
+            xScale.getPixelForValue(
+              startIndex
+            );
+
+          const endX =
+            xScale.getPixelForValue(
+              endIndex
+            );
+
+          const y =
+  yScale.getPixelForValue(
+    centreValue
+  );
+
+          if (
+            !Number.isFinite(startX) ||
+            !Number.isFinite(endX) ||
+            !Number.isFinite(y)
+          ) {
+            return;
+          }
+
+          const text =
+  `${seg.label} = ${centreValue.toFixed(3)}`;
+
+          const paddingX = 5;
+          const boxHeight = 18;
+
+          const textWidth =
+            ctx.measureText(text).width;
+
+          const boxWidth =
+            textWidth +
+            (paddingX * 2);
+
+          const periodLeft =
+            Math.min(startX, endX);
+
+          const periodRight =
+            Math.max(startX, endX);
+
+          // Preferred movement range:
+          // keep the whole label inside its period.
+          let minX = Math.max(
+            chartArea.left + 2,
+            periodLeft + 2
+          );
+
+          let maxX = Math.min(
+            chartArea.right -
+              boxWidth -
+              2,
+            periodRight -
+              boxWidth -
+              2
+          );
+
+          // A very short period may physically
+          // be narrower than the label itself.
+          // In that case allow movement within
+          // the overall chart area instead.
+          if (maxX < minX) {
+            minX =
+              chartArea.left + 2;
+
+            maxX =
+              chartArea.right -
+              boxWidth -
+              2;
+          }
+
+          const savedPosition =
+            Number(
+              xmrMeanLabelPositions[
+                segmentIndex
+              ]
+            );
+
+          let boxX;
+
+          if (
+            Number.isFinite(savedPosition)
+          ) {
+            const fraction =
+              Math.max(
+                0,
+                Math.min(
+                  1,
+                  savedPosition
+                )
+              );
+
+            boxX =
+              minX +
+              fraction *
+              (maxX - minX);
+          } else {
+            // Existing default:
+            // near right-hand end of period
+            boxX =
+              endX -
+              boxWidth -
+              6;
+
+            boxX = Math.max(
+              minX,
+              Math.min(
+                boxX,
+                maxX
+              )
+            );
+          }
+
+          // Keep the label tied vertically to the mean line,
+// but allow the user to choose above or below.
+let verticalSide =
+  xmrMeanLabelVerticalPositions[segmentIndex] === "below"
+    ? "below"
+    : "above";
+
+let boxY =
+  verticalSide === "below"
+    ? y + 4
+    : y - boxHeight - 4;
+
+// If the chosen side would place the label outside
+// the chart, automatically use the other side.
+if (
+  verticalSide === "above" &&
+  boxY < chartArea.top + 2
+) {
+  verticalSide = "below";
+  boxY = y + 4;
+}
+
+if (
+  verticalSide === "below" &&
+  boxY + boxHeight > chartArea.bottom - 2
+) {
+  verticalSide = "above";
+  boxY = y - boxHeight - 4;
+}
+
+// Final safety clamp.
+boxY = Math.max(
+  chartArea.top + 2,
+  Math.min(
+    boxY,
+    chartArea.bottom - boxHeight - 2
+  )
+);
+
+          ctx.fillStyle =
+            "rgba(255,255,255,0.92)";
+
+          ctx.fillRect(
+            boxX,
+            boxY,
+            boxWidth,
+            boxHeight
+          );
+
+          ctx.strokeStyle =
+            lineColour;
+
+          ctx.lineWidth = 1;
+
+          ctx.strokeRect(
+            boxX,
+            boxY,
+            boxWidth,
+            boxHeight
+          );
+
+          ctx.fillStyle = "#222";
+
+          ctx.fillText(
+            text,
+            boxX + paddingX,
+            boxY +
+              (boxHeight / 2)
+          );
+
+          // Remember where the label is
+          // so the pointer handlers know
+          // when the user clicks it.
+         chart.$xmrMeanLabelHitboxes.push({
+  segmentIndex,
+  x: boxX,
+  y: boxY,
+  width: boxWidth,
+  height: boxHeight,
+  minX,
+  maxX,
+  meanY: y
+});
+        }
+      );
+
+      ctx.restore();
+    },
+
+    afterDestroy(chart) {
+      const canvas = chart.canvas;
+
+      const handlers =
+        chart.$xmrMeanLabelHandlers;
+
+      if (canvas && handlers) {
+        canvas.removeEventListener(
+          "pointerdown",
+          handlers.onPointerDown
+        );
+
+        canvas.removeEventListener(
+          "pointermove",
+          handlers.onPointerMove
+        );
+
+        canvas.removeEventListener(
+          "pointerup",
+          handlers.onPointerUp
+        );
+
+        canvas.removeEventListener(
+          "pointercancel",
+          handlers.onPointerUp
+        );
+
+        canvas.style.cursor = "";
+      }
+    }
+  };
+}
 
 function drawXmRChart(points, baselineCount, labels) {
+  points =
+    markLimitExclusionsOnPoints(
+      "xmr",
+      points
+    );
   if (!chartCanvas) return;
 
   const n = points.length;
-  if (n < 12) {
-    if (errorMessage) errorMessage.textContent = "XmR chart needs at least 12 points.";
-    return;
+  if (n < MIN_XMR_LIMIT_POINTS) {
+  if (errorMessage) {
+    errorMessage.textContent =
+      `XmR chart needs at least ${MIN_XMR_LIMIT_POINTS} points.`;
   }
+  return;
+}
 
   // ---- Read “rules & interpretation” settings (with safe fallbacks) ----
   const { shiftLength, trendLength } =
@@ -9236,6 +16981,11 @@ function drawXmRChart(points, baselineCount, labels) {
     (typeof shouldClampLclAtZero === "function")
       ? shouldClampLclAtZero()
       : false;
+  
+  const screenLargeMRs =
+  screenLargeMRsCheckbox
+    ? screenLargeMRsCheckbox.checked
+    : true;
 
   // ----- Segment definition from splits -----
   let effectiveSplits = Array.isArray(splits) ? splits.slice() : [];
@@ -9253,7 +17003,12 @@ function drawXmRChart(points, baselineCount, labels) {
 
   // Compute a "global" XmR as a fallback (no splits)
   // (computeXmR should accept clampLcl as third arg; if not, it’ll just ignore it)
-  const globalResult = computeXmR(points, baselineCount, clampLcl);
+  const globalResult = computeXmR(
+  points,
+  baselineCount,
+  clampLcl,
+  screenLargeMRs
+);
 
   // ----- Global arrays for plotting -----
   const values = points.map(p => p.y);
@@ -9286,13 +17041,38 @@ function drawXmRChart(points, baselineCount, labels) {
     // Only the first segment uses the user baseline; later segments use all points as baseline.
     const segBaseline = s === 0 ? baselineCount : null;
 
-    const segResult = computeXmR(segPoints, segBaseline, clampLcl);
+    const segResult = computeXmR(
+  segPoints,
+  segBaseline,
+  clampLcl,
+  screenLargeMRs
+);
     const segPts    = segResult.points;
 
     const mean  = segResult.mean;
     const ucl   = segResult.ucl;
     const lcl   = segResult.lcl;
     const sigma = segResult.sigma;
+
+    const limitEstimatePointCount =
+  Number.isFinite(
+    segResult
+      .effectiveBaselinePointCount
+  )
+    ? segResult
+        .effectiveBaselinePointCount
+    : (
+        Number.isFinite(
+          segResult
+            .baselineCountUsed
+        )
+          ? segResult
+              .baselineCountUsed
+          : segPoints.length
+      );
+
+const hasEnoughPointsForInterpretation =
+  limitEstimatePointCount >= MIN_XMR_LIMIT_POINTS;
 
     // If computeXmR returns rawLcl, use it to decide whether to show the clamp option
     if (typeof segResult.rawLcl === "number" && segResult.rawLcl < 0) {
@@ -9307,8 +17087,20 @@ function drawXmRChart(points, baselineCount, labels) {
       labels: labels.slice(start, end + 1),
       values: segValues,
       cl: new Array(segValues.length).fill(mean),
-      ucl: new Array(segValues.length).fill(ucl),
-      lcl: new Array(segValues.length).fill(lcl)
+      ucl:
+  new Array(
+    segValues.length
+  ).fill(ucl),
+
+lcl:
+  new Array(
+    segValues.length
+  ).fill(lcl),
+
+excludedIndices:
+  getMarkedExcludedIndices(
+    segPoints
+  )
     });
 
     // Store for multi-period summary
@@ -9318,7 +17110,9 @@ function drawXmRChart(points, baselineCount, labels) {
       labelStart: labels[start],
       labelEnd: labels[end],
       result: segResult,
-      analysis: segAnalysis
+      analysis: segAnalysis,
+  limitEstimatePointCount,
+  hasEnoughPointsForInterpretation
     });
 
     // Fill chart arrays for this segment
@@ -9329,15 +17123,16 @@ function drawXmRChart(points, baselineCount, labels) {
       // - beyond limits = red
       // - other special-cause signals = orange
       // - otherwise blue
-      if (!flagOnChart) {
-        pointColours[globalIdx] = SPC_STYLE.pointNormal;
-      } else if (segAnalysis.flags?.beyond?.[i]) {
-        pointColours[globalIdx] = SPC_STYLE.pointBeyond;
-      } else if (segAnalysis.flags?.special?.[i]) {
-        pointColours[globalIdx] = SPC_STYLE.pointSpecial;
-      } else {
-        pointColours[globalIdx] = SPC_STYLE.pointNormal;
-      }
+      if (!hasEnoughPointsForInterpretation || !flagOnChart) {
+  // Do not present statistical signals from provisional XmR limits.
+  pointColours[globalIdx] = SPC_STYLE.pointNormal;
+} else if (segAnalysis.flags?.beyond?.[i]) {
+  pointColours[globalIdx] = SPC_STYLE.pointBeyond;
+} else if (segAnalysis.flags?.special?.[i]) {
+  pointColours[globalIdx] = SPC_STYLE.pointSpecial;
+} else {
+  pointColours[globalIdx] = SPC_STYLE.pointNormal;
+}
 
       // Centre line & limits
       meanLine[globalIdx] = mean;
@@ -9425,8 +17220,8 @@ function drawXmRChart(points, baselineCount, labels) {
   }
 
   // Target line (optional)
-  const target = getTargetValue();
-  if (target !== null) {
+const target = getTargetValue();
+if (targetEnabled && target !== null) {
     datasets.push({
       label: "Target",
       data: values.map(() => target),
@@ -9443,35 +17238,53 @@ function drawXmRChart(points, baselineCount, labels) {
   populateSplitOptions(labels);
 
   // ----- Create chart -----
-  if (currentChart) currentChart.destroy();
+if (currentChart) currentChart.destroy();
 
-  const { title, xLabel, yLabel } = getChartLabels("X Chart", "Date", "Value");
+const { title, xLabel, yLabel } =
+  getChartLabels("X Chart", "Date", "Value");
 
-  currentChart = new Chart(chartCanvas, {
-    type: "line",
-    data: { labels, datasets },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        title: buildChartTitleConfig(title),
-        legend: SPC_LEGEND,
-        annotation: {
-          annotations: buildAnnotationConfig(labels)
-        }
-      },
-      elements: {
-        point: { radius: 0, hoverRadius: 0 }
-      },
-            scales: (() => {
-        const axisSettings = getAxisSettings();
-        return {
-          x: buildCategoryXAxisConfig(xLabel, axisSettings.x, labels),
-          y: buildAxisConfig(yLabel, axisSettings.y)
-        };
-      })()
-    }
-  });
+const xmrMeanLabelPlugin =
+  buildXmRMeanLabelPlugin(segmentSummaries);
+
+const centreLineLabelPlugin =
+  buildXmRMeanLabelPlugin();
+
+currentChart = new Chart(chartCanvas, {
+  type: "line",
+  data: { labels, datasets },
+
+  plugins: [
+    centreLineLabelPlugin
+  ],
+
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      title: buildChartTitleConfig(title),
+      legend: SPC_LEGEND,
+      annotation: {
+        annotations: buildAnnotationConfig(labels)
+      }
+    },
+    elements: {
+      point: { radius: 0, hoverRadius: 0 }
+    },
+    scales: (() => {
+      const axisSettings = getAxisSettings();
+      return {
+        x: buildCategoryXAxisConfig(xLabel, axisSettings.x, labels),
+        y: buildAxisConfig(yLabel, axisSettings.y)
+      };
+    })()
+  }
+});
+
+attachRowLimitExclusionContext(
+  currentChart,
+  "xmr",
+  points
+);
 
     // Expose all XmR periods to the helper so it can talk about the whole chart,
   // not just the latest segment.
@@ -9485,9 +17298,43 @@ function drawXmRChart(points, baselineCount, labels) {
     mean: seg.result?.mean,
     ucl: seg.result?.ucl,
     lcl: seg.result?.lcl,
-    sigma: seg.result?.sigma,
-    isStable: Array.isArray(seg.analysis?.signals) ? seg.analysis.signals.length === 0 : false,
-    signals: Array.isArray(seg.analysis?.signals) ? seg.analysis.signals.slice() : []
+    sigma:
+  seg.result?.sigma,
+
+effectiveBaselinePointCount:
+  seg.result
+    ?.effectiveBaselinePointCount,
+
+manualExcludedPointCount:
+  seg.result
+    ?.manualExcludedPointCount ||
+  0,
+
+manualAdjacentMRExclusions:
+  seg.result
+    ?.manualAdjacentMRExclusions ||
+  0,
+
+hasEnoughPointsForInterpretation:
+  !!seg.hasEnoughPointsForInterpretation,
+
+limitEstimatePointCount:
+  seg.limitEstimatePointCount,
+
+minimumPointsForInterpretation:
+  MIN_XMR_LIMIT_POINTS,
+
+isStable:
+  seg.hasEnoughPointsForInterpretation &&
+  Array.isArray(seg.analysis?.signals)
+    ? seg.analysis.signals.length === 0
+    : null,
+
+signals:
+  seg.hasEnoughPointsForInterpretation &&
+  Array.isArray(seg.analysis?.signals)
+    ? seg.analysis.signals.slice()
+    : []
   }));
 
 
@@ -9539,10 +17386,285 @@ function drawXmRChart(points, baselineCount, labels) {
 }
 
 
+function formatMrValueForDisplay(v) {
+  if (!Number.isFinite(v)) return "—";
+  return (typeof formatNumber === "function")
+    ? formatNumber(v, 3)
+    : Number(v).toFixed(3);
+}
+
+function buildMrLocalSeries(segmentPoints, segmentResult) {
+  const values = Array(segmentPoints.length).fill(null);
+  const reasons = Array(segmentPoints.length).fill(null);
+
+  const screenedPairs = new Set(
+    Array.isArray(segmentResult?.excludedMRs)
+      ? segmentResult.excludedMRs.map(item => `${item.fromPointIndex}-${item.toPointIndex}`)
+      : []
+  );
+
+  for (let i = 1; i < segmentPoints.length; i++) {
+    const prev = segmentPoints[i - 1];
+    const curr = segmentPoints[i];
+
+    const mr = Math.abs(curr.y - prev.y);
+    values[i] = mr;
+
+    if (prev?._excludeFromLimits || curr?._excludeFromLimits) {
+      reasons[i] = "excluded-point";
+    } else if (screenedPairs.has(`${i - 1}-${i}`)) {
+      reasons[i] = "screened-large";
+    } else {
+      reasons[i] = null;
+    }
+  }
+
+  return { values, reasons };
+}
+
+function buildMrOverlayArray(values, reasons, targetReason) {
+  return values.map((v, i) => (
+    reasons[i] === targetReason && Number.isFinite(v) ? v : null
+  ));
+}
+
+function buildMrMarkerDataset(
+  label,
+  data,
+  colour,
+  pointStyle,
+  reasonCode
+) {
+  const hasAny =
+    data.some(
+      v => Number.isFinite(v)
+    );
+
+  if (!hasAny) {
+    return null;
+  }
+
+  return {
+    label,
+    data,
+
+    // Used by the MR-specific legend and tooltip.
+    _mrOmissionMarker: true,
+    _mrOmissionReason: reasonCode,
+
+    type: "line",
+    showLine: false,
+    spanGaps: false,
+
+    borderColor: colour,
+    backgroundColor: "#ffffff",
+
+    pointStyle,
+
+    pointRadius:
+      data.map(
+        v =>
+          Number.isFinite(v)
+            ? 8
+            : 0
+      ),
+
+    pointHoverRadius:
+      data.map(
+        v =>
+          Number.isFinite(v)
+            ? 10
+            : 0
+      ),
+
+    pointBackgroundColor:
+      "#ffffff",
+
+    pointBorderColor:
+      colour,
+
+    pointBorderWidth: 3,
+
+    fill: false,
+    tension: 0
+  };
+}
+
+function buildMrLegendConfig() {
+  return {
+    display: true,
+    position: "bottom",
+    align: "center",
+
+    labels: {
+      usePointStyle: true,
+      boxWidth: 55,
+      boxHeight: 12,
+      padding: 14,
+
+      generateLabels(chart) {
+        const defaultLabels =
+          Chart.defaults.plugins.legend.labels.generateLabels(
+            chart
+          );
+
+        return defaultLabels.map(
+          label => {
+            const dataset =
+              chart.data.datasets[
+                label.datasetIndex
+              ] || {};
+
+            if (
+              dataset._mrOmissionMarker
+            ) {
+              return {
+                ...label,
+
+                pointStyle:
+                  dataset.pointStyle,
+
+                fillStyle:
+                  dataset.pointBackgroundColor ||
+                  "#ffffff",
+
+                strokeStyle:
+                  dataset.pointBorderColor ||
+                  dataset.borderColor,
+
+                lineWidth:
+                  dataset.pointBorderWidth ||
+                  2,
+
+                lineDash: []
+              };
+            }
+
+            return {
+              ...label,
+
+              pointStyle:
+                "line",
+
+              strokeStyle:
+                dataset.borderColor ||
+                label.strokeStyle,
+
+              fillStyle:
+                "transparent",
+
+              lineWidth:
+                Math.max(
+                  dataset.borderWidth ||
+                  2,
+                  3
+                ),
+
+              lineDash:
+                dataset.borderDash ||
+                [],
+
+              lineCap:
+                "round"
+            };
+          }
+        );
+      }
+    }
+  };
+}
+
+function buildMrTooltipOptions() {
+  return {
+    filter(context) {
+      const dataset =
+        context.dataset || {};
+
+      /*
+       * At an omitted MR we deliberately hide the ordinary
+       * "Moving range" tooltip item and show only the explanatory
+       * marker dataset.
+       */
+      if (
+        dataset.label ===
+        "Moving range"
+      ) {
+        const reason =
+          dataset._mrReasons
+            ?.[context.dataIndex];
+
+        return !reason;
+      }
+
+      return true;
+    },
+
+    callbacks: {
+      label(context) {
+        const value =
+          context.parsed?.y;
+
+        if (
+          !Number.isFinite(value)
+        ) {
+          return null;
+        }
+
+        const pretty =
+          formatMrValueForDisplay(
+            value
+          );
+
+        const reason =
+          context.dataset
+            ?._mrOmissionReason;
+
+        if (
+          reason ===
+          "excluded-point"
+        ) {
+          return (
+            `Not used in the variation estimate: ${pretty} ` +
+            `(adjacent to an excluded point)`
+          );
+        }
+
+        if (
+          reason ===
+          "screened-large"
+        ) {
+          return (
+            `Not used in the variation estimate: ${pretty} ` +
+            `(screened as an unusually large moving range)`
+          );
+        }
+
+        const label =
+          context.dataset?.label ||
+          "";
+
+        if (
+          label ===
+          "Moving range"
+        ) {
+          return (
+            `Moving range: ${pretty}`
+          );
+        }
+
+        return (
+          `${label}: ${pretty}`
+        );
+      }
+    }
+  };
+}
+
+
 function drawMrChart(allPoints, labels, segments) {
   // allPoints: full list of points for the current XmR chart (all periods)
   // labels: full x labels used on the X chart
-  // segments: [{ startIndex, endIndex, result }, ...] (same segments you use for X chart)
+  // segments: [{ startIndex, endIndex, result }, ...] (same segments used by X chart)
 
   if (!mrCanvas || !mrPanel) return;
   mrPanel.style.display = "block";
@@ -9550,22 +17672,16 @@ function drawMrChart(allPoints, labels, segments) {
   const strong = mrPanel.querySelector("strong");
   if (strong) strong.textContent = "Moving Range chart:";
 
-  const showAll = (typeof getMrDisplayMode === "function") && (getMrDisplayMode() === "all");
+  const showAll =
+    (typeof getMrDisplayMode === "function") &&
+    (getMrDisplayMode() === "all");
 
-  // House style colours (match main chart)
   const BLUE = SPC_STYLE.seriesBlue;
   const RED = SPC_STYLE.pointBeyond;
   const GREEN = SPC_STYLE.limitGreen;
+  const OMIT_EXCLUDED_COLOUR = "#4b5563";
+  const OMIT_SCREENED_COLOUR = "#f59e0b";
 
-  function mrForValues(values) {
-    const mr = Array(values.length).fill(null); // MR undefined at first point
-    for (let i = 1; i < values.length; i++) {
-      mr[i] = Math.abs(values[i] - values[i - 1]);
-    }
-    return mr;
-  }
-
-  // Helper: compute avg MR from an MR array (ignoring nulls)
   function computeAvgMR(mrArr) {
     const vals = mrArr.filter(v => typeof v === "number" && isFinite(v));
     return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
@@ -9577,31 +17693,56 @@ function drawMrChart(allPoints, labels, segments) {
     if (!lastSeg) return;
 
     const pts = allPoints.slice(lastSeg.startIndex, lastSeg.endIndex + 1);
-    const values = pts.map(p => p.y);
-    const mr = mrForValues(values);
+    const localMr = buildMrLocalSeries(pts, lastSeg.result);
 
-    const avgMR = (lastSeg.result && typeof lastSeg.result.avgMR === "number")
-      ? lastSeg.result.avgMR
-      : computeAvgMR(mr);
+    const mrValues = localMr.values;
+    const mrReasons = localMr.reasons;
+
+    const avgMR =
+      (lastSeg.result && typeof lastSeg.result.avgMR === "number")
+        ? lastSeg.result.avgMR
+        : computeAvgMR(mrValues);
 
     const uclMR = 3.268 * avgMR;
     const mrLabels = labels.slice(lastSeg.startIndex, lastSeg.endIndex + 1);
 
-    renderMrChart(mrLabels, mr, avgMR, uclMR);
+    renderMrChart(mrLabels, mrValues, mrReasons, avgMR, uclMR);
     return;
   }
 
   // ----- ALL PERIODS (WITH SPLITS) -----
-  const valuesAll = allPoints.map(p => p.y);
-  const mrAll = mrForValues(valuesAll);
+  const mrAll = Array(labels.length).fill(null);
+  const mrReasonsAll = Array(labels.length).fill(null);
 
-  // Break MR at the first point of each new segment (no MR across phases)
-  if (segments && segments.length > 1) {
-    for (let i = 1; i < segments.length; i++) {
-      const start = segments[i].startIndex;
-      if (start >= 0 && start < mrAll.length) mrAll[start] = null;
+  (segments || []).forEach(seg => {
+    const pts = allPoints.slice(seg.startIndex, seg.endIndex + 1);
+    const localMr = buildMrLocalSeries(pts, seg.result);
+
+    for (let i = 0; i < localMr.values.length; i++) {
+      const globalIndex = seg.startIndex + i;
+      mrAll[globalIndex] = localMr.values[i];
+      mrReasonsAll[globalIndex] = localMr.reasons[i];
     }
-  }
+  });
+
+  const omittedBecauseExcluded = buildMrOverlayArray(
+    mrAll,
+    mrReasonsAll,
+    "excluded-point"
+  );
+
+  const omittedBecauseScreened = buildMrOverlayArray(
+    mrAll,
+    mrReasonsAll,
+    "screened-large"
+  );
+
+  const basePointColours = mrAll.map((v, i) => {
+    if (!Number.isFinite(v)) return "rgba(0,0,0,0)";
+    if (mrReasonsAll[i] === "excluded-point") return OMIT_EXCLUDED_COLOUR;
+    if (mrReasonsAll[i] === "screened-large") return OMIT_SCREENED_COLOUR;
+    return BLUE;
+  });
 
   const datasets = [];
 
@@ -9612,21 +17753,46 @@ function drawMrChart(allPoints, labels, segments) {
     borderColor: BLUE,
     backgroundColor: BLUE,
     borderWidth: 2,
-    pointRadius: 0,
+    pointRadius: mrAll.map(v => Number.isFinite(v) ? 3 : 0),
+    pointHoverRadius: mrAll.map(v => Number.isFinite(v) ? 4 : 0),
+    pointBackgroundColor: basePointColours,
+    pointBorderColor: "#ffffff",
+    pointBorderWidth: 1,
     spanGaps: false,
     fill: false,
     tension: 0
   });
 
+  const excludedMarkerDataset =
+  buildMrMarkerDataset(
+    "Not used: adjacent to excluded point",
+    omittedBecauseExcluded,
+    OMIT_EXCLUDED_COLOUR,
+    "crossRot",
+    "excluded-point"
+  );
+  if (excludedMarkerDataset) datasets.push(excludedMarkerDataset);
+
+  const screenedMarkerDataset =
+  buildMrMarkerDataset(
+    "Not used: unusually large MR screened",
+    omittedBecauseScreened,
+    OMIT_SCREENED_COLOUR,
+    "triangle",
+    "screened-large"
+  );
+  if (screenedMarkerDataset) datasets.push(screenedMarkerDataset);
+
   // One pair of lines per period
   (segments || []).forEach((seg, idx) => {
     const pts = allPoints.slice(seg.startIndex, seg.endIndex + 1);
-    const values = pts.map(p => p.y);
-    const mr = mrForValues(values);
+    const localMr = buildMrLocalSeries(pts, seg.result);
+    const mrValues = localMr.values;
 
-    const avgMR = (seg.result && typeof seg.result.avgMR === "number")
-      ? seg.result.avgMR
-      : computeAvgMR(mr);
+    const avgMR =
+      (seg.result && typeof seg.result.avgMR === "number")
+        ? seg.result.avgMR
+        : computeAvgMR(mrValues);
 
     const uclMR = 3.268 * avgMR;
 
@@ -9682,14 +17848,20 @@ function drawMrChart(allPoints, labels, segments) {
           text: "Moving Range (MR)",
           font: { size: 14, weight: "bold" }
         },
-        legend: SPC_LEGEND,
+        legend:
+  buildMrLegendConfig(),
+
+tooltip:
+  buildMrTooltipOptions(),
         annotation: {
           annotations: (typeof buildAnnotationConfig === "function")
             ? buildAnnotationConfig(labels)
             : {}
         }
       },
-            elements: { point: { radius: 0, hoverRadius: 0 } },
+      elements: {
+        point: { radius: 0, hoverRadius: 0 }
+      },
       scales: (() => {
         const axisSettings = getAxisSettings();
         return {
@@ -9701,9 +17873,8 @@ function drawMrChart(allPoints, labels, segments) {
   });
 }
 
-
 // Helper used by "last period only" mode — uses your existing MR canvas/chart variables
-function renderMrChart(mrLabels, mrValues, avgMR, uclMR) {
+function renderMrChart(mrLabels, mrValues, mrReasons, avgMR, uclMR) {
   if (!mrCanvas) return;
 
   if (mrPanel) {
@@ -9716,6 +17887,28 @@ function renderMrChart(mrLabels, mrValues, avgMR, uclMR) {
     mrChart = null;
   }
 
+  const OMIT_EXCLUDED_COLOUR = "#4b5563";
+  const OMIT_SCREENED_COLOUR = "#f59e0b";
+
+  const omittedBecauseExcluded = buildMrOverlayArray(
+    mrValues,
+    mrReasons,
+    "excluded-point"
+  );
+
+  const omittedBecauseScreened = buildMrOverlayArray(
+    mrValues,
+    mrReasons,
+    "screened-large"
+  );
+
+  const basePointColours = mrValues.map((v, i) => {
+    if (!Number.isFinite(v)) return "rgba(0,0,0,0)";
+    if (mrReasons[i] === "excluded-point") return OMIT_EXCLUDED_COLOUR;
+    if (mrReasons[i] === "screened-large") return OMIT_SCREENED_COLOUR;
+    return SPC_STYLE.seriesBlue;
+  });
+
   const datasets = [
     {
       label: "Moving range",
@@ -9723,9 +17916,29 @@ function renderMrChart(mrLabels, mrValues, avgMR, uclMR) {
       borderColor: SPC_STYLE.seriesBlue,
       backgroundColor: SPC_STYLE.seriesBlue,
       borderWidth: 2,
-      pointRadius: 3,
-      pointHoverRadius: 4,
-      pointBackgroundColor: SPC_STYLE.seriesBlue,
+      _mrReasons:
+  mrReasons.slice(),
+
+pointRadius:
+  mrValues.map(
+    (v, i) =>
+      Number.isFinite(v) &&
+      !mrReasons[i]
+        ? 3
+        : 0
+  ),
+
+pointHoverRadius:
+  mrValues.map(
+    (v, i) =>
+      Number.isFinite(v) &&
+      !mrReasons[i]
+        ? 4
+        : 0
+  ),
+
+pointBackgroundColor:
+  basePointColours,
       pointBorderColor: "#ffffff",
       pointBorderWidth: 1,
       spanGaps: false,
@@ -9752,6 +17965,26 @@ function renderMrChart(mrLabels, mrValues, avgMR, uclMR) {
     }
   ];
 
+  const excludedMarkerDataset =
+  buildMrMarkerDataset(
+    "Not used: adjacent to excluded point",
+    omittedBecauseExcluded,
+    OMIT_EXCLUDED_COLOUR,
+    "crossRot",
+    "excluded-point"
+  );
+  if (excludedMarkerDataset) datasets.push(excludedMarkerDataset);
+
+  const screenedMarkerDataset =
+  buildMrMarkerDataset(
+    "Not used: unusually large MR screened",
+    omittedBecauseScreened,
+    OMIT_SCREENED_COLOUR,
+    "triangle",
+    "screened-large"
+  );
+  if (screenedMarkerDataset) datasets.push(screenedMarkerDataset);
+
   mrChart = new Chart(mrCanvas, {
     type: "line",
     data: { labels: mrLabels, datasets },
@@ -9764,17 +17997,21 @@ function renderMrChart(mrLabels, mrValues, avgMR, uclMR) {
           text: "Moving Range (MR)",
           font: { size: 14, weight: "bold" }
         },
-        legend: SPC_LEGEND,
+        legend:
+  buildMrLegendConfig(),
+
+tooltip:
+  buildMrTooltipOptions(),
         annotation: {
           annotations: (typeof buildAnnotationConfig === "function")
             ? buildAnnotationConfig(mrLabels)
             : {}
         }
       },
-            elements: {
+      elements: {
         point: { radius: 0, hoverRadius: 0 }
       },
-            scales: (() => {
+      scales: (() => {
         const axisSettings = getAxisSettings();
         return {
           x: buildCategoryXAxisConfig("", axisSettings.x, mrLabels),
@@ -9785,6 +18022,921 @@ function renderMrChart(mrLabels, mrValues, avgMR, uclMR) {
   });
 }
 
+// ============================================================
+// SimpleSPC statistical regression tests
+//
+// Development / quality-assurance helper.
+// Nothing runs automatically.
+//
+// To run:
+//   runSimpleSPCRegressionTests()
+//
+// from the browser developer console.
+// ============================================================
+
+function runSimpleSPCRegressionTests() {
+  const results = [];
+
+  function near(
+    actual,
+    expected,
+    tolerance = 1e-9
+  ) {
+    return (
+      Number.isFinite(actual) &&
+      Number.isFinite(expected) &&
+      Math.abs(
+        actual - expected
+      ) <= tolerance
+    );
+  }
+
+  function addNumeric(
+    name,
+    actual,
+    expected,
+    tolerance = 1e-9
+  ) {
+    results.push({
+      test: name,
+      pass:
+        near(
+          actual,
+          expected,
+          tolerance
+        ),
+
+      actual,
+      expected,
+      tolerance
+    });
+  }
+
+  function addBoolean(
+    name,
+    actual,
+    expected
+  ) {
+    results.push({
+      test: name,
+      pass:
+        actual === expected,
+
+      actual,
+      expected,
+      tolerance: ""
+    });
+  }
+
+  function addText(
+    name,
+    actual,
+    expected
+  ) {
+    results.push({
+      test: name,
+      pass:
+        String(actual) ===
+        String(expected),
+
+      actual,
+      expected,
+      tolerance: ""
+    });
+  }
+
+  // ----------------------------------------------------------
+  // RUN CHART
+  // ----------------------------------------------------------
+
+  addNumeric(
+    "Run: median",
+    computeMedian(
+      [1, 2, 3, 4]
+    ),
+    2.5
+  );
+
+  const runShift =
+    findShiftWindow(
+      [
+        6, 7, 8, 9,
+        10, 11, 12, 13
+      ],
+      5,
+      8
+    );
+
+  addBoolean(
+    "Run: 8-point shift detected",
+    !!runShift,
+    true
+  );
+
+  addNumeric(
+    "Run: shift starts at index 0",
+    runShift?.start,
+    0
+  );
+
+  addNumeric(
+    "Run: shift ends at index 7",
+    runShift?.end,
+    7
+  );
+
+  const runTrend =
+    findTrendWindow(
+      [1, 2, 3, 4, 5, 6],
+      6
+    );
+
+  addBoolean(
+    "Run: 6-point trend detected",
+    !!runTrend,
+    true
+  );
+
+  addText(
+    "Run: trend direction",
+    runTrend?.direction,
+    "up"
+  );
+
+  // ----------------------------------------------------------
+  // XmR — ordinary calculation
+  // Independently checked expected values:
+  // mean = 10.4
+  // MR = [1,2,1,2]
+  // MRbar = 1.5
+  // sigma = 1.5 / 1.128
+  // ----------------------------------------------------------
+
+  const xmrPoints =
+    [10, 11, 9, 10, 12]
+      .map(
+        (y, i) => ({
+          x: i,
+          y,
+          label:
+            `P${i + 1}`
+        })
+      );
+
+  const xmr =
+    computeXmR(
+      xmrPoints,
+      null,
+      false,
+      false
+    );
+
+  addNumeric(
+    "XmR: mean",
+    xmr.mean,
+    10.4,
+    1e-10
+  );
+
+  addNumeric(
+    "XmR: average MR",
+    xmr.avgMR,
+    1.5,
+    1e-10
+  );
+
+  addNumeric(
+    "XmR: sigma",
+    xmr.sigma,
+    1.3297872340425534,
+    1e-10
+  );
+
+  addNumeric(
+    "XmR: UCL",
+    xmr.ucl,
+    14.38936170212766,
+    1e-10
+  );
+
+  addNumeric(
+    "XmR: LCL",
+    xmr.lcl,
+    6.410638297872341,
+    1e-10
+  );
+
+  // ----------------------------------------------------------
+  // XmR — MR screening
+  //
+  // Raw MRs:
+  // 1,1,1,1,1,25,1,1,1
+  //
+  // Initial MRbar = 3.666666...
+  // threshold = 12.833333...
+  // 25 is screened
+  // revised MRbar = 1
+  // ----------------------------------------------------------
+
+  const screenPoints =
+    [
+      0, 1, 2, 3, 4,
+      5, 30, 31, 32, 33
+    ]
+      .map(
+        (y, i) => ({
+          x: i,
+          y,
+          label:
+            `S${i + 1}`
+        })
+      );
+
+  const screened =
+    computeXmR(
+      screenPoints,
+      null,
+      false,
+      true
+    );
+
+  addNumeric(
+    "XmR screening: initial average MR",
+    screened.initialAvgMR,
+    3.6666666666666665,
+    1e-10
+  );
+
+  addNumeric(
+    "XmR screening: threshold",
+    screened.mrScreeningThreshold,
+    12.833333333333332,
+    1e-10
+  );
+
+  addNumeric(
+    "XmR screening: revised average MR",
+    screened.avgMR,
+    1,
+    1e-10
+  );
+
+  addNumeric(
+    "XmR screening: number screened",
+    screened.excludedMRCount,
+    1
+  );
+
+  // ----------------------------------------------------------
+  // XmR — manual exclusion
+  //
+  // Excluding the middle value removes both adjacent MRs.
+  // It must NOT create a bridge MR.
+  // ----------------------------------------------------------
+
+  const excludedXmRPoints =
+    [10, 11, 9, 10, 12]
+      .map(
+        (y, i) => ({
+          x: i,
+          y,
+          label:
+            `E${i + 1}`,
+
+          _excludeFromLimits:
+            i === 2
+        })
+      );
+
+  const excludedXmR =
+    computeXmR(
+      excludedXmRPoints,
+      null,
+      false,
+      false
+    );
+
+  addNumeric(
+    "XmR exclusion: mean",
+    excludedXmR.mean,
+    10.75,
+    1e-10
+  );
+
+  addNumeric(
+    "XmR exclusion: average MR",
+    excludedXmR.avgMR,
+    1.5,
+    1e-10
+  );
+
+  addNumeric(
+    "XmR exclusion: adjacent MRs omitted",
+    excludedXmR.manualAdjacentMRExclusions,
+    2
+  );
+
+  addNumeric(
+    "XmR exclusion: effective baseline points",
+    excludedXmR.effectiveBaselinePointCount,
+    4
+  );
+
+  // Fixed baseline-window test.
+  // Point 5 must NOT be pulled into the baseline
+  // to replace the excluded point.
+  const fixedWindowXmR =
+    [
+      { x: 0, y: 10 },
+      {
+        x: 1,
+        y: 100,
+        _excludeFromLimits:
+          true
+      },
+      { x: 2, y: 12 },
+      { x: 3, y: 14 },
+      { x: 4, y: 1000 }
+    ];
+
+  const fixedWindowResult =
+    computeXmR(
+      fixedWindowXmR,
+      4,
+      false,
+      false
+    );
+
+  addNumeric(
+    "XmR exclusion: baseline boundary remains fixed",
+    fixedWindowResult.mean,
+    12,
+    1e-10
+  );
+
+  addNumeric(
+    "XmR exclusion: baseline used count",
+    fixedWindowResult.effectiveBaselinePointCount,
+    3
+  );
+
+  // ----------------------------------------------------------
+  // C CHART
+  // ----------------------------------------------------------
+
+  const cPoints =
+    [
+      5, 4, 6, 5, 5,
+      4, 6, 5, 25, 5,
+      4, 6, 5, 5, 4,
+      6, 5, 5, 4, 6
+    ]
+      .map(
+        (y, i) => ({
+          x: i,
+          y
+        })
+      );
+
+  const cNormal =
+    computeC(
+      cPoints
+    );
+
+  addNumeric(
+    "C: centre line",
+    cNormal.cbar,
+    6,
+    1e-10
+  );
+
+  addNumeric(
+    "C: UCL",
+    cNormal.ucl,
+    13.348469228349533,
+    1e-10
+  );
+
+  const cExcluded =
+    computeC(
+      cPoints.map(
+        (p, i) => ({
+          ...p,
+
+          _excludeFromLimits:
+            i === 8
+        })
+      )
+    );
+
+  addNumeric(
+    "C exclusion: centre line",
+    cExcluded.cbar,
+    5,
+    1e-10
+  );
+
+  addNumeric(
+    "C exclusion: UCL",
+    cExcluded.ucl,
+    11.70820393249937,
+    1e-10
+  );
+
+  // ----------------------------------------------------------
+  // P CHART
+  // ----------------------------------------------------------
+
+  const pPoints = [
+    { y: 10, n: 100 },
+    { y: 18, n: 120 },
+    { y: 6,  n: 80 },
+    { y: 15, n: 110 }
+  ];
+
+  const pResult =
+    computeP(
+      pPoints,
+      null,
+      true
+    );
+
+  addNumeric(
+    "P: p-bar",
+    pResult.pbar,
+    0.11951219512195121,
+    1e-12
+  );
+
+  addNumeric(
+    "P: first UCL",
+    pResult.ucl[0],
+    0.21682926829268293,
+    1e-12
+  );
+
+  addNumeric(
+    "P: first LCL",
+    pResult.lcl[0],
+    0.022195121951219504,
+    1e-12
+  );
+
+  // ----------------------------------------------------------
+  // P′ CHART
+  // ----------------------------------------------------------
+
+  const pPrimeResult =
+    computePPrime(
+      pPoints
+    );
+
+  addNumeric(
+    "P′: p-bar",
+    pPrimeResult.pbar,
+    0.11951219512195121,
+    1e-12
+  );
+
+  addNumeric(
+    "P′: Sigma Z",
+    pPrimeResult.sigmaZ,
+    1.672599851246506,
+    1e-10
+  );
+
+  addNumeric(
+    "P′: first UCL",
+    pPrimeResult.ucl[0],
+    0.2822847172310624,
+    1e-10
+  );
+
+  // Verify that an excluded point also breaks
+  // the Laney z-moving-range sequence.
+  const pPrimeExcluded =
+    computePPrime(
+      pPoints.map(
+        (p, i) => ({
+          ...p,
+
+          _excludeFromLimits:
+            i === 1
+        })
+      )
+    );
+
+  addNumeric(
+    "P′ exclusion: p-bar",
+    pPrimeExcluded.pbar,
+    0.10689655172413794,
+    1e-12
+  );
+
+  addNumeric(
+    "P′ exclusion: only one valid z-MR remains",
+    pPrimeExcluded.baselineMRCount,
+    1
+  );
+
+  addNumeric(
+    "P′ exclusion: Sigma Z",
+    pPrimeExcluded.sigmaZ,
+    1.7052837483437422,
+    1e-10
+  );
+
+  // ----------------------------------------------------------
+  // U CHART
+  // ----------------------------------------------------------
+
+  const uPoints = [
+    { y: 5,  n: 100 },
+    { y: 8,  n: 120 },
+    { y: 3,  n: 90 },
+    { y: 10, n: 110 },
+    { y: 4,  n: 105 }
+  ];
+
+  const uResult =
+    computeU(
+      uPoints
+    );
+
+  addNumeric(
+    "U: u-bar",
+    uResult.ubar,
+    0.05714285714285714,
+    1e-12
+  );
+
+  addNumeric(
+    "U: first UCL",
+    uResult.ucl[0],
+    0.12885657370292075,
+    1e-10
+  );
+
+  addNumeric(
+    "U: first LCL",
+    uResult.lcl[0],
+    0,
+    1e-12
+  );
+
+  // ----------------------------------------------------------
+  // U′ CHART
+  // ----------------------------------------------------------
+
+  const uPrimeResult =
+    computeUPrime(
+      uPoints
+    );
+
+  addNumeric(
+    "U′: u-bar",
+    uPrimeResult.ubar,
+    0.05714285714285714,
+    1e-12
+  );
+
+  addNumeric(
+    "U′: Sigma Z",
+    uPrimeResult.sigmaZ,
+    1.5161730157805888,
+    1e-10
+  );
+
+  addNumeric(
+    "U′: first UCL",
+    uPrimeResult.ucl[0],
+    0.16587325905256314,
+    1e-10
+  );
+
+  // ----------------------------------------------------------
+  // P / U dispersion diagnostics
+  // Independently calculated reference dataset.
+  // ----------------------------------------------------------
+
+  const dispersionPoints = [
+    { y: 4,  n: 100 },
+    { y: 15, n: 110 },
+    { y: 3,  n: 95 },
+    { y: 17, n: 105 },
+    { y: 5,  n: 120 },
+    { y: 18, n: 115 },
+    { y: 4,  n: 90 },
+    { y: 16, n: 100 },
+    { y: 3,  n: 125 },
+    { y: 19, n: 130 },
+    { y: 5,  n: 105 },
+    { y: 17, n: 110 },
+    { y: 4,  n: 115 },
+    { y: 18, n: 120 },
+    { y: 3,  n: 100 },
+    { y: 16, n: 95 },
+    { y: 5,  n: 130 },
+    { y: 20, n: 125 },
+    { y: 4,  n: 110 },
+    { y: 17, n: 105 },
+    { y: 3,  n: 90 },
+    { y: 18, n: 115 },
+    { y: 5,  n: 120 },
+    { y: 19, n: 130 }
+  ];
+
+  const pDiag =
+    computePDispersionDiagnostic(
+      dispersionPoints
+    );
+
+  addBoolean(
+    "P diagnostic: calculation succeeds",
+    pDiag.ok,
+    true
+  );
+
+  addNumeric(
+    "P diagnostic: variation ratio %",
+    pDiag.ratio,
+    535.36162769218,
+    0.05
+  );
+
+  addNumeric(
+    "P diagnostic: upper threshold %",
+    pDiag.upperLimit,
+    155.9951980036352,
+    0.05
+  );
+
+  addText(
+    "P diagnostic: overdispersion",
+    pDiag.status,
+    "overdispersed"
+  );
+
+  const uDiag =
+    computeUDispersionDiagnostic(
+      dispersionPoints
+    );
+
+  addBoolean(
+    "U diagnostic: calculation succeeds",
+    uDiag.ok,
+    true
+  );
+
+  addNumeric(
+    "U diagnostic: variation ratio %",
+    uDiag.ratio,
+    508.5863522156604,
+    0.05
+  );
+
+  addNumeric(
+    "U diagnostic: upper threshold %",
+    uDiag.upperLimit,
+    155.2276973611499,
+    0.05
+  );
+
+  addText(
+    "U diagnostic: overdispersion",
+    uDiag.status,
+    "overdispersed"
+  );
+
+  // ----------------------------------------------------------
+  // X̄–S
+  // ----------------------------------------------------------
+
+  addNumeric(
+    "Xbar-S: c4 for n=5",
+    c4Constant(5),
+    0.9399856029866254,
+    1e-12
+  );
+
+  const equalSigma =
+    estimateXbarSSigmaFromSbar(
+      [2, 2, 2, 2, 2, 2],
+      [5, 5, 5, 5, 5, 5]
+    );
+
+  addNumeric(
+    "Xbar-S: equal-size sigma estimate",
+    equalSigma,
+    2.1276921621409737,
+    1e-10
+  );
+
+  const variableSigma =
+    estimateXbarSSigmaFromSbar(
+      [2, 2, 2, 2, 2, 2],
+      [3, 4, 5, 6, 8, 5]
+    );
+
+  addNumeric(
+    "Xbar-S: variable-size sigma estimate",
+    variableSigma,
+    2.1217839603123774,
+    1e-10
+  );
+
+  addNumeric(
+    "Xbar-S: n=3 Xbar LCL",
+    100 -
+      (
+        3 *
+        variableSigma /
+        Math.sqrt(3)
+      ),
+    96.32496237805425,
+    1e-10
+  );
+
+  addNumeric(
+    "Xbar-S: n=8 Xbar UCL",
+    100 +
+      (
+        3 *
+        variableSigma /
+        Math.sqrt(8)
+      ),
+    102.2504917398246,
+    1e-10
+  );
+
+  // ----------------------------------------------------------
+  // T CHART
+  // ----------------------------------------------------------
+
+  const tResult =
+    computeTLimits(
+      [2, 3, 5, 4]
+    );
+
+  addNumeric(
+    "T: mean time between events",
+    tResult.mean,
+    3.5,
+    1e-12
+  );
+
+  addNumeric(
+    "T: UCL",
+    tResult.ucl,
+    23.126777402861393,
+    1e-10
+  );
+
+  addNumeric(
+    "T: LCL",
+    tResult.lcl,
+    0,
+    1e-12
+  );
+
+  // ----------------------------------------------------------
+  // G CHART
+  // ----------------------------------------------------------
+
+  const gResult =
+    computeGLimits(
+      [5, 7, 6, 8, 4]
+    );
+
+  addNumeric(
+    "G: centre line",
+    gResult.mean,
+    6,
+    1e-12
+  );
+
+  addNumeric(
+    "G: UCL",
+    gResult.ucl,
+    37
+  );
+
+  addNumeric(
+    "G: LCL",
+    gResult.lcl,
+    1
+  );
+
+  // ----------------------------------------------------------
+  // PARETO
+  // ----------------------------------------------------------
+
+  const paretoTest =
+    computeParetoData(
+      [
+        { category: "A" },
+        { category: "A" },
+        { category: "A" },
+        { category: "B" },
+        { category: "B" },
+        { category: "C" }
+      ],
+      "category",
+      PARETO_COUNT_ROWS
+    );
+
+  addBoolean(
+    "Pareto: calculation succeeds",
+    paretoTest.ok,
+    true
+  );
+
+  addNumeric(
+    "Pareto: total occurrences",
+    paretoTest.total,
+    6
+  );
+
+  addText(
+    "Pareto: largest category",
+    paretoTest.items?.[0]?.category,
+    "A"
+  );
+
+  addNumeric(
+    "Pareto: largest category count",
+    paretoTest.items?.[0]?.count,
+    3
+  );
+
+  addNumeric(
+    "Pareto: categories needed to reach 80%",
+    paretoTest.cutoff80Count,
+    2
+  );
+
+  // ----------------------------------------------------------
+  // RESULTS
+  // ----------------------------------------------------------
+
+  const passed =
+    results.filter(
+      r => r.pass
+    ).length;
+
+  const failed =
+    results.length -
+    passed;
+
+  console.group(
+    `SimpleSPC regression tests — ${passed}/${results.length} passed`
+  );
+
+  console.table(
+    results.map(
+      r => ({
+        Test: r.test,
+        Result:
+          r.pass
+            ? "PASS"
+            : "FAIL",
+
+        Actual:
+          r.actual,
+
+        Expected:
+          r.expected,
+
+        Tolerance:
+          r.tolerance
+      })
+    )
+  );
+
+  if (failed === 0) {
+    console.log(
+      `✅ All ${passed} statistical regression tests passed.`
+    );
+  } else {
+    console.error(
+      `❌ ${failed} of ${results.length} statistical regression tests failed.`
+    );
+  }
+
+  console.groupEnd();
+
+  return {
+    passed,
+    failed,
+    total:
+      results.length,
+
+    results
+  };
+}
+
+window.runSimpleSPCRegressionTests =
+  runSimpleSPCRegressionTests;
 
 // ---- AI helper function  -----
 
@@ -9820,13 +18972,36 @@ function answerSpcQuestion(question) {
 function renderHelperState() {
   if (!spcHelperIntro) return;
 
-  // Treat "has chart" as "we have any analysis object", not just XmR.
-  const hasChart =
-    !!lastRunAnalysis ||
-    !!lastXmRAnalysis ||
-    !!lastAttributeAnalysis ||
-    !!lastRareAnalysis ||
-    !!lastXbarSAnalysis;
+  // Treat "has chart" as "the currently selected chart has matching analysis".
+const helperChartType =
+  (typeof getSelectedChartType_NoSideEffects === "function")
+    ? (getSelectedChartType_NoSideEffects() || "run")
+    : (
+        (typeof getSelectedChartType === "function")
+          ? (getSelectedChartType() || "run")
+          : "run"
+      );
+
+const hasChart =
+  helperChartType === "run"
+    ? !!lastRunAnalysis
+    : helperChartType === "xmr"
+      ? !!lastXmRAnalysis
+      : helperChartType === "xbars"
+        ? !!lastXbarSAnalysis
+        : ["c", "p", "pprime", "u", "uprime"].includes(helperChartType)
+          ? (
+              !!lastAttributeAnalysis &&
+              lastAttributeAnalysis.chartType === helperChartType
+            )
+          : ["t", "g"].includes(helperChartType)
+            ? (
+                !!lastRareAnalysis &&
+                lastRareAnalysis.chartType === helperChartType
+              )
+            : helperChartType === "pareto"
+              ? !!lastParetoAnalysis
+              : false;
 
   // 1) Intro text
   if (!hasChart) {
@@ -9879,12 +19054,14 @@ const chartContextMenu = document.getElementById("chartContextMenu");
 
 // Track which point index was right-clicked
 let contextMenuPointIndex = null;
+let contextMenuMeanLabelSegmentIndex = null;
 
 // Helper: hide menu
 function hideChartContextMenu() {
   if (!chartContextMenu) return;
   chartContextMenu.style.display = "none";
   contextMenuPointIndex = null;
+  contextMenuMeanLabelSegmentIndex = null;
 }
 
 // Helper: show menu at cursor, clamped to viewport
@@ -9899,7 +19076,99 @@ function showChartContextMenu(clientX, clientY, pointIndex) {
       ? (getSelectedChartType_NoSideEffects() || "run")
       : ((typeof getSelectedChartType === "function") ? (getSelectedChartType() || "run") : "run");
 
-  const supportsSplits = ["run", "xmr", "c", "p", "u", "xbars", "t", "g"].includes(chartType);
+  const supportsSplits = ["run", "xmr", "c", "p", "pprime", "u", "uprime", "xbars", "t", "g"].includes(chartType);
+
+
+  // User annotations are not supported on Pareto charts.
+  // Hide the annotation submenu, but keep it available
+  // for all other chart types.
+  const annotationMenuGroup =
+    chartContextMenu
+      .querySelector('button[data-action="addAnnotation"]')
+      ?.closest(".context-submenu-wrap");
+
+  if (annotationMenuGroup) {
+    annotationMenuGroup.style.display =
+      chartType === "pareto" ? "none" : "";
+
+    // Hide the accompanying separator too.
+    const separator = annotationMenuGroup.nextElementSibling;
+
+    if (separator?.classList.contains("menu-sep")) {
+      separator.style.display =
+        chartType === "pareto" ? "none" : "";
+    }
+  }
+
+
+
+  // ---------- XmR mean labels ----------
+const xmrMeanLabelsGroup =
+  chartContextMenu.querySelector('[data-role="xmrMeanLabelsGroup"]');
+
+const xmrMeanLabelsBtn =
+  chartContextMenu.querySelector(
+    'button[data-action="toggleXmRMeanLabels"]'
+  );
+
+const supportsCentreLineLabels =
+  [
+    "run",
+    "xmr",
+    "c",
+    "p",
+    "pprime",
+    "u",
+    "uprime",
+    "xbars",
+    "t",
+    "g"
+  ].includes(chartType);
+
+if (xmrMeanLabelsGroup) {
+  xmrMeanLabelsGroup.style.display =
+    supportsCentreLineLabels
+      ? ""
+      : "none";
+}
+
+if (xmrMeanLabelsBtn) {
+  xmrMeanLabelsBtn.textContent =
+    showXmRMeanLabels
+  ? "Hide centre-line labels"
+  : "Show centre-line labels";
+}
+
+const hideXmRMeanLabelBtn =
+  chartContextMenu.querySelector(
+    'button[data-action="hideXmRMeanLabel"]'
+  );
+
+const restoreXmRMeanLabelsBtn =
+  chartContextMenu.querySelector(
+    'button[data-action="restoreXmRMeanLabels"]'
+  );
+
+if (hideXmRMeanLabelBtn) {
+  const canHideThisLabel =
+  supportsCentreLineLabels &&
+  showXmRMeanLabels &&
+    contextMenuMeanLabelSegmentIndex !== null &&
+    !xmrHiddenMeanLabels.has(
+      contextMenuMeanLabelSegmentIndex
+    );
+
+  hideXmRMeanLabelBtn.style.display =
+    canHideThisLabel ? "" : "none";
+}
+
+if (restoreXmRMeanLabelsBtn) {
+  restoreXmRMeanLabelsBtn.style.display =
+    supportsCentreLineLabels &&
+xmrHiddenMeanLabels.size > 0
+      ? ""
+      : "none";
+}
 
   // Current x-label at the clicked point (if any)
   const labels = currentChart?.data?.labels || [];
@@ -9973,6 +19242,74 @@ function showChartContextMenu(clientX, clientY, pointIndex) {
     } else {
       clearAnnotationsBtn.title = clearAnnotationsBtn.dataset.defaultTitle;
     }
+  }
+
+  // ---------- Limit-calculation exclusion ----------
+  const limitExclusionGroup =
+    chartContextMenu.querySelector(
+      '[data-role="limitExclusionGroup"]'
+    );
+
+  const excludeFromLimitsBtn =
+    chartContextMenu.querySelector(
+      'button[data-action="excludeFromLimits"]'
+    );
+
+  const includeInLimitsBtn =
+    chartContextMenu.querySelector(
+      'button[data-action="includeInLimits"]'
+    );
+
+  const limitState =
+    getCurrentLimitExclusionMenuState(
+      pointIndex
+    );
+
+  if (limitExclusionGroup) {
+    limitExclusionGroup.style.display =
+      limitState.supported
+        ? ""
+        : "none";
+  }
+
+  if (excludeFromLimitsBtn) {
+    excludeFromLimitsBtn.style.display =
+      limitState.supported &&
+      !limitState.excluded
+        ? ""
+        : "none";
+
+    excludeFromLimitsBtn.disabled =
+      !limitState.eligible;
+
+    excludeFromLimitsBtn.textContent =
+      chartType === "xbars"
+        ? "Exclude this subgroup from limit calculations…"
+        : "Exclude from limit calculations…";
+
+    excludeFromLimitsBtn.title =
+      limitState.eligible
+        ? "Keep this point visible but do not use it to estimate the centre line or control limits."
+        : (
+            limitState.reason ||
+            "Right-click near a plotted point."
+          );
+  }
+
+  if (includeInLimitsBtn) {
+    includeInLimitsBtn.style.display =
+      limitState.supported &&
+      limitState.excluded
+        ? ""
+        : "none";
+
+    includeInLimitsBtn.disabled =
+      !limitState.key;
+
+    includeInLimitsBtn.textContent =
+      chartType === "xbars"
+        ? "Include this subgroup in limit calculations again"
+        : "Include in limit calculations again";
   }
 
    // ---------- Split submenu ----------
@@ -10663,10 +20000,13 @@ function getChartTypeDisplayName(chartType) {
     xmr: "X-MR chart",
     c: "C chart",
     p: "P chart",
+    pprime: "P′ chart",
     u: "U chart",
+    uprime: "U′ chart",
     xbars: "X̄-S chart",
     t: "T chart",
-    g: "G chart"
+    g: "G chart",
+    pareto: "Pareto chart"
   };
   return names[chartType] || "This chart";
 }
@@ -10696,7 +20036,12 @@ function renderRuleExplainerModal(chartType) {
     `${chartName}: this tool uses a conservative, chart-aware rule policy designed to reduce false alerts.`;
 
   let whyText = "";
-  if (chartType === "c" || chartType === "p" || chartType === "u") {
+  if (
+  chartType === "c" ||
+  chartType === "p" ||
+  chartType === "pprime" ||
+  isUFamilyChartType(chartType)
+) {
     whyText =
       "Attribute charts use a conservative rule set here. Zone rules are blocked because they can create misleading alerts, especially when limits vary or counts are low.";
   } else if (chartType === "t" || chartType === "g") {
@@ -10704,32 +20049,99 @@ function renderRuleExplainerModal(chartType) {
       "Rare-event charts are naturally irregular. Run and trend rules can create false signals, so they are advanced-only and warning-gated.";
   } else if (chartType === "xmr") {
     whyText =
-      "X-MR charts are continuous, but more fragile than subgrouped charts. Extra pattern rules are available only as advanced options.";
+      "XmR charts are used for individual measurements over time. SimpleSPC keeps the default interpretation deliberately simple, while additional pattern rules and calculation options are available for users who need them.";
   } else if (chartType === "xbars") {
     whyText =
       "X̄-S charts are the chart family where advanced rule sets are most defensible, but the default remains conservative to reduce false alarms.";
   } else if (chartType === "run") {
     whyText =
       "Run charts do not use control limits. The tool keeps interpretation simple and conservative by default.";
-  } else {
+  } else if (chartType === "pareto") {
+ 	 whyText =
+    		"A Pareto chart is not a time-ordered control chart, so SPC signal rules do not apply. " +
+    		"It ranks categories to help focus investigation and improvement effort.";
+  } else
+	{
     whyText =
       "This tool keeps the default rule set simple and conservative to reduce false alerts.";
   }
 
-  body.innerHTML = `
-    <div class="hint">
-      <strong>${chartName}</strong>
-    </div>
+  let xmrCalculationHtml = "";
 
-    <div class="hint" style="margin-top:0.5rem;">
-      ${whyText}
-    </div>
+if (chartType === "xmr") {
+  const screeningOn =
+    screenLargeMRsCheckbox
+      ? screenLargeMRsCheckbox.checked
+      : true;
 
+  xmrCalculationHtml = `
     <hr style="margin:0.9rem 0;">
 
     <div class="hint">
-      <strong>What this chart checks by default</strong>
+      <strong>How XmR limits are set</strong>
     </div>
+
+    <div class="hint" style="margin-top:0.5rem;">
+      XmR charts estimate routine variation from the differences between
+      consecutive points. These differences are called
+      <strong>moving ranges</strong>.
+    </div>
+
+    <div class="hint" style="margin-top:0.5rem;">
+      A very large jump between two points can make the estimated variation
+      too large and produce control limits that are too wide.
+      By default, FreeSPC screens unusually large moving ranges when setting
+      XmR limits. The original data points and moving ranges are still shown
+      on the chart.
+    </div>
+
+    <div class="hint" style="margin-top:0.5rem;">
+      <strong>Technical detail:</strong>
+      FreeSPC uses the Nelson method. Moving ranges greater than
+      3.5 times the initial average moving range are not used when estimating
+      routine variation.
+    </div>
+
+    <div class="hint" style="margin-top:0.5rem;">
+      <strong>Current setting:</strong>
+      moving-range screening is
+      <strong>${screeningOn ? "ON" : "OFF"}</strong>.
+      You can change this under <em>Advanced detection options</em>.
+    </div>
+
+    <div class="hint" style="margin-top:0.75rem;">
+      <strong>What happens when you add a split?</strong>
+      A split tells FreeSPC that you want to treat the data before and after
+      that point as different process periods. Each period gets its own mean
+      and control limits, and the moving range across the split is not used.
+    </div>
+
+    <div class="hint" style="margin-top:0.5rem;">
+      FreeSPC needs at least
+      <strong>${MIN_XMR_LIMIT_POINTS} points</strong>
+      to interpret the XmR limits for a period. If a split creates a shorter
+      period, the limits are shown as provisional and FreeSPC does not label
+      that period as showing routine or special-cause variation yet.
+    </div>
+  `;
+}
+
+  body.innerHTML = `
+  <div class="hint">
+    <strong>${chartName}</strong>
+  </div>
+
+  <div class="hint" style="margin-top:0.5rem;">
+    ${whyText}
+  </div>
+
+  ${xmrCalculationHtml}
+
+  <hr style="margin:0.9rem 0;">
+
+  <div class="hint">
+    <strong>What this chart checks by default</strong>
+  </div>
     <ul style="margin-top:0.5rem;">
       ${describeRuleStatus(policy.beyondLimits, { name: "Beyond limits" })}
       ${describeRuleStatus(policy.runShift, { name: "Run rule" })}
@@ -10806,10 +20218,30 @@ function setChartType(chartType) {
     radio.checked = true;
     // If chart type is in the "More chart types" details, open it so the selection is visible
     const details = document.getElementById("moreChartTypesDetails");
-    if (details && ["c", "p", "u", "xbars", "t", "g"].includes(chartType)) {
+    if (details && ["c", "p", "pprime", "u", "uprime", "xbars", "t", "g", "pareto"].includes(chartType)) {
       details.open = true;
     }
     updateUIForChartType(chartType);
+  }
+}
+
+function hideNewDataChartPrompt() {
+  if (newDataChartPrompt) {
+    newDataChartPrompt.style.display = "none";
+  }
+}
+
+function showNewDataChartPrompt() {
+  if (!newDataChartPrompt) return;
+
+  newDataChartPrompt.style.display = "block";
+
+  // Move naturally to the next step in the workflow: chart choice.
+  const chartTabButton =
+    document.querySelector('.tab-btn[data-tab="tab-chart"]');
+
+  if (chartTabButton) {
+    chartTabButton.click();
   }
 }
 
@@ -10868,15 +20300,73 @@ function computeRecommendation(answers) {
     }
 
     case "count": {
-      if (answers.countOpportunity === "varies") return { chartType: "u", label: "U", reason: "The opportunity/volume varies across time points." };
-      return { chartType: "c", label: "C", reason: "You have counts with a roughly constant opportunity/volume each time." };
-    }
+  if (
+    answers.countOpportunity ===
+    "varies"
+  ) {
+    return {
+      chartType: "u",
+      label: "U chart",
+      reason:
+        "You have counts where the amount of opportunity or activity varies, so a U chart is the right starting point. " +
+        "After the chart is generated, SimpleSPC will check whether the rates vary more or less than a standard U chart expects. " +
+        "If so, it will suggest a Laney U′ chart and explain why."
+    };
+  }
+
+  return {
+    chartType: "c",
+    label: "C chart",
+    reason:
+      "You have counts with a roughly constant amount of opportunity or activity each time."
+  };
+}
 
     case "proportion": {
-      if (answers.proportionHasDenom === "yes") return { chartType: "p", label: "P", reason: "You have defectives out of a total (a proportion)." };
-      // If no denominator, P isn't really possible. Give a safe novice fallback:
-      return { chartType: "xmr", label: "XmR", reason: "Without a denominator column, the safest option is to chart the percentage as a measurement (XmR)." };
+  if (answers.proportionHasDenom === "yes") {
+    return {
+      chartType: "p",
+      label: "P chart",
+      reason:
+        "You have a numerator and denominator for each time point, so a P chart is the right starting point. " +
+        "After the chart is generated, SimpleSPC will check whether the data vary more or less than a standard P chart expects. " +
+        "If so, it will suggest a Laney P′ chart and explain why."
+    };
+  }
+
+  return {
+    chartType: "xmr",
+    label: "XmR",
+    reason:
+      "Without the numerator and denominator, a P or P′ chart cannot calculate the expected variation correctly. " +
+      "The percentage or proportion can instead be treated as a single measurement over time using an XmR chart."
+  };
+}
+
+
+    case "pareto": {
+      const alreadySummarised =
+        answers.paretoDataFormat === "counts";
+
+      return {
+        chartType: "pareto",
+        label: "Pareto chart",
+        reason:
+          "You want to compare categories and identify which " +
+          "account for the most occurrences. A Pareto chart " +
+          "ranks categories from most to least frequent and " +
+          "shows their cumulative percentage. " +
+          (alreadySummarised
+            ? "Your data already contain counts, so select the " +
+              "category column and the numeric frequency/count column. "
+            : "If each row represents one occurrence, select the " +
+              "category column and choose (count each row as 1). ") +
+          "The chart helps prioritise investigation, but does not " +
+          "identify root causes or assess statistical process stability."
+      };
     }
+
+
 
     case "rare": {
       if (answers.rareType === "opportunities") return { chartType: "g", label: "G", reason: "You have opportunities between rare events." };
@@ -10913,12 +20403,108 @@ function renderChartWizard() {
         ${optionButton("A measurement — e.g. waiting time, score, temperature, length of stay", `wizardNext('kind','measurement')`)}
         ${optionButton("A count per time period — e.g. falls per week, complaints per month", `wizardNext('kind','count')`)}
         ${optionButton("A proportion out of a total — e.g. 5 out of 100, pass rate", `wizardNext('kind','proportion')`)}
+	${optionButton("Categories — e.g. reasons for delays, types of complaints", `wizardNext('kind','pareto')`)}
         ${optionButton("Rare events — time or opportunities between events", `wizardNext('kind','rare')`)}
-        ${optionButton("Not sure", `finishWizard(computeRecommendation({kind:'unsure'}))`)}
+        ${optionButton("Not sure", `wizardNext('kind','unsure')`)}
       </div>
     `;
     return;
   }
+
+if (s.step === 1 && a.kind === "unsure") {
+  chartWizardBody.innerHTML = `
+    <p class="chart-wizard-question">Which description is closest to your data?</p>
+
+    <p class="hint small-hint">
+      The chart type depends on what each value represents. Choose the closest
+      description below. If none fits, you can return to the chart list and
+      select a chart manually.
+    </p>
+
+    <div class="chart-wizard-options">
+      ${optionButton(
+        "One measurement at each time point — e.g. waiting time, score, length of stay",
+        `wizardNext('kind','measurement')`
+      )}
+
+      ${optionButton(
+        "A number of events in each time period — e.g. falls, complaints, incidents",
+        `wizardNext('kind','count')`
+      )}
+
+      ${optionButton(
+        "A proportion or percentage — e.g. 5 out of 100, compliance rate",
+        `wizardNext('kind','proportion')`
+      )}
+
+      ${optionButton(
+        "Categories of occurrences — e.g. complaint types or reasons for delays",
+        `wizardNext('kind','pareto')`
+      )}
+
+      ${optionButton(
+        "The time or opportunities between rare events",
+        `wizardNext('kind','rare')`
+      )}
+    </div>
+
+    <div class="chart-wizard-actions">
+      <button
+        type="button"
+        class="chart-wizard-secondary"
+        onclick="wizardBack()"
+      >
+        Back
+      </button>
+
+      <button
+        type="button"
+        onclick="closeChartWizard()"
+      >
+        Choose manually
+      </button>
+    </div>
+  `;
+
+  return;
+}
+
+
+  if (s.step === 1 && a.kind === "pareto") {
+    chartWizardBody.innerHTML = `
+      <p class="chart-wizard-question">
+        How are your category data recorded?
+      </p>
+
+      <p class="hint small-hint">
+        A Pareto chart compares the frequency of different
+        categories. You can use individual records or data
+        that already contain counts for each category.
+      </p>
+
+      <div class="chart-wizard-options">
+        ${optionButton(
+          "One row per occurrence — e.g. one row for each complaint",
+          `wizardNext('paretoDataFormat','rows')`
+        )}
+
+        ${optionButton(
+          "Summarised counts — e.g. Falls: 20, Delays: 15",
+          `wizardNext('paretoDataFormat','counts')`
+        )}
+
+        ${optionButton(
+          "Not sure",
+          `wizardNext('paretoDataFormat','unsure')`
+        )}
+      </div>
+
+      ${actionButtons}
+    `;
+    return;
+  }
+
+
 
   if (s.step === 1 && a.kind === "measurement") {
     chartWizardBody.innerHTML = `
@@ -10940,9 +20526,13 @@ function renderChartWizard() {
       <p class="chart-wizard-question">Does the amount of work or opportunity vary?</p>
 
       <p class="hint small-hint">
-        If activity is broadly similar each time, treat it as roughly constant. If volume changes a lot,
-        or you have a denominator such as bed-days or inspections, choose varies.
-      </p>
+  If activity is broadly similar each time, treat it as roughly constant.
+  If volume changes a lot, or you have a denominator such as bed-days,
+  attendances or inspections, choose varies.
+  <br><br>
+  SimpleSPC will normally start with a U chart and then check whether
+  a Laney U′ chart would better match the amount of variation in your data.
+</p>
 
       <div class="chart-wizard-options">
         ${optionButton("No — roughly similar volume each time", `wizardNext('countOpportunity','constant')`)}
@@ -10956,23 +20546,42 @@ function renderChartWizard() {
   }
 
   if (s.step === 1 && a.kind === "proportion") {
-    chartWizardBody.innerHTML = `
-      <p class="chart-wizard-question">Do you have both parts of the proportion?</p>
+  chartWizardBody.innerHTML = `
+    <p class="chart-wizard-question">
+      Do you have both parts of the proportion?
+    </p>
 
-      <p class="hint small-hint">
-        For a P chart you need a numerator and denominator for each time point.
-      </p>
+    <p class="hint small-hint">
+      For example, if 8 out of 100 patients met the measure,
+      the numerator is 8 and the denominator is 100.
+      <br><br>
+      SimpleSPC will normally start with a P chart and then
+      check whether a Laney P′ chart would better match the
+      amount of variation in your data.
+    </p>
 
-      <div class="chart-wizard-options">
-        ${optionButton("Yes — I have numerator and denominator columns", `wizardNext('proportionHasDenom','yes')`)}
-        ${optionButton("No — I only have the percentage or proportion value", `wizardNext('proportionHasDenom','no')`)}
-        ${optionButton("Not sure", `wizardNext('proportionHasDenom','unsure')`)}
-      </div>
+    <div class="chart-wizard-options">
+      ${optionButton(
+        "Yes — I have numerator and denominator columns",
+        `wizardNext('proportionHasDenom','yes')`
+      )}
 
-      ${actionButtons}
-    `;
-    return;
-  }
+      ${optionButton(
+        "No — I only have the percentage or proportion value",
+        `wizardNext('proportionHasDenom','no')`
+      )}
+
+      ${optionButton(
+        "Not sure",
+        `wizardNext('proportionHasDenom','unsure')`
+      )}
+    </div>
+
+    ${actionButtons}
+  `;
+
+  return;
+}
 
   if (s.step === 1 && a.kind === "rare") {
     chartWizardBody.innerHTML = `
@@ -11039,11 +20648,58 @@ function useWizardChart(chartType) {
   }
 }
 
+function switchPToPPrime() {
+  setChartType("pprime");
 
+  if (
+    rawRows &&
+    rawRows.length &&
+    generateButton
+  ) {
+    lastGenerateWasManual = false;
+    generateButton.click();
+  }
+}
+
+window.switchPToPPrime =
+  switchPToPPrime;
+
+function switchUToUPrime() {
+  setChartType("uprime");
+
+  if (
+    rawRows &&
+    rawRows.length &&
+    generateButton
+  ) {
+    lastGenerateWasManual = false;
+    generateButton.click();
+  }
+}
+
+window.switchUToUPrime =
+  switchUToUPrime;
+
+if (newDataHelpChooseBtn) {
+  newDataHelpChooseBtn.addEventListener("click", () => {
+    hideNewDataChartPrompt();
+
+    toggleChartWizard(true);
+    startChartWizard();
+  });
+}
+
+if (newDataChooseManuallyBtn) {
+  newDataChooseManuallyBtn.addEventListener("click", () => {
+    hideNewDataChartPrompt();
+  });
+}
 
 // Hook wizard start into the existing button/modal
 if (helpChooseChartBtn) {
   helpChooseChartBtn.addEventListener("click", () => {
+    hideNewDataChartPrompt();
+
     toggleChartWizard(true);
     startChartWizard();
   });
@@ -11081,7 +20737,7 @@ function applySplitFromSidebarSelection() {
       ? (getSelectedChartType_NoSideEffects() || "run")
       : ((typeof getSelectedChartType === "function") ? (getSelectedChartType() || "run") : "run");
 
-  const supportsSplits = ["run", "xmr", "c", "p", "u", "xbars", "t", "g"].includes(chartType);
+  const supportsSplits = ["run", "xmr", "c", "p", "pprime", "u", "uprime", "xbars", "t", "g"].includes(chartType);
 
   if (!supportsSplits) {
     alert("Splits / recalculating limits are not available for this chart type.");
@@ -11135,20 +20791,65 @@ if (addSplitButton) {
 // ---- Right-click on chart: show menu ----
 if (chartCanvas) {
   chartCanvas.addEventListener("contextmenu", (evt) => {
-    // Always use our menu on the chart canvas
     evt.preventDefault();
 
-    // Try to find a nearby point; if none, menu still shows but split is disabled
     const idx = getNearestPointIndexFromEvent(evt);
-    showChartContextMenu(evt.clientX, evt.clientY, idx); // idx may be null
+
+    contextMenuMeanLabelSegmentIndex = null;
+
+    if (
+      currentChart &&
+      Array.isArray(currentChart.$xmrMeanLabelHitboxes)
+    ) {
+      const rect = chartCanvas.getBoundingClientRect();
+
+      const x =
+        (evt.clientX - rect.left) *
+        (currentChart.width / rect.width);
+
+      const y =
+        (evt.clientY - rect.top) *
+        (currentChart.height / rect.height);
+
+      const hit =
+        currentChart.$xmrMeanLabelHitboxes.find(box =>
+          x >= box.x &&
+          x <= box.x + box.width &&
+          y >= box.y &&
+          y <= box.y + box.height
+        );
+
+      if (hit) {
+        contextMenuMeanLabelSegmentIndex =
+          hit.segmentIndex;
+      }
+    }
+
+    showChartContextMenu(
+      evt.clientX,
+      evt.clientY,
+      idx
+    );
   });
 }
 
 
-// Hide menu on click elsewhere / escape / scroll
-document.addEventListener("click", () => hideChartContextMenu());
-document.addEventListener("keydown", (e) => { if (e.key === "Escape") hideChartContextMenu(); });
-document.addEventListener("scroll", () => hideChartContextMenu(), true);
+ // Hide the context menu when clicking outside it,
+ // pressing Escape, or scrolling.
+ // Clicking inside the menu should not dismiss it.
+ document.addEventListener("click", (e) => {
+   if (chartContextMenu && chartContextMenu.contains(e.target)) {
+     return;
+   }
+   hideChartContextMenu();
+ });
+
+ document.addEventListener("keydown", (e) => {
+   if (e.key === "Escape") hideChartContextMenu();
+ });
+
+ document.addEventListener("scroll", () => hideChartContextMenu(), true);
+
 
 // Menu actions (right-click menu)
 if (chartContextMenu) {
@@ -11158,8 +20859,12 @@ if (chartContextMenu) {
 
     const action = btn.getAttribute("data-action");
 
-    // capture the point index BEFORE hiding the menu
-    const clickedPointIndex = contextMenuPointIndex;
+    // Capture context BEFORE hiding the menu
+    const clickedPointIndex =
+      contextMenuPointIndex;
+
+    const clickedMeanLabelSegmentIndex =
+      contextMenuMeanLabelSegmentIndex;
 
     hideChartContextMenu();
 
@@ -11169,38 +20874,254 @@ if (chartContextMenu) {
     }
 
     try {
-            if (action === "addAnnotation") {
-        if (clickedPointIndex === null || clickedPointIndex === undefined) {
-          alert("Right-click near a data point to add an annotation.");
-          return;
+      if (action === "toggleXmRMeanLabels") {
+        showXmRMeanLabels =
+          !showXmRMeanLabels;
+
+        if (generateButton) {
+          generateButton.click();
         }
 
-        const labels = currentChart?.data?.labels || [];
-        const xLabel = labels?.[clickedPointIndex];
-
-        if (!xLabel) {
-          alert("Could not determine the selected x-position for annotation.");
-          return;
-        }
-
-        const text = prompt(`New annotation for ${xLabel}:`, "");
-        if (text === null) return;
-
-        const trimmed = String(text).trim();
-        if (!trimmed) {
-          alert("Annotation text cannot be blank.");
-          return;
-        }
-
-        if (annotationDateInput) annotationDateInput.value = xLabel;
-        if (annotationLabelInput) annotationLabelInput.value = trimmed;
-
-        annotations.push({ date: xLabel, label: trimmed });
-
-        if (generateButton) generateButton.click();
         return;
       }
 
+      if (action === "hideXmRMeanLabel") {
+        if (
+          clickedMeanLabelSegmentIndex !== null &&
+          clickedMeanLabelSegmentIndex !== undefined
+        ) {
+          xmrHiddenMeanLabels.add(
+            clickedMeanLabelSegmentIndex
+          );
+
+          if (currentChart) {
+            currentChart.draw();
+          }
+        }
+
+        return;
+      }
+
+      if (action === "restoreXmRMeanLabels") {
+        xmrHiddenMeanLabels.clear();
+
+        if (currentChart) {
+          currentChart.draw();
+        }
+
+        return;
+      }
+
+	      if (
+        action ===
+          "excludeFromLimits" ||
+        action ===
+          "includeInLimits"
+      ) {
+        if (
+          clickedPointIndex ===
+            null ||
+          clickedPointIndex ===
+            undefined
+        ) {
+          alert(
+            "Right-click near a plotted point first."
+          );
+
+          return;
+        }
+
+        const state =
+          getCurrentLimitExclusionMenuState(
+            clickedPointIndex
+          );
+
+        if (
+          !state.supported ||
+          !state.key
+        ) {
+          return;
+        }
+
+        // Restoring a point is immediate.
+        if (
+          action ===
+          "includeInLimits"
+        ) {
+          setLimitExcluded(
+            state.scope,
+            state.key,
+            false
+          );
+
+          if (generateButton) {
+            lastGenerateWasManual =
+              false;
+
+            generateButton.click();
+          }
+
+          return;
+        }
+
+        if (!state.eligible) {
+          alert(
+            state.reason ||
+            "This point is not part of the current limit-estimation window."
+          );
+
+          return;
+        }
+
+        const isSubgroup =
+          state.chartType ===
+          "xbars";
+
+        const ok =
+          window.confirm(
+            `Exclude this ${
+              isSubgroup
+                ? "subgroup"
+                : "point"
+            } from the limit calculations?\n\n` +
+
+            `The ${
+              isSubgroup
+                ? "subgroup"
+                : "point"
+            } will stay visible on the chart, but it will not be used to estimate the centre line or control limits.\n\n` +
+
+            "Only do this after you have investigated it and have good reason to believe it reflects a known special cause rather than the routine variation of the process.\n\n" +
+
+            "Do not exclude a point simply because it is unusually high or low. If it represents a lasting change in the process, use a split instead."
+          );
+
+        if (!ok) {
+          return;
+        }
+
+        setLimitExcluded(
+          state.scope,
+          state.key,
+          true
+        );
+
+        const xLabel =
+          currentChart
+            ?.data
+            ?.labels
+            ?.[clickedPointIndex] ??
+          `point ${
+            clickedPointIndex + 1
+          }`;
+
+        const addNote =
+          window.confirm(
+            `${
+              isSubgroup
+                ? "Subgroup"
+                : "Point"
+            } excluded from the limit calculations. It will remain visible on the chart.\n\n` +
+
+            "Would you like to add an annotation explaining why it was excluded?"
+          );
+
+        if (addNote) {
+          const text =
+            prompt(
+              `Annotation for ${xLabel}:`,
+              ""
+            );
+
+          if (
+            text !== null &&
+            String(text)
+              .trim()
+          ) {
+            annotations.push({
+              date:
+                xLabel,
+
+              label:
+                String(text)
+                  .trim()
+            });
+          }
+        }
+
+        if (generateButton) {
+          lastGenerateWasManual =
+            false;
+
+          generateButton.click();
+        }
+
+        return;
+      }
+
+
+      if (action === "addAnnotation") {
+        if (
+          clickedPointIndex === null ||
+          clickedPointIndex === undefined
+        ) {
+          alert(
+            "Right-click near a data point to add an annotation."
+          );
+          return;
+        }
+
+        const labels =
+          currentChart?.data?.labels || [];
+
+        const xLabel =
+          labels?.[clickedPointIndex];
+
+        if (!xLabel) {
+          alert(
+            "Could not determine the selected x-position for annotation."
+          );
+          return;
+        }
+
+        const text = prompt(
+          `New annotation for ${xLabel}:`,
+          ""
+        );
+
+        if (text === null) return;
+
+        const trimmed =
+          String(text).trim();
+
+        if (!trimmed) {
+          alert(
+            "Annotation text cannot be blank."
+          );
+          return;
+        }
+
+        if (annotationDateInput) {
+          annotationDateInput.value =
+            xLabel;
+        }
+
+        if (annotationLabelInput) {
+          annotationLabelInput.value =
+            trimmed;
+        }
+
+        annotations.push({
+          date: xLabel,
+          label: trimmed
+        });
+
+        if (generateButton) {
+          generateButton.click();
+        }
+
+        return;
+      }
       if (action === "editAnnotation") {
         if (clickedPointIndex === null || clickedPointIndex === undefined) {
           alert("Right-click near a data point to edit an annotation.");
@@ -11621,16 +21542,51 @@ function toggleSpcHelper() {
 }
 
 
-
-
-
-
 const resetButton = document.getElementById("resetButton");
+const clearDataButton = document.getElementById("clearDataButton");
 
 if (resetButton) {
-  resetButton.addEventListener("click", resetAll);
+  resetButton.addEventListener("click", () => {
+    const hasExistingWork =
+      (Array.isArray(rawRows) && rawRows.length > 0) ||
+      !!currentChart ||
+      !!dataModelDirty;
+
+    if (hasExistingWork) {
+      const ok = window.confirm(
+        "Reset this chart?\n\n" +
+        "Your loaded data and selected X/value columns will be kept, " +
+        "but chart settings such as chart type, baseline, target, splits, " +
+        "annotations, labels, rules and axis formatting will be reset."
+      );
+
+      if (!ok) return;
+    }
+
+    resetChartKeepData();
+  });
 }
 
+if (clearDataButton) {
+  clearDataButton.addEventListener("click", () => {
+    const hasExistingWork =
+      (Array.isArray(rawRows) && rawRows.length > 0) ||
+      !!currentChart ||
+      !!dataModelDirty;
+
+    if (hasExistingWork) {
+      const ok = window.confirm(
+        "Clear all loaded data?\n\n" +
+"This will also reset the current chart and its settings. " +
+"Save the chart first if you want to reopen it later."
+      );
+
+      if (!ok) return;
+    }
+
+    resetAll();
+  });
+}
 updateSaveChartButtonState();
 updateDateControlsState();
 
@@ -11690,7 +21646,8 @@ function wireAutoRedrawControls() {
   // Chart type radios (run / xmr)
    document.querySelectorAll("input[name='chartType']").forEach(radio => {
   radio.addEventListener("change", () => {
-    applyDefaultYBoundsForSelectedColumn();
+  hideNewDataChartPrompt();  
+  applyDefaultYBoundsForSelectedColumn();
 
     if (typeof updateUIForChartType === "function") {
       updateUIForChartType(radio.value);

@@ -5,17 +5,13 @@
   <title>Simple SPC Tool</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <!-- Chart.js CDN -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <!-- Annotation script -->
- <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1"></script>
-  <!-- PapaParse for CSV parsing -->
-  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
-   <!-- PDF export script -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script> 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-  <!-- Excel export script -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <!-- Local third-party libraries -->
+<script src="./vendor/chart.js"></script>
+<script src="./vendor/chartjs-plugin-annotation.min.js"></script>
+<script src="./vendor/papaparse.min.js"></script>
+<script src="./vendor/html2pdf.bundle.min.js"></script>
+<script src="./vendor/jspdf.umd.min.js"></script>
+<script src="./vendor/xlsx.full.min.js"></script>
 
 
 
@@ -50,7 +46,12 @@
   </div>
 </div>
 
-<button id="resetButton" type="button" style="margin-left:0.5rem;">Reset tool</button>
+<button
+  id="resetButton"
+  type="button"
+  style="margin-left:0.5rem;"
+  title="Keep your loaded data and selected columns, but reset chart settings including targets, splits, annotations, rules and formatting."
+>Reset chart</button>
 <button type="button" style="margin-left:0.5rem;" onclick="toggleHelpSection()">Help &amp; guidance</button>
 <button type="button" style="margin-left:0.5rem;" onclick="toggleSpcHelper()">SPC helper</button>
 
@@ -69,7 +70,11 @@
 <button class="tab-btn" data-tab="tab-chart">Chart</button>
 <button class="tab-btn" data-tab="tab-labels">Labels</button>
 <button class="tab-btn" data-tab="tab-axes">Axes</button>
-<button class="tab-btn" data-tab="tab-baseline">Baseline</button>
+<button
+  class="tab-btn"
+  data-tab="tab-baseline"
+  title="Set an initial baseline period or a performance target"
+>Baseline</button>
 <button class="tab-btn" data-tab="tab-rules">Rules</button>
 </div>
 
@@ -80,27 +85,67 @@
 
   <div class="panel">
 
-    <label for="fileInput"><strong>Add data:</strong></label>
+    
+<div class="label-with-tooltip" style="margin-bottom:0.25rem;">
+
+  <label for="fileInput" style="margin:0;">
+    <strong>Add data:</strong>
+  </label>
+
+  <span
+    class="help-tooltip"
+    tabindex="0"
+    aria-label="Data requirements help"
+  >
+    ?
+    <span class="help-tooltip-text">
+      The columns you need depend on the chart type.
+
+      Most SPC charts need a time or sequence column
+      and a measurement. Some also need counts
+      and denominators.
+
+      Pareto charts need a category column and can
+      optionally use a frequency/count column.
+    </span>
+  </span>
+
+</div>
+
+
 
     <div class="hint small-hint">
-      Upload a CSV or Excel file, or use the data editor to paste/type/edit data directly.
+      Upload a CSV/Excel file or paste data in the editor.
     </div>
 
     <input type="file" id="fileInput" accept=".csv,.xlsx,.xls" />
-
-    <div class="hint small-hint">
-      Expected columns: a date/time column and a numeric column.
-    </div>
 
     <button id="openDataEditorButton" type="button">
       Open data editor (paste/type data)
     </button>
 
+    <button
+  id="clearDataButton"
+  type="button"
+  class="clear-data-button"
+  title="Remove the loaded data and reset the chart. Save your work first if you want to reopen it later."
+>
+  Clear data &amp; chart
+</button>
+
+
+    
     <hr class="section-divider" />
 
-    <div class="helper-note">
-      Save your work to come back later, or open a saved chart. Files are saved as .json.
+    <div class="label-with-tooltip" style="margin:0 0 0.25rem;">
+      <strong>Save or open a chart</strong>
     </div>
+
+    <div class="helper-note" style="margin-top:0;">
+      Save your chart, data and settings as a JSON file
+      to reopen and edit later.
+    </div>
+
 
     <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.4rem;">
       <button id="exportSettingsBtn" type="button" disabled>
@@ -114,6 +159,39 @@
 
     <input id="importSettingsFileInput" type="file" accept=".json,application/json" style="display:none;" />
 
+
+<hr class="section-divider" />
+<div class="label-with-tooltip" style="margin:0 0 0.5rem;">
+
+
+  <strong>Save an offline copy</strong>
+
+  <span
+    class="help-tooltip"
+    tabindex="0"
+    aria-label="Portable chart help"
+  >
+    ?
+    <span class="help-tooltip-text">
+      Save a self-contained HTML copy of your chart.
+
+      The file includes your data and a working
+      copy of SimpleSPC. You can open it without
+      an internet connection, make changes and
+      save it again.
+
+      Portable files contain your data.
+      Store and share them in line with your
+      organisation's information-governance
+      requirements.
+    </span>
+  </span>
+
+</div>
+<button id="savePortableBtn" type="button" disabled>
+  Save portable chart
+</button>
+
   </div>
 
 </div>
@@ -124,6 +202,38 @@
 
 <div id="noDataYetHint" class="hint">
   Load data to enable chart and column selection.
+</div>
+
+<div
+  id="newDataChartPrompt"
+  style="
+    display:none;
+    margin-bottom:0.75rem;
+    padding:0.75rem;
+    border:1px solid #b8c8d6;
+    border-radius:8px;
+    background:#f3f8fc;
+  "
+>
+  <strong>New data loaded</strong>
+
+  <div class="hint" style="margin-top:0.25rem;">
+    Would you like help choosing the most appropriate chart for these data?
+  </div>
+
+  <div style="display:flex; gap:0.4rem; flex-wrap:wrap; margin-top:0.55rem;">
+    <button id="newDataHelpChooseBtn" type="button">
+      Help me choose
+    </button>
+
+    <button
+      id="newDataChooseManuallyBtn"
+      type="button"
+      class="help-btn"
+    >
+      Choose manually
+    </button>
+  </div>
 </div>
 
 <strong class="field-label">Chart type:</strong>
@@ -143,38 +253,83 @@
 <details id="moreChartTypesDetails" class="more-types">
   <summary>More chart types</summary>
 
-  <div class="radio-row chart-row" style="margin-top:0.1rem; flex-wrap:wrap;">
-    <label class="radio-pill" title="Counts per time period (e.g., number of incidents per week)">
+  <div
+    class="radio-row chart-row"
+    style="margin-top:0.1rem; flex-wrap:wrap;"
+  >
+    <label
+      class="radio-pill"
+      title="Counts per time period (e.g., number of incidents per week)"
+    >
       <input type="radio" name="chartType" value="c" />
       C chart (counts)
     </label>
 
-    <label class="radio-pill" title="Proportion out of a total (e.g., 5 out of 100, % compliant)">
+    <label
+      class="radio-pill"
+      title="Proportion out of a total (e.g., 5 out of 100, % compliant)"
+    >
       <input type="radio" name="chartType" value="p" />
       P chart (proportion)
     </label>
 
-    <label class="radio-pill" title="Rate per opportunity (e.g., infections per 1,000 bed-days)">
+    <label
+      class="radio-pill"
+      title="Laney P-prime chart: proportion out of a total, with limits adjusted when the observed variation is greater or smaller than a standard P chart expects."
+    >
+      <input type="radio" name="chartType" value="pprime" />
+      P′ chart (Laney)
+    </label>
+
+    <label
+      class="radio-pill"
+      title="Rate per opportunity (e.g., infections per 1,000 bed-days)"
+    >
       <input type="radio" name="chartType" value="u" />
       U chart (rate)
     </label>
 
-    <label class="radio-pill" title="Subgrouped measurements (multiple values per time point)">
+    <label
+      class="radio-pill"
+      title="Laney U-prime chart: rate per opportunity, with limits adjusted when the observed variation is greater or smaller than a standard U chart expects."
+    >
+      <input type="radio" name="chartType" value="uprime" />
+      U′ chart (Laney)
+    </label>
+
+    <label
+      class="radio-pill"
+      title="Subgrouped measurements (multiple values per time point)"
+    >
       <input type="radio" name="chartType" value="xbars" />
       X̄–S chart (subgroups)
     </label>
 
-    <label class="radio-pill" title="Time between rare events (e.g., days between serious incidents)">
+    <label
+      class="radio-pill"
+      title="Time between rare events (e.g., days between serious incidents)"
+    >
       <input type="radio" name="chartType" value="t" />
       T chart (time between)
     </label>
 
-    <label class="radio-pill" title="Opportunities between rare events (e.g., procedures between harms)">
+    <label
+      class="radio-pill"
+      title="Opportunities between rare events (e.g., procedures between harms)"
+    >
       <input type="radio" name="chartType" value="g" />
       G chart (opportunities between)
     </label>
-  </div>
 
+  <label
+  class="radio-pill"
+  title="Ranks categories from most to least frequent to help focus improvement effort."
+  >
+  <input type="radio" name="chartType" value="pareto" />
+  Pareto chart (categories)
+  </label>
+
+  </div>
 </details>
 
 <div id="chartTypeAvailabilityHint" class="hint small-hint" style="margin-top:0.35rem;" aria-live="polite"></div>
@@ -197,7 +352,34 @@
   </label>
 
   <div id="mrDisplayOptions" class="mr-mode">
-    <span id="mrDisplayModeLabel" class="mr-mode-label">MR display</span>
+    <span class="label-with-tooltip">
+
+  <span id="mrDisplayModeLabel" class="mr-mode-label">
+    MR display
+  </span>
+
+  <span
+    class="help-tooltip"
+    tabindex="0"
+    aria-label="Secondary chart display help"
+  >
+    ?
+    <span class="help-tooltip-text">
+      XmR charts can show a Moving Range (MR) chart,
+      which helps explain the variation between
+      consecutive measurements.
+
+      X-bar and S charts can show an S chart,
+      which displays variation within subgroups.
+
+      Current shows the latest analysis period only.
+      All shows the full history, including split periods.
+
+      Use the checkbox to show or hide the secondary chart.
+    </span>
+  </span>
+
+</span>
 
     <label class="mr-radio">
       <input type="radio" name="mrDisplayMode" value="last" checked />
@@ -233,11 +415,31 @@
   <select id="valueColumn"></select>
 </label>
 
+
 <div id="thirdColumnRow" style="display:none; margin-top:0.5rem;">
-  <label title="The total number of people, cases, episodes, or opportunities that the numerator comes from. For example: falls divided by occupied bed days, or patients delayed divided by total patients."><span id="thirdLabel">Denominator / opportunities</span>:
+  <label>
+    <span id="thirdLabel">Denominator / opportunities</span>:
     <select id="thirdColumn"></select>
   </label>
   <div id="thirdHint" class="hint small-hint" style="margin-top:0.25rem;"></div>
+</div>
+
+
+<div id="uRateMultiplierRow" style="display:none; margin-top:0.5rem;">
+  <label>
+    Display rate as:
+    <select id="uRateMultiplier">
+      <option value="1" selected>Per 1</option>
+      <option value="10">Per 10</option>
+      <option value="100">Per 100</option>
+      <option value="1000">Per 1,000</option>
+      <option value="10000">Per 10,000</option>
+    </select>
+  </label>
+
+  <div class="hint small-hint" style="margin-top:0.25rem;">
+    Changes the displayed rate only; the underlying U-chart calculation is unchanged.
+  </div>
 </div>
 
 <hr />
@@ -553,7 +755,39 @@ Y-axis label
 
 <div class="panel">
 
-<h3 style="margin-top:0.8rem;">Baseline data</h3>
+
+<h3 style="margin-top:0.8rem;">
+  <span class="label-with-tooltip">
+    Baseline data
+
+    <span
+      class="help-tooltip"
+      tabindex="0"
+      aria-label="Baseline data help"
+    >
+      ?
+      <span class="help-tooltip-text">
+        A baseline is an initial reference period used
+        to understand how your process was performing
+        before later observations.
+
+        Enter the number of points to use as your
+        starting reference. SimpleSPC uses these to
+        calculate the initial centre line and, where
+        applicable, control limits. Later observations
+        remain visible for comparison.
+
+        Leave blank if you do not need a separate
+        initial baseline period.
+
+        Choose a baseline based on your knowledge
+        of the process, not simply to remove
+        inconvenient signals.
+      </span>
+    </span>
+  </span>
+</h3>
+
 
 <label>
 Use first
@@ -564,7 +798,32 @@ points as baseline<br>
 
 <hr>
 
-<h3 style="margin-top:0.8rem;">Target</h3>
+<h3 style="margin-top:0.8rem;">
+  <span class="label-with-tooltip">
+    Target
+
+    <span
+      class="help-tooltip"
+      tabindex="0"
+      aria-label="How to set a target"
+    >
+      ?
+      <span class="help-tooltip-text">
+        Enter the performance level you want to achieve,
+        then choose whether values at or above, or at
+        or below, that level are good.
+
+        A target is a performance goal, not a statistical
+        control limit.
+      </span>
+    </span>
+  </span>
+</h3>
+
+<div class="hint small-hint" style="margin-bottom:0.5rem;">
+  Enter your target value, then choose whether higher
+  or lower values are better.
+</div>
 
 <label>
 Target value
@@ -652,10 +911,10 @@ Hide target line
 
 <hr />
 
-<details id="advancedRulesDetails" style="margin-top:0.75rem;">
+<details id="advancedRulesDetails" style="margin-top:0.25rem;">
   <summary>Advanced detection options</summary>
 
-  <div class="panel" style="margin-top:0.75rem; padding:0.75rem;">
+  <div class="panel" style="margin-top:0.25rem; padding:0.25rem;">
     <div id="advancedTrendRow" style="display:none; margin-top:0;">
       <label class="radio-pill" style="display:inline-flex; gap:0.5rem; align-items:center;">
   <input type="checkbox" id="enableAdvancedTrend" />
@@ -673,12 +932,12 @@ Hide target line
   </span>
 </label>
 
-<div class="hint small-hint" style="margin-top:0.25rem;">
+<div class="hint small-hint" style="margin-top:0.15rem;">
   Advanced option — may increase false alerts.
 </div>
     </div>
 
-    <div id="rareRulesRow" style="display:none; margin-top:0.75rem;">
+    <div id="rareRulesRow" style="display:none; margin-top:0.25rem;">
      <label class="radio-pill" style="display:inline-flex; gap:0.5rem; align-items:center;">
   <input type="checkbox" id="enableRareRunTrend" />
 
@@ -700,7 +959,7 @@ Hide target line
 </div>
     </div>
 
-    <div id="lclClampRow" style="display:none; margin-top:0.75rem;">
+    <div id="lclClampRow" style="display:none; margin-top:0.25rem;">
       <label class="radio-pill" style="display:inline-flex; gap:0.5rem; align-items:center;">
   <input type="checkbox" id="clampLclAtZero" />
 
@@ -718,25 +977,93 @@ Hide target line
 </label>
     </div>
 
-    <div id="zoneRulesSection" style="display:none; margin-top:0.75rem;">
+    <div id="zoneRulesSection" style="display:none; margin-top:0.25rem;">
       <div class="hint small-hint" style="margin-top:0;">
         Optional zone rules (off by default). Use only on chart types where they are supported.
       </div>
 
-      <label class="radio-pill" style="display:inline-flex; gap:0.5rem; align-items:center; margin-top:0.35rem;">
+      <label class="radio-pill" style="display:inline-flex; gap:0.5rem; align-items:center; margin-top:0.25rem;">
         <input type="checkbox" id="ruleTwoOfThreeOuterThird" />
         Apply “2 out of 3 in the outer third” rule
       </label>
 
-      <label class="radio-pill" style="display:inline-flex; gap:0.5rem; align-items:center; margin-top:0.35rem;">
+      <label class="radio-pill" style="display:inline-flex; gap:0.5rem; align-items:center; margin-top:0.25rem;">
         <input type="checkbox" id="ruleFourOfFiveOneSigma" />
         Apply “4 out of 5 beyond 1-sigma” rule
       </label>
 
-      <div id="advancedContinuousCaution" class="hint small-hint" style="display:none; margin-top:0.35rem;">
+      <div id="advancedContinuousCaution" class="hint small-hint" style="display:none; margin-top:0.25rem;">
         Additional pattern rules can increase false alerts on XmR / individuals charts. They are off by default and should only be used when you understand the trade-off.
       </div>
     </div>
+
+    <div
+  id="mrScreeningRow"
+  style="
+    display:none;
+    margin-top:0.9rem;
+    padding-top:0.75rem;
+    border-top:1px solid #d6dde3;
+  "
+>
+  <div class="hint small-hint" style="margin-top:0;">
+    <strong>
+      <span class="label-with-tooltip">
+        XmR limit calculation
+
+        <span
+          class="help-tooltip"
+          tabindex="0"
+          aria-label="XmR moving range screening help"
+        >
+          ?
+          <span class="help-tooltip-text">
+            A very large jump between two consecutive points can make XmR
+            control limits too wide. When this is on, SimpleSPC keeps all data
+            points and moving ranges on the chart, but does not use unusually
+            large moving ranges to estimate routine variation. Uses the Nelson
+            method: moving ranges greater than 3.5 times the initial average
+            moving range are excluded from the variation estimate.
+          </span>
+        </span>
+      </span>
+    </strong>
+  </div>
+
+  <div
+    style="
+      display:grid;
+      grid-template-columns:auto minmax(0, 1fr);
+      column-gap:0.5rem;
+      align-items:start;
+      margin-top:0.45rem;
+      width:100%;
+      box-sizing:border-box;
+    "
+  >
+    <input
+      type="checkbox"
+      id="screenLargeMRs"
+      checked
+      style="margin:0.15rem 0 0 0;"
+    />
+
+    <label
+      for="screenLargeMRs"
+      style="
+        display:block;
+        margin:0;
+        padding:0;
+        width:auto;
+        min-width:0;
+        white-space:normal;
+        line-height:1.35;
+      "
+    >
+      Screen unusually large jumps when setting limits
+    </label>
+  </div>
+</div>
 
     <div id="conservativeRulesMessage" class="hint small-hint" style="display:none; margin-top:0.75rem;">
       This chart uses a conservative rule set designed for reliable interpretation.
@@ -764,9 +1091,31 @@ Hide target line
       <div id="reportContent">  
 
         <div class="panel">
-          <strong>Chart:</strong>
+          <strong class="label-with-tooltip">
+  Chart:
+
+  <span
+    class="help-tooltip"
+    tabindex="0"
+    aria-label="Chart right-click menu help"
+  >
+    ?
+    <span class="help-tooltip-text">
+      Right-click the chart for additional options.
+
+      Depending on the chart type, you can add annotations,
+      create or remove splits, exclude or reinclude investigated
+      data points from limit calculations, manage centre-line
+      labels, and copy or export your chart.
+
+      Some actions require you to right-click directly on
+      a plotted data point.
+    </span>
+  </span>
+</strong>
 
 <div id="firstRunGuide" style="
+  display:none;
   margin:0.75rem 0 0.75rem 0;
   padding:0.85rem 1rem;
   border:2px solid #111;
@@ -826,23 +1175,95 @@ Hide target line
 
       <div class="modal-body">
         <details open>
-          <summary><strong>1. What this tool does</strong></summary>
-          <p>
-            This tool helps you create <strong>Statistical Process Control (SPC)</strong> charts directly in your browser.
-            All calculations happen locally in your browser. Your data are <strong>not uploaded to a server</strong>.
-          </p>
-          <p>
-            It is designed for learning, improvement work, service monitoring, and rapid analysis. It is not intended to replace
-            a regulated statistical package.
-          </p>
-          <ul>
-            <li><strong>Run charts</strong> – values over time with a median line and simple run/trend rules.</li>
-            <li><strong>XmR charts</strong> – Individuals (X) chart with mean and control limits plus an optional Moving Range (MR) chart.</li>
-            <li><strong>X̄–S charts</strong> – for grouped continuous data with multiple observations per subgroup.</li>
-            <li><strong>P / U charts</strong> – for proportions or rates.</li>
-            <li><strong>T / G charts</strong> – for rare events.</li>
-          </ul>
-        </details>
+  <summary><strong>1. What this tool does</strong></summary>
+
+  <p>
+    <strong>SimpleSPC</strong> is a free, browser-based tool for
+    creating Statistical Process Control (SPC) charts and
+    Pareto charts.
+  </p>
+
+  <p>
+    It helps you understand patterns in data, distinguish
+    routine variation from signals of change, and identify
+    opportunities for improvement. All calculations take
+    place locally in your browser. Your data are not
+    uploaded to a server.
+  </p>
+
+  <p>
+    SimpleSPC is designed for learning, quality improvement,
+    service monitoring and practical analysis. It is not
+    intended to replace a regulated statistical package.
+  </p>
+
+  <p><strong>Available charts:</strong></p>
+
+  <ul>
+    <li>
+      <strong>Run chart</strong> – shows values in time or
+      sequence order, using a median and simple rules to
+      identify non-random patterns.
+    </li>
+
+    <li>
+      <strong>XmR chart</strong> – shows individual measurements
+      with a mean and control limits, alongside an optional
+      moving-range chart.
+    </li>
+
+    <li>
+      <strong>X̄–S chart</strong> – examines averages and
+      variation within groups of continuous measurements.
+    </li>
+
+    <li>
+      <strong>C chart</strong> – monitors counts of events
+      or defects when the opportunity for events is
+      reasonably constant.
+    </li>
+
+    <li>
+      <strong>P and Laney P′ charts</strong> – monitor
+      proportions, such as the percentage of patients
+      experiencing an event. P′ adjusts control limits
+      when observed variation differs from that expected
+      by a standard P chart.
+    </li>
+
+    <li>
+      <strong>U and Laney U′ charts</strong> – monitor
+      event rates when the number of opportunities varies.
+      U′ adjusts control limits when observed variation
+      differs from that expected by a standard U chart.
+    </li>
+
+    <li>
+      <strong>T chart</strong> – monitors the time
+      between rare events.
+    </li>
+
+    <li>
+      <strong>G chart</strong> – monitors the number of
+      opportunities between rare events.
+    </li>
+
+    <li>
+      <strong>Pareto chart</strong> – ranks categories
+      from most to least frequent to help prioritise
+      investigation and improvement.
+    </li>
+  </ul>
+
+  <p>
+    <strong>Important:</strong> Pareto charts are different
+    from time-ordered SPC charts. They help identify which
+    categories account for the most occurrences, but do
+    not establish whether a process is stable or whether
+    a change is statistically significant.
+  </p>
+
+</details>
 
         <details>
           <summary><strong>2. Quick start</strong></summary>
@@ -858,11 +1279,27 @@ Hide target line
 
         <details>
           <summary><strong>3. Preparing and loading your data</strong></summary>
-          <p>Your data usually need at least:</p>
-          <ul>
-            <li>a <strong>time or order column</strong> (for example month, week, date, or sequence)</li>
-            <li>a <strong>value column</strong> (the measure you want to plot)</li>
-          </ul>
+          <p>
+  The columns you need depend on the chart type.
+  Most SPC charts need a time or sequence column and
+  a measurement or count.
+</p>
+
+<ul>
+  <li>
+    <strong>P, P′, U and U′ charts</strong> also need
+    a denominator or opportunities column.
+  </li>
+  <li>
+    <strong>X̄–S charts</strong> need a subgroup
+    identifier and individual measurement values.
+  </li>
+  <li>
+    <strong>Pareto charts</strong> need a category
+    column, with an optional frequency/count column
+    if your data are already summarised.
+  </li>
+</ul>
 
           <div class="modal-note">
             <strong>You can now load data in three ways:</strong>
@@ -915,40 +1352,146 @@ Hide target line
           </p>
         </details>
 
-        <details>
-          <summary><strong>5. X-axis type and chart type</strong></summary>
-          <p>
-            Choose the chart type that matches the kind of data you have:
-          </p>
-          <ul>
-            <li><strong>Run chart</strong> – a simple starting point for values over time.</li>
-            <li><strong>XmR chart</strong> – one continuous observation per time point.</li>
-            <li><strong>X̄–S chart</strong> – grouped continuous measurements with several values per subgroup.</li>
-            <li><strong>P chart</strong> – proportions with numerator and denominator.</li>
-            <li><strong>U chart</strong> – rates with changing opportunity.</li>
-            <li><strong>T / G charts</strong> – rare events.</li>
-          </ul>
-          <p>
-            If you are unsure, use the <strong>Help me choose a chart</strong> option.
-          </p>
-        </details>
+        
+<details>
+  <summary><strong>5. X-axis type and chart type</strong></summary>
 
-        <details>
-          <summary><strong>6. Baseline, splits, targets and annotations</strong></summary>
-          <ul>
-            <li><strong>Baseline</strong> lets you calculate the initial centre line and limits using an earlier reference period.</li>
-            <li><strong>Splits</strong> let you recalculate the centre line and limits from a chosen point onward.</li>
-            <li><strong>Targets</strong> show the level you want to achieve, but they are not the same as control limits.</li>
-            <li><strong>Annotations</strong> let you mark events that may help explain a change in the pattern.</li>
-          </ul>
-          <p>
-            In general:
-          </p>
-          <ul>
-            <li>use a <strong>baseline</strong> to compare against an earlier period</li>
-            <li>use a <strong>split</strong> when a later period should be treated as a new system</li>
-          </ul>
-        </details>
+  <p>
+    Choose the chart type that matches the kind of data you have.
+    The main options are:
+  </p>
+
+  <ul>
+    <li><strong>Run chart</strong> – a simple starting point for values over time.</li>
+    <li><strong>XmR chart</strong> – individual continuous measurements, with control limits.</li>
+    <li><strong>X̄–S chart</strong> – continuous measurements collected in subgroups.</li>
+    <li><strong>C chart</strong> – counts where the opportunity for events is reasonably constant.</li>
+    <li><strong>P and Laney P′ charts</strong> – proportions, using a numerator and denominator. P′ adjusts for greater or smaller variation than expected.</li>
+    <li><strong>U and Laney U′ charts</strong> – event rates with changing opportunities. U′ adjusts for greater or smaller variation than expected.</li>
+    <li><strong>T and G charts</strong> – time or opportunities between rare events.</li>
+    <li><strong>Pareto chart</strong> – ranks categories from most to least frequent to help prioritise investigation.</li>
+  </ul>
+
+  <p>
+    <strong>X-axis type:</strong>
+  </p>
+
+  <ul>
+    <li>
+      <strong>Date / time</strong> – use when observations have
+      dates or times and you want to display them chronologically.
+    </li>
+    <li>
+      <strong>Sequence / category</strong> – use when observations
+      should be shown in order without treating their labels as dates.
+    </li>
+  </ul>
+
+  <p>
+    Pareto charts use categories rather than dates. Categories are
+    ranked by frequency, with a cumulative percentage line.
+    They are not time-ordered SPC charts and do not have
+    statistical control limits.
+  </p>
+
+  <p>
+    If you are unsure which chart to use, click
+    <strong>Help me choose</strong>. You can also use
+    <strong>Chart setup</strong> for guidance on the data
+    columns required by the selected chart.
+  </p>
+</details>
+
+<details>
+  <summary><strong>6. Baselines, splits, targets and the right-click menu</strong></summary>
+
+  <p>
+    SimpleSPC offers additional features to help you investigate
+    and explain your data.
+  </p>
+
+  <ul>
+    <li>
+      <strong>Set a baseline:</strong>
+      Open the <strong>Baseline</strong> tab and enter the number
+      of initial points you want to use as a reference period.
+      Leave this blank if you do not need a separate initial baseline.
+    </li>
+
+    <li>
+      <strong>Set a target:</strong>
+      Open the <strong>Baseline</strong> tab and find
+      <strong>Target</strong>. Enter the level of performance
+      you want to achieve, then select whether values at or
+      above, or at or below, that target are good.
+      You can also show or hide the target line.
+      A target is a performance goal, not a statistical control limit.
+    </li>
+
+    <li>
+      <strong>Add a split:</strong>
+      Right-click a plotted point and choose
+      <strong>Splits</strong>, then
+      <strong>Add split after this point</strong>.
+      This divides the chart into separate analysis periods
+      where supported.
+    </li>
+
+    <li>
+      <strong>Add an annotation:</strong>
+      Right-click a plotted point and use the
+      <strong>Annotations</strong> menu to record
+      an event, intervention or explanation.
+    </li>
+  </ul>
+
+  <p>
+    <strong>Discover the right-click menu</strong>
+  </p>
+
+  <p>
+    Right-click directly on a chart to discover additional
+    options. Available actions depend on the chart type
+    and where you click.
+  </p>
+
+  <ul>
+    <li>Add, edit or delete annotations.</li>
+    <li>Add or remove split periods.</li>
+    <li>Exclude or reinclude investigated observations from control-limit calculations.</li>
+    <li>Show, hide or restore centre-line labels.</li>
+    <li>Copy the chart, copy its analysis, or export an image.</li>
+  </ul>
+
+  <p>
+    <strong>Important – excluding data points:</strong>
+    Only exclude an observation from limit calculations after
+    investigating and understanding the reason it differs,
+    and deciding it does not represent routine process variation.
+    Excluded observations remain visible and can be reincluded.
+    Consider annotating the reason for exclusion.
+  </p>
+
+  <p>
+    On X̄–S charts, exclusion applies to an entire subgroup.
+    Pareto charts do not use control-limit splits or point exclusions.
+  </p>
+
+  <p>
+    Similarly, only use a split when there is good reason
+    to believe the process has changed. Splits should reflect
+    investigated changes, not simply remove inconvenient signals.
+  </p>
+
+  <p>
+    Look for the small <strong>?</strong> symbols beside
+    controls throughout SimpleSPC. Hover over them, or
+    focus them with the keyboard, for additional guidance.
+    You can also ask the <strong>SPC helper</strong> about
+    your chart and its interpretation.
+  </p>
+</details>
+
 
         <details>
           <summary><strong>7. Interpreting the summary</strong></summary>
@@ -966,35 +1509,78 @@ Hide target line
         </details>
 
         <details>
-          <summary><strong>8. Saving and reopening your work</strong></summary>
-          <p>
-            You can now save the whole chart as a <strong>json file</strong>.
-          </p>
-          <ul>
-            <li><strong>Save chart</strong> stores the current data and chart settings together in one <code>.json</code> file.</li>
-            <li><strong>Open saved chart</strong> restores that saved chart so you can continue working on it later.</li>
-          </ul>
-          <p>
-            Chart json files can preserve things like:
-          </p>
-          <ul>
-            <li>selected columns</li>
-            <li>chart type</li>
-            <li>titles and labels</li>
-            <li>rules and targets</li>
-            <li>splits and annotations</li>
-          </ul>
-        </details>
+  <summary><strong>8. Saving and reopening your work</strong></summary>
 
-        <details>
-          <summary><strong>9. Copying and downloading charts</strong></summary>
-          <ul>
-            <li>Right clicking on the chart brings up the menu that allows you to export the chart as an image.</li>
-            <li>Use the chart options to adjust appearance before exporting.</li>
-            <li>You can also copy the chart(s) and/or analysis to your clipboard for easy pasting into a report or presentation.</li>
-	    <li>Use the show/hide MR/S chart toggle in the Chart tab to toggle whether that is included in your ouput</li>
-          </ul>
-        </details>
+  <p>
+    You can save your work in two different ways, depending on how you want to use it later.
+  </p>
+
+  <ul>
+    <li>
+      <strong>Save chart</strong> stores the current data and chart settings together
+      in a <code>.json</code> project file.
+    </li>
+    <li>
+      <strong>Open saved chart</strong> restores a previously saved
+      <code>.json</code> project file so you can continue working on it later.
+    </li>
+    <li>
+      <strong>Save portable chart</strong> creates a self-contained
+      <code>.html</code> file containing the SPC tool, your data and your chart
+      settings. The saved file can be opened directly in a web browser and used
+      again without an internet connection.
+    </li>
+  </ul>
+
+  <p>
+    Saved charts can preserve things such as:
+  </p>
+
+  <ul>
+    <li>the underlying chart data</li>
+    <li>selected columns and X-axis type</li>
+    <li>chart type</li>
+    <li>titles, labels and axis settings</li>
+    <li>rules and targets</li>
+    <li>baseline settings</li>
+    <li>splits and annotations</li>
+  </ul>
+
+  <p>
+    A portable HTML file remains editable. After opening it, you can change the
+    data or chart settings and use <strong>Save portable chart</strong> again to
+    create an updated copy.
+  </p>
+
+  <p>
+    <strong>Important:</strong> both JSON project files and portable HTML files
+    contain the data used to create the chart. Store and share saved files in
+    line with your organisation's information-governance, confidentiality and
+    cybersecurity requirements.
+  </p>
+</details>
+
+<details>
+  <summary><strong>9. Copying and downloading charts</strong></summary>
+
+  <ul>
+    <li>
+      Right-click the chart to open the menu for exporting the chart as an image.
+    </li>
+    <li>
+      Use the chart options to adjust the chart's appearance before exporting.
+    </li>
+    <li>
+      You can copy the chart(s) and/or analysis to your clipboard for easy
+      pasting into a report, presentation or document.
+    </li>
+    <li>
+      Use the <strong>Show/hide MR/S chart</strong> option in the
+      <strong>Chart</strong> tab to control whether the secondary chart is
+      included in copied or downloaded output.
+    </li>
+  </ul>
+</details>
 
         <details>
           <summary><strong>10. Data privacy</strong></summary>
@@ -1002,11 +1588,22 @@ Hide target line
           <ul>
             <li>data are not sent to a server</li>
             <li>uploaded files are processed locally in your browser session</li>
-            <li>once you close or refresh the page, unsaved work is no longer retained unless you saved a chart json file</li>
+            <li>
+  Unsaved work may be lost when you close or refresh
+  the page. Use <strong>Save chart</strong> (JSON)
+  or <strong>Save portable chart</strong> (HTML)
+  to keep a copy of your work.
+</li>
           </ul>
           <p class="hint">
-            Always follow your local information governance guidance before using real patient-identifiable data.
-          </p>
+  <strong>Important:</strong> SimpleSPC is not designed
+  for patient-identifiable or other sensitive personal data.
+  Use anonymised or appropriately aggregated data, and
+  follow your organisation's information-governance,
+  confidentiality and cybersecurity requirements.
+  Remember that saved JSON and portable HTML files
+  contain the data used to create the chart.
+</p>
         </details>
 
         <details>
@@ -1280,6 +1877,27 @@ Hide target line
 
   <div class="menu-sep"></div>
 
+    <div data-role="limitExclusionGroup" style="display:none;">
+    <button
+      type="button"
+      data-action="excludeFromLimits"
+      title="Keep this point visible but exclude it from centre-line and control-limit estimation."
+    >
+      Exclude from limit calculations…
+    </button>
+
+    <button
+      type="button"
+      data-action="includeInLimits"
+      style="display:none;"
+      title="Put this point back into the centre-line and control-limit calculation."
+    >
+      Include in limit calculations again
+    </button>
+  </div>
+
+  <div class="menu-sep"></div>
+
   <div class="context-submenu-wrap">
     <button
       type="button"
@@ -1306,6 +1924,38 @@ Hide target line
   </div>
 
   <div class="menu-sep"></div>
+
+<div data-role="xmrMeanLabelsGroup" style="display:none;">
+
+  <button
+    type="button"
+    data-action="toggleXmRMeanLabels"
+    title="Show or hide the calculated mean values for this XmR chart."
+  >
+    Show centre-line labels
+  </button>
+
+  <button
+    type="button"
+    data-action="hideXmRMeanLabel"
+    style="display:none;"
+    title="Hide only the mean label that you right-clicked."
+  >
+    Hide this centre-line label
+  </button>
+
+  <button
+    type="button"
+    data-action="restoreXmRMeanLabels"
+    style="display:none;"
+    title="Restore any individual mean labels that have been hidden."
+  >
+    Restore hidden centre-line labels
+  </button>
+</div>
+
+  <div class="menu-sep"></div>
+
   <button type="button" data-action="copyCharts" title="Copy the chart (only) to the clipboard.">Copy chart(s)</button>
   <button type="button" data-action="copyChartsAndAnalysis" title="Copy the chart and the analysis area to the clipboard">Copy chart(s) + analysis</button>
 
@@ -1318,5 +1968,6 @@ Hide target line
   <script src="spc-helper-library.js"></script>
   <script src="./js/modals.js"></script>
   <script src="spc.js"></script>
+  <script src="./portable.js"></script>
 </body>
 </html>
