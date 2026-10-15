@@ -62,6 +62,26 @@ select:disabled {
   cursor: not-allowed;
 }
 
+/* Secondary destructive utility action in the Data tab */
+.clear-data-button {
+  display: block;
+  width: auto;
+  padding: 0.3rem 0.7rem;
+  margin-top: 0.15rem;
+  margin-bottom: 0.5rem;
+  background: #ffffff;
+  border: 1px solid #aeb7bd;
+  color: #425563;
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.clear-data-button:hover:not(:disabled) {
+  background: #f2f4f5;
+  border-color: #768692;
+  color: #212b32;
+}
+
 /* MR chart a bit shorter */
 #mrPanel .chart-container {
   height: 300px;
@@ -1107,6 +1127,50 @@ body.sidebar-collapsed .main {
   outline-offset: 2px;
 }
 
+
+/* Position Chart setup close button at the top-right */
+#chartSetupModal .modal-close {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  z-index: 6;
+}
+
+/* Keep the heading clear of the close button */
+#chartSetupModal #chartSetupTitle {
+  padding-right: 3rem;
+}
+
+
+/* Position Help me choose close button at the top-right */
+#chartWizardModal .modal-close {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  z-index: 6;
+}
+
+/* Keep the heading clear of the close button */
+#chartWizardModal #chartWizardTitle {
+  padding-right: 3rem;
+}
+
+
+/* Position Rules explainer close button at the top-right */
+#ruleExplainerModal .modal-close {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  z-index: 6;
+}
+
+/* Keep the heading clear of the close button */
+#ruleExplainerModal #ruleExplainerTitle {
+  padding-right: 3rem;
+}
+
+
+
 .modal-body {
   overflow: auto;
   padding: 1rem 1.25rem 1.25rem 1.25rem;
@@ -1446,4 +1510,98 @@ body.pdf-exporting #capability {
 .help-tooltip-text.is-visible {
   visibility: visible;
   opacity: 1;
+}
+
+
+/* ============================================
+   SimpleSPC - Consistent control-tab typography
+   Applies only to the six control tabs.
+   Does not affect charts, modals or the helper.
+   ============================================ */
+
+.sidebar .tab-panel {
+  --control-heading: #003f87;
+  --control-text: #212b32;
+  --control-muted: #586773;
+
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: var(--control-text);
+}
+
+/* Main section headings */
+.sidebar .tab-panel h3,
+.sidebar .tab-panel .panel > .label-with-tooltip,
+.sidebar #tab-rules .panel > div:first-child > strong,
+.sidebar .tab-panel .field-label {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--control-heading);
+  line-height: 1.35;
+}
+
+.sidebar .tab-panel h3 {
+  margin-bottom: 0.55rem;
+}
+
+/* Expandable section headings */
+.sidebar .tab-panel details > summary {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--control-heading);
+}
+
+/* Ordinary control labels */
+.sidebar .tab-panel .panel label:not(.radio-pill):not(.mr-check):not(.mr-radio):not(.radio-inline) {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--control-text);
+}
+
+/* Keep the Add data heading prominent */
+.sidebar #tab-data .panel > .label-with-tooltip > label {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--control-heading);
+}
+
+/* Radio-button labels and secondary chart controls */
+.sidebar .tab-panel .radio-pill,
+.sidebar .tab-panel .radio-inline,
+.sidebar .tab-panel .mr-check,
+.sidebar .tab-panel .mr-radio {
+  font-size: 0.85rem;
+  color: var(--control-text);
+}
+
+/* Explanatory hints and supporting text */
+.sidebar .tab-panel .hint,
+.sidebar .tab-panel .small-hint,
+.sidebar .tab-panel .helper-note,
+.sidebar .tab-panel .mr-subhint {
+  font-size: 0.79rem;
+  line-height: 1.4;
+  color: var(--control-muted);
+}
+
+
+
+/* Keep extended chart options on separate, compact lines */
+.sidebar #moreChartTypesDetails .chart-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  flex-wrap: nowrap !important;
+  gap: 0.1rem;
+}
+
+/* Keep each radio button next to its chart name */
+.sidebar #moreChartTypesDetails .radio-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: auto;
+  margin: 0;
+  padding: 0.18rem 0.2rem;
+  text-align: left;
 }
