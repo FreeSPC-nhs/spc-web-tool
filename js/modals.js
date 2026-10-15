@@ -299,6 +299,182 @@ function renderChartSetupModal(chartType) {
     return;
   }
 
+
+  // Laney P-prime chart setup
+  if (chartType === "pprime") {
+    subtitle.textContent = "Laney P′ chart: adjusted proportion control chart.";
+
+    body.innerHTML = `
+      ${card("Use this when...", `
+        <p style="margin:0;">
+          You are tracking a <strong>proportion</strong> using a numerator
+          and denominator, but the observed variation is greater or
+          smaller than a standard P chart expects.
+          P′ adjusts the width of the control limits to reflect
+          this extra or reduced variation.
+        </p>
+      `)}
+
+      ${card("You need these columns", `
+        <ul style="margin:0;">
+          <li><strong>Date / X-axis column</strong> → time or order</li>
+          <li><strong>Value / Y-axis column</strong> → numerator (number meeting the definition)</li>
+          <li><strong>Third column</strong> → denominator (total number assessed)</li>
+        </ul>
+      `)}
+
+      ${card("Example layout", exampleTable(
+        ["Week", "Patients with harm", "Patients reviewed"],
+        [["1", "5", "100"], ["2", "7", "110"], ["3", "6", "95"]]
+      ))}
+
+      ${card("Choosing P or P′", `
+        <p style="margin:0;">
+          Normally start with a <strong>P chart</strong>.
+          SimpleSPC checks whether the observed variation differs
+          from what a standard P chart expects and can recommend
+          switching to P′.
+          <br><br>
+          The adjustment is called <strong>Sigma Z</strong>.
+          It changes the control limits, not the plotted proportions.
+          The choice to switch charts remains yours.
+        </p>
+      `)}
+
+      ${card("Common mistake", `
+        <p style="margin:0;">
+          Enter the actual numerator and denominator counts,
+          not a pre-calculated percentage. The numerator cannot
+          exceed the denominator.
+        </p>
+      `)}
+    `;
+    return;
+  }
+
+  // Laney U-prime chart setup
+  if (chartType === "uprime") {
+    subtitle.textContent = "Laney U′ chart: adjusted rate control chart.";
+
+    body.innerHTML = `
+      ${card("Use this when...", `
+        <p style="margin:0;">
+          You are tracking <strong>events per opportunity</strong>,
+          but the observed variation is greater or smaller than
+          a standard U chart expects.
+          U′ adjusts the control limits to reflect this variation.
+        </p>
+      `)}
+
+      ${card("You need these columns", `
+        <ul style="margin:0;">
+          <li><strong>Date / X-axis column</strong> → time or order</li>
+          <li><strong>Value / Y-axis column</strong> → count of events</li>
+          <li><strong>Third column</strong> → number of opportunities or amount of exposure</li>
+        </ul>
+      `)}
+
+      ${card("Example layout", exampleTable(
+        ["Month", "Infections", "Bed days"],
+        [["Jan", "2", "1200"], ["Feb", "3", "1350"], ["Mar", "1", "980"]]
+      ))}
+
+      ${card("Choosing U or U′", `
+        <p style="margin:0;">
+          Normally start with a <strong>U chart</strong>.
+          SimpleSPC checks whether the observed variation differs
+          from what a standard U chart expects and can recommend
+          switching to U′.
+          <br><br>
+          The adjustment is called <strong>Sigma Z</strong>.
+          It changes the control limits, not the underlying event rates.
+          The choice to switch charts remains yours.
+        </p>
+      `)}
+
+      ${card("Displaying rates", `
+        <p style="margin:0;">
+          Use <strong>Display rate as</strong> in the Chart tab
+          to show rates per 1, 100, 1,000 or another available unit.
+          This changes the display scale, not the statistical calculation.
+        </p>
+      `)}
+
+      ${card("Common mistake", `
+        <p style="margin:0;">
+          Enter the actual event counts and opportunities,
+          not a pre-calculated rate.
+          Unlike a proportion, a rate can exceed one event
+          per opportunity.
+        </p>
+      `)}
+    `;
+    return;
+  }
+
+  // Pareto chart setup
+  if (chartType === "pareto") {
+    subtitle.textContent = "Pareto chart: compare and prioritise categories.";
+
+    body.innerHTML = `
+      ${card("Use this when...", `
+        <p style="margin:0;">
+          You want to identify which categories account for
+          the most recorded occurrences.
+          A Pareto chart ranks categories from most to least frequent,
+          with a cumulative percentage line.
+        </p>
+      `)}
+
+      ${card("You need these columns", `
+        <ul style="margin:0;">
+          <li><strong>Category column</strong> → the category you want to compare</li>
+          <li><strong>Frequency / count column</strong> → choose how occurrences are counted</li>
+        </ul>
+        <p style="margin-bottom:0;">
+          If each row represents one occurrence, select
+          <strong>(count each row as 1)</strong>.
+          If your data are already summarised, select the numeric
+          column containing the counts.
+        </p>
+      `)}
+
+      ${card("Example 1: one row per occurrence", exampleTable(
+        ["Category"],
+        [["Medication"], ["Falls"], ["Medication"], ["Pressure damage"], ["Falls"]]
+      ))}
+
+      ${card("Example 2: already summarised counts", exampleTable(
+        ["Category", "Count"],
+        [["Medication", "25"], ["Falls", "18"], ["Pressure damage", "7"]]
+      ))}
+
+      ${card("What the chart shows", `
+        <p style="margin:0;">
+          The blue bars show the number of occurrences in each category.
+          The red line shows the cumulative percentage.
+          <br><br>
+          The dashed 80% line is a guide for prioritisation,
+          <strong>not a statistical control limit</strong>.
+        </p>
+      `)}
+
+      ${card("Common mistakes", `
+        <p style="margin:0;">
+          Do not assume that the most frequent categories
+          are necessarily the underlying causes of the problem.
+          They are useful starting points for investigation.
+          <br><br>
+          When using a numeric count column, counts must be
+          non-negative whole numbers. At least two categories
+          with positive counts are needed.
+        </p>
+      `)}
+    `;
+    return;
+  }
+
+
   if (chartType === "xbars") {
     subtitle.textContent = "X̄–S chart: grouped measurements.";
     body.innerHTML = `
