@@ -1058,6 +1058,73 @@ function buildSigmaZExplanation(ctx) {
   return out;
 }
 
+
+function buildRunChartAnswer(ctx) {
+  const a = ctx.run;
+
+  if (!a) {
+    return "Generate a Run chart first so I can interpret it.";
+  }
+
+  const splitCount =
+    Array.isArray(a.splits) ? a.splits.length : 0;
+
+  // With splits, rules are assessed separately within
+  // each period. No within-period signal does not mean
+  // that the overall process level has not changed.
+  if (splitCount > 0) {
+    const periodCount = splitCount + 1;
+
+    let answer =
+      `This Run chart has been divided into ${periodCount} ` +
+      "periods using splits. Each period has its own median, " +
+      "and SimpleSPC checks for shifts and trends separately " +
+      "within each period.\n\n";
+
+    if (a.isStable === true) {
+      answer +=
+        "No shift or trend has been detected within the " +
+        "individual periods using the current rule settings. " +
+        "However, this does not mean that the overall process " +
+        "has remained unchanged.\n\n";
+    } else {
+      answer +=
+        "One or more periods contain a shift or trend signal " +
+        "that may warrant investigation.\n\n";
+    }
+
+    answer +=
+      "Compare the medians reported for the different periods. " +
+      "A difference in their levels may indicate an important " +
+      "change in performance, even if there are no further " +
+      "signals within each period.\n\n" +
+      "A split is a boundary chosen for analysis; it does not " +
+      "by itself prove a statistically significant change. " +
+      "Consider why the split was introduced, what happened " +
+      "in the process around that time, and whether the new " +
+      "level is sustained.";
+
+    return answer;
+  }
+
+  // Existing behaviour for an unsplit Run chart.
+  if (a.isStable === true) {
+    return (
+      "Looking at the current Run chart, no shift or trend " +
+      "has been detected using the selected run-chart rules."
+    );
+  }
+
+  return (
+    "The current Run chart shows one or more shift or trend " +
+    "signals, suggesting that the pattern may have changed. " +
+    "Investigate what happened in the process around that time."
+  );
+}
+
+
+
+
   function buildLatestPeriodSummary(ctx) {
   const chartType = ctx.chartType;
 
@@ -1206,16 +1273,8 @@ function buildSigmaZExplanation(ctx) {
     );
   }
 
-  if (ctx.run) {
-    if (ctx.run.isStable === true) {
-      return (
-        "Looking at the current run chart, I cannot see a clear signal that the pattern has changed."
-      );
-    }
-
-    return (
-      "Looking at the current run chart, there are signs of possible change in the pattern."
-    );
+    if (ctx.run) {
+    return buildRunChartAnswer(ctx);
   }
 
   return (
@@ -1722,17 +1781,8 @@ function buildChangeAnswer(ctx) {
     );
   }
 
-  if (ctx.run) {
-    if (ctx.run.isStable === true) {
-      return (
-        "I cannot see clear evidence that the pattern has changed on the current run chart."
-      );
-    }
-
-    return (
-      "There are signs that the pattern may have changed on the current run chart. " +
-      "It would be worth checking what changed in the process or data around that time."
-    );
+    if (ctx.run) {
+    return buildRunChartAnswer(ctx);
   }
 
   return (
