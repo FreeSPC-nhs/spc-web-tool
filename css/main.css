@@ -144,23 +144,30 @@ select:disabled {
 
 .tab-bar {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.25rem;
   margin-bottom: 0.4rem;
 }
 
 .tab-btn {
   width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   border: 1px solid #005eb8;
   background: #005eb8;
   color: #ffffff;
   cursor: pointer;
-  padding: 0.45rem 0.5rem;
+  padding: 0.45rem 0.25rem;
   font-size: 0.85rem;
   border-radius: 0.55rem 0.55rem 0 0;
   font-weight: 600;
-  line-height: 1.1;
+  line-height: 1.2;
   text-align: center;
+
+  /* Allow longer translated labels to fit */
+  white-space: normal;
+  overflow-wrap: anywhere;
+  hyphens: auto;
 }
 
 .tab-btn:hover {
@@ -1605,3 +1612,233 @@ body.pdf-exporting #capability {
   padding: 0.18rem 0.2rem;
   text-align: left;
 }
+
+/* ===================================================
+   Batch 38 usability correction
+   SPC helper: responsive, scrollable questions
+   =================================================== */
+
+/*
+ * Keep the suggestion list within a sensible portion
+ * of the screen, regardless of the number or length
+ * of French/English suggested questions.
+ */
+#spcHelperSuggestions {
+  flex: 0 1 auto;
+  min-height: 0;
+
+  max-height: 32vh;
+  max-height: min(32vh, 240px);
+
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+/*
+ * Keep the answer and input usable even when both
+ * question sections are expanded.
+ */
+#spcHelperOutput {
+  flex: 1 1 auto;
+  min-height: 4rem;
+  overflow-y: auto;
+}
+
+#spcHelperControls {
+  flex-shrink: 0;
+}
+
+#aiQuestionInput {
+  min-width: 0;
+}
+
+/*
+ * Allow a smaller suggestion area on narrow screens
+ * and devices with limited viewport height.
+ */
+@media (max-width: 650px), (max-height: 520px) {
+  #spcHelperSuggestions {
+    max-height: 25vh;
+    max-height: min(25vh, 180px);
+  }
+}
+
+/* Localised file picker: the real input is retained for the native picker,
+   and the visible, keyboard-operable button has an application translation. */
+.localised-file-picker { display:flex; align-items:center; flex-wrap:wrap; gap:0.55rem; }
+.file-picker-native-input { position:absolute !important; width:1px !important; height:1px !important;
+  padding:0 !important; margin:0 !important; overflow:hidden !important;
+  clip-path:inset(50%) !important; white-space:nowrap !important; border:0 !important; }
+#selectedDataFileName { overflow-wrap:anywhere; font-size:0.86rem; color:#425563; }
+
+
+/* Give the translated CSV/Excel file selector the understated appearance
+   of the original browser file picker (rather than the app's blue buttons).
+   Only the visible control changes; the real input and its upload logic stay
+   unchanged, and its label remains translated by data-i18n. */
+#chooseDataFileButton {
+  padding: 2px 6px;
+  border: 1px solid #767676;
+  border-radius: 3px;
+  background: #efefef;
+  color: #000;
+  box-shadow: none;
+  font-family: Arial, sans-serif;
+  font-size: 13.3333px;
+  font-weight: 400;
+  line-height: normal;
+  white-space: nowrap;
+}
+
+#chooseDataFileButton:hover:not(:disabled) {
+  background: #e5e5e5;
+  border-color: #767676;
+  color: #000;
+}
+
+#chooseDataFileButton:active:not(:disabled) {
+  background: #d5d5d5;
+}
+
+#chooseDataFileButton:focus-visible {
+  outline: 2px solid #005eb8;
+  outline-offset: 2px;
+}
+
+/* Match the filename text alongside a traditional file input. */
+#selectedDataFileName {
+  font-family: Arial, sans-serif;
+  font-size: 13.3333px;
+  color: #222;
+}
+
+.wn-button {
+  margin-left: .4rem;
+  padding: .45rem .7rem;
+  border: 1px solid #a8bdcb;
+  border-radius: 5px;
+  background: #fff;
+  color: #235c7c;
+  cursor: pointer;
+  font: inherit;
+}
+
+.wn-banner {
+  margin: .7rem 0 1rem;
+  border: 1px solid #c6d7e4;
+  border-left: 4px solid #3b789d;
+  border-radius: 6px;
+  background: #f5f9fc;
+  padding: .75rem 1rem;
+  color: #243b4a;
+}
+.wn-banner[hidden] { display: none !important; }
+.wn-banner strong { display: block; margin-bottom: .25rem; }
+.wn-banner p { margin: .2rem 0 .6rem; }
+.wn-banner button {
+  font: inherit;
+  padding: .3rem .65rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+#wn-view {
+  background: #fff;
+  border: 1px solid #4a7c99;
+  color: #225b7d;
+}
+#wn-dismiss {
+  margin-left: .45rem;
+  background: transparent;
+  border: none;
+  color: #345d77;
+  text-decoration: underline;
+}
+
+.wn-dialog {
+  box-sizing: border-box;
+  width: min(560px, calc(100vw - 2rem));
+  max-height: 85vh;
+  overflow-y: auto;
+  padding: 1.2rem;
+  border-radius: 9px;
+  border: 1px solid #bcd0dd;
+  background: #fff;
+  color: #243746;
+  box-shadow: 0 12px 38px #1233;
+}
+.wn-dialog:not([open]) { display: none; }
+.wn-dialog::backdrop { background: #122b3c88; }
+.wn-dialog-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: .8rem;
+}
+.wn-dialog h2 { font-size: 1.3rem; margin: 0; }
+.wn-dialog h3 { font-size: 1rem; margin: 0 0 .2rem; }
+.wn-dialog p { line-height: 1.5; }
+
+#wn-close {
+  border: 1px solid #c8d6df;
+  background: #fff;
+  color: #243746;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 1.3rem;
+  padding: .1rem .5rem;
+}
+
+.wn-release {
+  color: #526b7d;
+  font-size: .85rem;
+  margin: .4rem 0 .8rem;
+}
+.wn-feature {
+  padding: .65rem 0;
+  border-bottom: 1px solid #e4eaf0;
+}
+.wn-feature p { margin: 0; }
+.wn-reassure {
+  background: #f2f6f8;
+  padding: .7rem;
+  border-radius: 5px;
+}
+.wn-dialog details { margin-top: 1rem; }
+.wn-dialog summary { cursor: pointer; font-weight: 600; }
+.wn-footer a { color: #205e84; }
+
+
+/* What's new — hover and keyboard accessibility */
+.wn-button:hover:not(:disabled),
+#wn-view:hover:not(:disabled),
+#wn-close:hover:not(:disabled) {
+  background: #eaf3f9;
+  border-color: #005eb8;
+  color: #003f87;
+}
+
+#wn-dismiss:hover:not(:disabled) {
+  background: transparent;
+  border-color: transparent;
+  color: #003f87;
+  text-decoration: underline;
+}
+
+.wn-button:focus-visible,
+.wn-banner button:focus-visible,
+.wn-dialog button:focus-visible,
+.wn-dialog a:focus-visible {
+  outline: 3px solid #ffb81c;
+  outline-offset: 2px;
+}
+
+/* Release information should not appear on printed charts */
+@media print {
+  .wn-banner,
+  .wn-dialog {
+    display: none !important;
+  }
+}
+
