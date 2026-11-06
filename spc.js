@@ -19848,14 +19848,21 @@ labelSegments.forEach(
           // Default to 1 decimal place for centre-line labels.
           // Use the Y-axis decimal setting when explicitly selected.
           // Preserve precision for small proportions and rates.
-          const decimalChoice = yAxisDecimalsInput?.value || "auto";
+          // Match centre-line labels to the selected Y-axis format.
+const decimalChoice = yAxisDecimalsInput?.value || "auto";
 
-          const labelDecimals = decimalChoice === "auto"
-            ? (Math.abs(centreValue) < 1 ? 3 : 1)
-            : getConfiguredDecimalPlaces(centreValue);
+const isPercent = getAxisSettings().y.format === "percent";
 
-          const text =
-            `${seg.label} = ${centreValue.toFixed(labelDecimals)}`;
+const displayValue = isPercent
+  ? centreValue * 100
+  : centreValue;
+
+const labelDecimals = decimalChoice === "auto"
+  ? (isPercent ? 1 : (Math.abs(centreValue) < 1 ? 3 : 1))
+  : getConfiguredDecimalPlaces(displayValue);
+
+const text =
+  `${seg.label} = ${displayValue.toFixed(labelDecimals)}${isPercent ? "%" : ""}`;
 
           const paddingX = 5;
           const boxHeight = 18;
