@@ -37,7 +37,26 @@
 
   var PORTABLE_BUTTON_ID = "savePortableBtn";
   var EXISTING_SAVE_BUTTON_ID = "exportSettingsBtn";
+/*
+ * Batch 39 — Translate portable save messages.
+ * Uses the current language, with English fallback.
+ */
+function portableUiText(key, englishFallback) {
+  var i18n = window.SimpleSPCi18n;
 
+  if (
+    !i18n ||
+    typeof i18n.translate !== "function"
+  ) {
+    return englishFallback;
+  }
+
+  var translated = i18n.translate(key);
+
+  return translated && translated !== key
+    ? translated
+    : englishFallback;
+}
   /*
    * The bootstrap code is written into every portable HTML file.
    *
@@ -477,7 +496,10 @@ async function getApplicationBundle() {
 
     if (busy) {
       button.dataset.previousText = button.textContent;
-      button.textContent = "Creating portable file…";
+      button.textContent = portableUiText(
+  "portable.creating",
+  "Creating portable file…"
+);
       button.disabled = true;
       return;
     }
@@ -499,11 +521,14 @@ async function getApplicationBundle() {
       var project = collectCurrentProject();
 
       var confirmed = window.confirm(
-        "Save an editable offline copy of this SPC chart?\n\n" +
-        "The HTML file will contain the underlying chart data as well as " +
-        "the FreeSPC application. Store and share the saved file in line " +
-        "with your organisation's information-governance requirements."
-      );
+  portableUiText(
+    "portable.saveConfirm",
+    "Save an editable offline copy of this SPC chart?\n\n" +
+    "The HTML file will contain the underlying chart data as well as " +
+    "the FreeSPC application. Store and share the saved file in line " +
+    "with your organisation's information-governance requirements."
+  )
+);
 
       if (!confirmed) {
         return;

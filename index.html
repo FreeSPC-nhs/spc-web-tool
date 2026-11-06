@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Simple SPC Tool</title>
+  <title data-i18n="app.browserTitle">Simple SPC Tool</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <!-- Local third-party libraries -->
@@ -26,15 +26,41 @@
 
 </head>
 
+
 <body>
-  <h1>Simple SPC Web Tool</h1>
-  <p class="sub">Upload data and create SPC charts in your browser. Data never leaves your browser.</p>
+
+<div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap;">
+
+  <h1 data-i18n="app.title" style="margin:0 0 0.25rem;">
+    Simple SPC Web Tool
+  </h1>
+
+  <label for="languageSelect"
+         style="display:flex; align-items:center; gap:0.4rem; font-size:0.9rem; margin:0 0 0.25rem;">
+
+    <span data-i18n="language.label">Language</span>
+
+    <select id="languageSelect"
+            style="margin:0; padding:0.35rem; min-width:110px;">
+      <option value="en">English</option>
+      <option value="fr">Français</option>
+    </select>
+
+  </label>
+
+</div>
+<p id="translationDraftNotice" hidden role="status" style="margin:0.25rem 0 0.65rem; color:#765500; font-size:0.85rem;"></p>
+
+<p class="sub" data-i18n="app.subtitle">
+  Upload data and create SPC charts in your browser. Data never leaves your browser.
+</p>
+
 
 <div class="panel" id="exportButtons" style="margin-top:0.5rem;">
 <button id="toggleSidebarButton" class="sidebar-toggle" style="margin-left:0.5rem;"> Hide controls</button>
 
 <div style="display:inline-block; margin-left:0.5rem;">
-  <button id="generateButton" class="sidebar-generate" type="button">Generate / Recalculate</button>
+  <button id="generateButton" class="sidebar-generate" type="button" data-i18n="buttons.generate">Generate / Recalculate</button>
   <div id="recalcPrompt" style="
     display:none;
     margin-top:0.35rem;
@@ -46,161 +72,289 @@
   </div>
 </div>
 
+
 <button
   id="resetButton"
   type="button"
   style="margin-left:0.5rem;"
+  data-i18n="buttons.reset"
+  data-i18n-title="buttons.resetTitle"
   title="Keep your loaded data and selected columns, but reset chart settings including targets, splits, annotations, rules and formatting."
 >Reset chart</button>
-<button type="button" style="margin-left:0.5rem;" onclick="toggleHelpSection()">Help &amp; guidance</button>
-<button type="button" style="margin-left:0.5rem;" onclick="toggleSpcHelper()">SPC helper</button>
+
+
+<button
+  type="button"
+  style="margin-left:0.5rem;"
+  onclick="toggleHelpSection()"
+  data-i18n="buttons.help"
+  data-i18n-title="buttons.helpTitle"
+  title="Open instructions and practical guidance for using SimpleSPC.">
+  Help &amp; guidance
+</button>
+
+
+<button
+  type="button"
+  style="margin-left:0.5rem;"
+  onclick="toggleSpcHelper()"
+  data-i18n="buttons.spcHelper"
+  data-i18n-title="buttons.spcHelperTitle"
+  title="Ask questions about choosing, creating and interpreting SPC charts.">
+  SPC helper
+</button>
+
+
+
+<button
+  id="whatsNewButton"
+  type="button"
+  class="wn-button"
+  data-i18n="whatsNew.button"
+  data-i18n-title="whatsNew.buttonTitle"
+  title="See what's changed in the latest SimpleSPC update.">
+  What's new?
+</button>
+
 
 <div id="errorMessage" class="error"></div>
 </div>
 
-<p class="sub">Add your data, choose your chart and settings, then click 'Generate / Recalculate' when needed. You can upload CSV or Excel files, clean data in the editor, and save chart to reopen later. Not sure about SPC? Ask the helper.</p>
+
+<!-- What's new — dismissible release notification -->
+<section
+  id="whatsNewBanner"
+  class="wn-banner"
+  role="status"
+  aria-live="polite"
+  hidden>
+
+  <strong data-i18n="whatsNew.bannerTitle">
+    SimpleSPC has been updated!
+  </strong>
+
+  <p data-i18n="whatsNew.bannerText">
+    SimpleSPC now supports more languages and offers
+    clearer chart explanations. Your familiar features
+    are still here.
+  </p>
+
+  <button
+    id="wn-view"
+    type="button"
+    data-i18n="whatsNew.view">
+    See what's new
+  </button>
+
+  <button
+    id="wn-dismiss"
+    type="button"
+    data-i18n="whatsNew.dismiss">
+    Dismiss
+  </button>
+
+</section>
+<!-- End release notification -->
+
+
+<p class="sub" data-i18n="app.intro">Add your data, choose your chart and settings, then click 'Generate / Recalculate' when needed. You can upload CSV or Excel files, clean data in the editor, and save chart to reopen later. Not sure about SPC? Ask the helper.</p>
 
 <div class="layout">
     <!-- SIDEBAR: all controls -->
     <aside class="sidebar">
 <div class="tab-container">
 
+
 <div class="tab-bar">
-<button class="tab-btn active" data-tab="tab-data">Data</button>
-<button class="tab-btn" data-tab="tab-chart">Chart</button>
-<button class="tab-btn" data-tab="tab-labels">Labels</button>
-<button class="tab-btn" data-tab="tab-axes">Axes</button>
-<button
-  class="tab-btn"
-  data-tab="tab-baseline"
-  title="Set an initial baseline period or a performance target"
->Baseline</button>
-<button class="tab-btn" data-tab="tab-rules">Rules</button>
+
+  <button class="tab-btn active"
+          data-tab="tab-data"
+          data-i18n="tabs.data">Data</button>
+
+  <button class="tab-btn"
+          data-tab="tab-chart"
+          data-i18n="tabs.chart">Chart</button>
+
+  <button class="tab-btn"
+          data-tab="tab-labels"
+          data-i18n="tabs.labels">Labels</button>
+
+  <button class="tab-btn"
+          data-tab="tab-axes"
+          data-i18n="tabs.axes">Axes</button>
+
+  <button class="tab-btn"
+          data-tab="tab-baseline"
+          data-i18n="tabs.baseline"
+          data-i18n-title="tabs.baselineTitle"
+          title="Set an initial baseline period or a performance target">Baseline</button>
+
+  <button class="tab-btn"
+          data-tab="tab-rules"
+          data-i18n="tabs.rules">Rules</button>
+
 </div>
 
 <div class="tab-panels">
+
 
 <!-- TAB 1: DATA -->
 <div id="tab-data" class="tab-panel active">
 
   <div class="panel">
 
-    
-<div class="label-with-tooltip" style="margin-bottom:0.25rem;">
+    <div class="label-with-tooltip" style="margin-bottom:0.25rem;">
 
-  <label for="fileInput" style="margin:0;">
-    <strong>Add data:</strong>
-  </label>
+      <label for="fileInput" style="margin:0;">
+        <strong data-i18n="data.addHeading">Add data:</strong>
+      </label>
 
-  <span
-    class="help-tooltip"
-    tabindex="0"
-    aria-label="Data requirements help"
-  >
-    ?
-    <span class="help-tooltip-text">
-      The columns you need depend on the chart type.
+      <span
+        class="help-tooltip"
+        tabindex="0"
+        aria-label="Data requirements help"
+        data-i18n-aria-label="data.requirementsAria"
+      >
+        ?
+        <span class="help-tooltip-text"
+              data-i18n="data.requirementsTooltip">
+          The columns you need depend on the chart type.
+          Most SPC charts need a time or sequence column
+          and a measurement. Some also need counts
+          and denominators.
 
-      Most SPC charts need a time or sequence column
-      and a measurement. Some also need counts
-      and denominators.
+          Pareto charts need a category column and can
+          optionally use a frequency/count column.
+        </span>
+      </span>
 
-      Pareto charts need a category column and can
-      optionally use a frequency/count column.
-    </span>
-  </span>
+    </div>
 
-</div>
-
-
-
-    <div class="hint small-hint">
+    <div class="hint small-hint"
+         data-i18n="data.uploadHint">
       Upload a CSV/Excel file or paste data in the editor.
     </div>
 
-    <input type="file" id="fileInput" accept=".csv,.xlsx,.xls" />
+    <div class="localised-file-picker">
+      <input type="file" id="fileInput" class="file-picker-native-input"
+             accept=".csv,.xlsx,.xls" data-i18n-aria-label="data.chooseFile" />
+      <button type="button" id="chooseDataFileButton"
+              data-i18n="data.chooseFile">Choose file</button>
+      <span id="selectedDataFileName" role="status" aria-live="polite"
+            data-i18n="data.noFileChosen">No file selected</span>
+    </div>
 
-    <button id="openDataEditorButton" type="button">
+    <button id="openDataEditorButton"
+            type="button"
+            data-i18n="data.openEditor">
       Open data editor (paste/type data)
     </button>
 
     <button
-  id="clearDataButton"
-  type="button"
-  class="clear-data-button"
-  title="Remove the loaded data and reset the chart. Save your work first if you want to reopen it later."
->
-  Clear data &amp; chart
-</button>
+      id="clearDataButton"
+      type="button"
+      class="clear-data-button"
+      title="Remove the loaded data and reset the chart. Save your work first if you want to reopen it later."
+      data-i18n="data.clear"
+      data-i18n-title="data.clearTitle"
+    >
+      Clear data &amp; chart
+    </button>
 
-
-    
     <hr class="section-divider" />
 
-    <div class="label-with-tooltip" style="margin:0 0 0.25rem;">
-      <strong>Save or open a chart</strong>
+    <div class="label-with-tooltip"
+         style="margin:0 0 0.25rem;">
+      <strong data-i18n="data.saveHeading">
+        Save or open a chart
+      </strong>
     </div>
 
-    <div class="helper-note" style="margin-top:0;">
+    <div class="helper-note"
+         style="margin-top:0;"
+         data-i18n="data.saveHint">
       Save your chart, data and settings as a JSON file
       to reopen and edit later.
     </div>
 
-
     <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.4rem;">
-      <button id="exportSettingsBtn" type="button" disabled>
-      Save chart
+
+      <button id="exportSettingsBtn"
+              type="button"
+              data-i18n="data.saveButton"
+              disabled>
+        Save chart
       </button>
 
-      <button id="importSettingsBtn" type="button">
+      <button id="importSettingsBtn"
+              type="button"
+              data-i18n="data.openButton">
         Open saved chart
       </button>
+
     </div>
 
-    <input id="importSettingsFileInput" type="file" accept=".json,application/json" style="display:none;" />
+    <input
+      id="importSettingsFileInput"
+      type="file"
+      accept=".json,application/json"
+      style="display:none;"
+    />
 
+    <hr class="section-divider" />
 
-<hr class="section-divider" />
-<div class="label-with-tooltip" style="margin:0 0 0.5rem;">
+    <div class="label-with-tooltip"
+         style="margin:0 0 0.5rem;">
 
+      <strong data-i18n="data.portableHeading">
+        Save an offline copy
+      </strong>
 
-  <strong>Save an offline copy</strong>
+      <span
+        class="help-tooltip"
+        tabindex="0"
+        aria-label="Portable chart help"
+        data-i18n-aria-label="data.portableAria"
+      >
+        ?
+        <span class="help-tooltip-text"
+              data-i18n="data.portableTooltip">
+          Save a self-contained HTML copy of your chart.
 
-  <span
-    class="help-tooltip"
-    tabindex="0"
-    aria-label="Portable chart help"
-  >
-    ?
-    <span class="help-tooltip-text">
-      Save a self-contained HTML copy of your chart.
+          The file includes your data and a working
+          copy of SimpleSPC. You can open it without
+          an internet connection, make changes and
+          save it again.
 
-      The file includes your data and a working
-      copy of SimpleSPC. You can open it without
-      an internet connection, make changes and
-      save it again.
+          Portable files contain your data.
+          Store and share them in line with your
+          organisation's information-governance
+          requirements.
+        </span>
+      </span>
 
-      Portable files contain your data.
-      Store and share them in line with your
-      organisation's information-governance
-      requirements.
-    </span>
-  </span>
+    </div>
 
-</div>
-<button id="savePortableBtn" type="button" disabled>
-  Save portable chart
-</button>
+    <button id="savePortableBtn"
+            type="button"
+            data-i18n="data.portableButton"
+            disabled>
+      Save portable chart
+    </button>
 
   </div>
 
 </div>
+
+
 <!-- TAB 2: CHART -->
 <div id="tab-chart" class="tab-panel">
 
 <div class="panel">
 
-<div id="noDataYetHint" class="hint">
+<div id="noDataYetHint"
+     class="hint"
+     data-i18n="chart.noData">
   Load data to enable chart and column selection.
 </div>
 
@@ -215,14 +369,22 @@
     background:#f3f8fc;
   "
 >
-  <strong>New data loaded</strong>
 
-  <div class="hint" style="margin-top:0.25rem;">
+  <strong data-i18n="chart.newDataHeading">
+    New data loaded
+  </strong>
+
+  <div class="hint"
+       style="margin-top:0.25rem;"
+       data-i18n="chart.newDataQuestion">
     Would you like help choosing the most appropriate chart for these data?
   </div>
 
   <div style="display:flex; gap:0.4rem; flex-wrap:wrap; margin-top:0.55rem;">
-    <button id="newDataHelpChooseBtn" type="button">
+
+    <button id="newDataHelpChooseBtn"
+            type="button"
+            data-i18n="chart.helpChoose">
       Help me choose
     </button>
 
@@ -230,104 +392,95 @@
       id="newDataChooseManuallyBtn"
       type="button"
       class="help-btn"
+      data-i18n="chart.chooseManually"
     >
       Choose manually
     </button>
+
   </div>
+
 </div>
 
-<strong class="field-label">Chart type:</strong>
+<strong class="field-label"
+        data-i18n="chart.typeHeading">
+  Chart type:
+</strong>
+
 
 <div class="radio-row chart-row">
+
   <label class="radio-pill">
     <input type="radio" name="chartType" value="run" checked />
-    Run chart
+    <span data-i18n="chart.run">Run chart</span>
   </label>
 
   <label class="radio-pill">
     <input type="radio" name="chartType" value="xmr" />
-    XmR chart
+    <span data-i18n="chart.xmr">XmR chart</span>
   </label>
+
 </div>
 
+
 <details id="moreChartTypesDetails" class="more-types">
-  <summary>More chart types</summary>
+  <summary data-i18n="chart.moreTypes">More chart types</summary>
 
-  <div
-    class="radio-row chart-row"
-    style="margin-top:0.1rem; flex-wrap:wrap;"
-  >
-    <label
-      class="radio-pill"
-      title="Counts per time period (e.g., number of incidents per week)"
-    >
+  <div class="radio-row chart-row"
+       style="margin-top:0.1rem; flex-wrap:wrap;">
+
+    <label class="radio-pill"
+           title="Counts per time period (e.g., number of incidents per week)">
       <input type="radio" name="chartType" value="c" />
-      C chart (counts)
+      <span data-i18n="chart.types.c">C chart (counts)</span>
     </label>
 
-    <label
-      class="radio-pill"
-      title="Proportion out of a total (e.g., 5 out of 100, % compliant)"
-    >
+    <label class="radio-pill"
+           title="Proportion out of a total (e.g., 5 out of 100, % compliant)">
       <input type="radio" name="chartType" value="p" />
-      P chart (proportion)
+      <span data-i18n="chart.types.p">P chart (proportion)</span>
     </label>
 
-    <label
-      class="radio-pill"
-      title="Laney P-prime chart: proportion out of a total, with limits adjusted when the observed variation is greater or smaller than a standard P chart expects."
-    >
+    <label class="radio-pill"
+           title="Laney P-prime chart: proportion out of a total, with limits adjusted when the observed variation is greater or smaller than a standard P chart expects.">
       <input type="radio" name="chartType" value="pprime" />
-      P′ chart (Laney)
+      <span data-i18n="chart.types.pprime">P′ chart (Laney)</span>
     </label>
 
-    <label
-      class="radio-pill"
-      title="Rate per opportunity (e.g., infections per 1,000 bed-days)"
-    >
+    <label class="radio-pill"
+           title="Rate per opportunity (e.g., infections per 1,000 bed-days)">
       <input type="radio" name="chartType" value="u" />
-      U chart (rate)
+      <span data-i18n="chart.types.u">U chart (rate)</span>
     </label>
 
-    <label
-      class="radio-pill"
-      title="Laney U-prime chart: rate per opportunity, with limits adjusted when the observed variation is greater or smaller than a standard U chart expects."
-    >
+    <label class="radio-pill"
+           title="Laney U-prime chart: rate per opportunity, with limits adjusted when the observed variation is greater or smaller than a standard U chart expects.">
       <input type="radio" name="chartType" value="uprime" />
-      U′ chart (Laney)
+      <span data-i18n="chart.types.uprime">U′ chart (Laney)</span>
     </label>
 
-    <label
-      class="radio-pill"
-      title="Subgrouped measurements (multiple values per time point)"
-    >
+    <label class="radio-pill"
+           title="Subgrouped measurements (multiple values per time point)">
       <input type="radio" name="chartType" value="xbars" />
-      X̄–S chart (subgroups)
+      <span data-i18n="chart.types.xbars">X̄–S chart (subgroups)</span>
     </label>
 
-    <label
-      class="radio-pill"
-      title="Time between rare events (e.g., days between serious incidents)"
-    >
+    <label class="radio-pill"
+           title="Time between rare events (e.g., days between serious incidents)">
       <input type="radio" name="chartType" value="t" />
-      T chart (time between)
+      <span data-i18n="chart.types.t">T chart (time between)</span>
     </label>
 
-    <label
-      class="radio-pill"
-      title="Opportunities between rare events (e.g., procedures between harms)"
-    >
+    <label class="radio-pill"
+           title="Opportunities between rare events (e.g., procedures between harms)">
       <input type="radio" name="chartType" value="g" />
-      G chart (opportunities between)
+      <span data-i18n="chart.types.g">G chart (opportunities between)</span>
     </label>
 
-  <label
-  class="radio-pill"
-  title="Ranks categories from most to least frequent to help focus improvement effort."
-  >
-  <input type="radio" name="chartType" value="pareto" />
-  Pareto chart (categories)
-  </label>
+    <label class="radio-pill"
+           title="Ranks categories from most to least frequent to help focus improvement effort.">
+      <input type="radio" name="chartType" value="pareto" />
+      <span data-i18n="chart.types.pareto">Pareto chart (categories)</span>
+    </label>
 
   </div>
 </details>
@@ -335,13 +488,23 @@
 <div id="chartTypeAvailabilityHint" class="hint small-hint" style="margin-top:0.35rem;" aria-live="polite"></div>
 
 <div style="display:flex; gap:0.4rem; flex-wrap:wrap; margin-top:0.5rem; margin-bottom:0.5rem;">
-  <button id="helpChooseChartBtn" type="button" class="help-btn">
-    Help me choose
-  </button>
+  
+<button id="helpChooseChartBtn"
+        type="button"
+        class="help-btn"
+        data-i18n="chart.helpChoose">
+  Help me choose
+</button>
 
-  <button id="chartSetupBtn" type="button" class="help-btn">
-    Chart setup
-  </button>
+
+  
+<button id="chartSetupBtn"
+        type="button"
+        class="help-btn"
+        data-i18n="chart.setup">
+  Chart setup
+</button>
+
 </div>
 
 <!-- Secondary chart options (MR for XmR, S chart for X̄–S) -->
@@ -361,10 +524,10 @@
   <span
     class="help-tooltip"
     tabindex="0"
-    aria-label="Secondary chart display help"
+    aria-label="Secondary chart display help" data-i18n-aria-label="chart.secondary.helpAria"
   >
     ?
-    <span class="help-tooltip-text">
+    <span class="help-tooltip-text" data-i18n="chart.secondary.helpText">
       XmR charts can show a Moving Range (MR) chart,
       which helps explain the variation between
       consecutive measurements.
@@ -383,12 +546,12 @@
 
     <label class="mr-radio">
       <input type="radio" name="mrDisplayMode" value="last" checked />
-      <span>Current</span>
+      <span data-i18n="chart.secondary.current">Current</span>
     </label>
 
     <label class="mr-radio">
       <input type="radio" name="mrDisplayMode" value="all" />
-      <span>All</span>
+      <span data-i18n="chart.secondary.all">All</span>
     </label>
 
     <span id="mrDisplaySubhint" class="mr-subhint">(includes splits)</span>
@@ -397,7 +560,7 @@
 
 <hr />
 
-<strong class="field-label">Choose columns:</strong>
+<strong class="field-label" data-i18n="chart.columns.heading">Choose columns:</strong>
 
 <div
   id="columnCheckWarning"
@@ -425,348 +588,463 @@
 </div>
 
 
-<div id="uRateMultiplierRow" style="display:none; margin-top:0.5rem;">
+
+<div id="uRateMultiplierRow"
+     style="display:none; margin-top:0.5rem;">
+
   <label>
-    Display rate as:
+    <span data-i18n="chart.rate.label">
+      Display rate as:
+    </span>
+
     <select id="uRateMultiplier">
-      <option value="1" selected>Per 1</option>
-      <option value="10">Per 10</option>
-      <option value="100">Per 100</option>
-      <option value="1000">Per 1,000</option>
-      <option value="10000">Per 10,000</option>
+      <option value="1" selected
+              data-i18n="chart.rate.per1">Per 1</option>
+      <option value="10"
+              data-i18n="chart.rate.per10">Per 10</option>
+      <option value="100"
+              data-i18n="chart.rate.per100">Per 100</option>
+      <option value="1000"
+              data-i18n="chart.rate.per1000">Per 1,000</option>
+      <option value="10000"
+              data-i18n="chart.rate.per10000">Per 10,000</option>
     </select>
   </label>
 
-  <div class="hint small-hint" style="margin-top:0.25rem;">
-    Changes the displayed rate only; the underlying U-chart calculation is unchanged.
+  <div class="hint small-hint"
+       style="margin-top:0.25rem;"
+       data-i18n="chart.rate.hint">
+    Changes the displayed rate only;
+    the underlying U-chart calculation is unchanged.
   </div>
+
 </div>
 
 <hr />
 
+
 <strong class="field-label">
   <span class="label-with-tooltip">
-    X-axis type
 
-    <span class="help-tooltip" tabindex="0" aria-label="X-axis type help">
+    <span data-i18n="chart.axis.type">
+      X-axis type
+    </span>
+
+    <span class="help-tooltip"
+          tabindex="0"
+          aria-label="X-axis type help"
+          data-i18n-aria-label="chart.axis.helpAria">
       ?
-      <span class="help-tooltip-text">
-        Use Date / time for time-series SPC. Use Sequence / category
-        to plot rows in their original order without treating the
+      <span class="help-tooltip-text"
+            data-i18n="chart.axis.help">
+        Use Date / time for time-series SPC.
+        Use Sequence / category to plot rows in
+        their original order without treating the
         X-axis values as dates.
       </span>
     </span>
+
   </span>:
 </strong>
+
 <div class="radio-row">
+
   <label class="radio-pill">
-    <input type="radio" name="axisType" value="date" checked />
-    Date / time
+    <input type="radio"
+           name="axisType"
+           value="date"
+           checked />
+    <span data-i18n="chart.axis.date">
+      Date / time
+    </span>
   </label>
+
   <label class="radio-pill">
-    <input type="radio" name="axisType" value="sequence" />
-    Sequence / category
+    <input type="radio"
+           name="axisType"
+           value="sequence" />
+    <span data-i18n="chart.axis.sequence">
+      Sequence / category
+    </span>
   </label>
+
 </div>
 
 <div id="dateFormatRow" style="margin-top:0.6rem;">
+
   <label>
-  <span class="label-with-tooltip">
-    Date format for numeric dates
+    <span class="label-with-tooltip">
 
-    <span class="help-tooltip" tabindex="0" aria-label="Date format help">
-      ?
-      <span class="help-tooltip-text">
-        Used for ambiguous numeric dates such as 01/02/2024.
-        ISO dates such as 2024-02-01 and Excel dates are recognised
-        automatically.
+      <span data-i18n="chart.dateFormat.label">
+        Date format for numeric dates
       </span>
-    </span>
-  </span>
 
-  <select id="dateFormatPreference">
-      <option value="uk" selected>UK / day-first (dd/mm/yyyy)</option>
-      <option value="us">US / month-first (mm/dd/yyyy)</option>
-      <option value="auto">Auto-detect</option>
-      <option value="iso-only">ISO / Excel dates only</option>
+      <span class="help-tooltip"
+            tabindex="0"
+            aria-label="Date format help"
+            data-i18n-aria-label="chart.dateFormat.helpAria">
+        ?
+        <span class="help-tooltip-text"
+              data-i18n="chart.dateFormat.help">
+          Used for ambiguous numeric dates such as
+          01/02/2024. ISO dates such as 2024-02-01
+          and Excel dates are recognised automatically.
+        </span>
+      </span>
+
+    </span>
+
+    <select id="dateFormatPreference">
+
+      <option value="uk"
+              selected
+              data-i18n="chart.dateFormat.uk">
+        UK / day-first (dd/mm/yyyy)
+      </option>
+
+      <option value="us"
+              data-i18n="chart.dateFormat.us">
+        US / month-first (mm/dd/yyyy)
+      </option>
+
+      <option value="auto"
+              data-i18n="chart.dateFormat.auto">
+        Auto-detect
+      </option>
+
+      <option value="iso-only"
+              data-i18n="chart.dateFormat.iso">
+        ISO / Excel dates only
+      </option>
+
     </select>
+
   </label>
 
+  <div id="dateFormatWarning"
+       class="hint"
+       style="display:none; margin-top:0.3rem; color:#8a3b00;">
+  </div>
 
-  <div id="dateFormatWarning" class="hint" style="display:none; margin-top:0.3rem; color:#8a3b00;"></div>
 </div>
 
 </div>
 </div>
+
 <!-- TAB 3: LABELS -->
 <div id="tab-labels" class="tab-panel">
-
 <div class="panel">
 
-<h3 style="margin-top:0.8rem;">Chart labels</h3>
+<h3 style="margin-top:0.8rem;" data-i18n="labels.heading">
+  Chart labels
+</h3>
+
 <label>
-Chart title
-<input type="text" id="chartTitle" />
+  <span data-i18n="labels.title">Chart title</span>
+  <input type="text" id="chartTitle" />
 </label>
 
 <label>
-X-axis label
-<input type="text" id="xAxisLabel" />
+  <span data-i18n="labels.xAxis">X-axis label</span>
+  <input type="text" id="xAxisLabel" />
 </label>
 
 <label>
-Y-axis label
-<input type="text" id="yAxisLabel" />
+  <span data-i18n="labels.yAxis">Y-axis label</span>
+  <input type="text" id="yAxisLabel" />
 </label>
 
 <hr>
 
 <details open>
-  <summary>Title settings</summary>
+  <summary data-i18n="labels.titleSettings">Title settings</summary>
 
-<label>
-  Title font family
-  <select id="chartTitleFontFamily">
-    <option value="">Auto / default</option>
-    <option value="Arial">Arial</option>
-    <option value="Arial Narrow">Arial Narrow</option>
-    <option value="Aptos">Aptos</option>
-    <option value="Calibri">Calibri</option>
-    <option value="Cambria">Cambria</option>
-    <option value="Century Gothic">Century Gothic</option>
-    <option value="Georgia">Georgia</option>
-    <option value="Helvetica">Helvetica</option>
-    <option value="Segoe UI">Segoe UI</option>
-    <option value="Tahoma">Tahoma</option>
-    <option value="Trebuchet MS">Trebuchet MS</option>
-    <option value="Verdana">Verdana</option>
-    <option value="Gill Sans">Gill Sans</option>
-    <option value="Lucida Sans Unicode">Lucida Sans Unicode</option>
-    <option value="Book Antiqua">Book Antiqua</option>
-    <option value="Garamond">Garamond</option>
-    <option value="Times New Roman">Times New Roman</option>
-  </select>
-</label>
+  <label>
+    <span data-i18n="labels.fontFamily">Title font family</span>
+    <select id="chartTitleFontFamily">
+      <option value="" data-i18n="common.autoDefault">Auto / default</option>
+      <option value="Arial">Arial</option>
+      <option value="Arial Narrow">Arial Narrow</option>
+      <option value="Aptos">Aptos</option>
+      <option value="Calibri">Calibri</option>
+      <option value="Cambria">Cambria</option>
+      <option value="Century Gothic">Century Gothic</option>
+      <option value="Georgia">Georgia</option>
+      <option value="Helvetica">Helvetica</option>
+      <option value="Segoe UI">Segoe UI</option>
+      <option value="Tahoma">Tahoma</option>
+      <option value="Trebuchet MS">Trebuchet MS</option>
+      <option value="Verdana">Verdana</option>
+      <option value="Gill Sans">Gill Sans</option>
+      <option value="Lucida Sans Unicode">Lucida Sans Unicode</option>
+      <option value="Book Antiqua">Book Antiqua</option>
+      <option value="Garamond">Garamond</option>
+      <option value="Times New Roman">Times New Roman</option>
+    </select>
+  </label>
 
-<label>
-  Title font size
-  <input
-    type="number"
-    id="chartTitleFontSize"
-    min="8"
-    max="48"
-    step="1"
-    value="16"
-  />
-</label>
+  <label>
+    <span data-i18n="labels.fontSize">Title font size</span>
+    <input
+      type="number"
+      id="chartTitleFontSize"
+      min="8"
+      max="48"
+      step="1"
+      value="16"
+    />
+  </label>
 
-<div class="font-toggle-row">
-  <button
-    type="button"
-    id="chartTitleBoldBtn"
-    class="font-toggle-btn"
-    aria-pressed="true"
-    title="Bold"
-  ><strong>B</strong></button>
+  <div class="font-toggle-row">
+    <button
+      type="button"
+      id="chartTitleBoldBtn"
+      class="font-toggle-btn"
+      aria-pressed="true"
+      title="Bold"
+      data-i18n-title="common.bold" data-i18n-aria-label="common.bold"
+    ><strong data-i18n="common.formatLetter.bold">B</strong></button>
 
-  <button
-    type="button"
-    id="chartTitleItalicBtn"
-    class="font-toggle-btn"
-    aria-pressed="false"
-    title="Italic"
-  ><em>I</em></button>
+    <button
+      type="button"
+      id="chartTitleItalicBtn"
+      class="font-toggle-btn"
+      aria-pressed="false"
+      title="Italic"
+      data-i18n-title="common.italic" data-i18n-aria-label="common.italic"
+    ><em data-i18n="common.formatLetter.italic">I</em></button>
 
-  <button
-    type="button"
-    id="chartTitleUnderlineBtn"
-    class="font-toggle-btn"
-    aria-pressed="false"
-    title="Underline"
-  ><u>U</u></button>
-</div>
+    <button
+      type="button"
+      id="chartTitleUnderlineBtn"
+      class="font-toggle-btn"
+      aria-pressed="false"
+      title="Underline"
+      data-i18n-title="common.underline" data-i18n-aria-label="common.underline"
+    ><u data-i18n="common.formatLetter.underline">U</u></button>
+  </div>
 
-<label class="radio-pill" style="display:inline-flex; gap:0.5rem; align-items:center;">
-  <input type="checkbox" id="showChartTitle" checked />
-  Show chart title
-</label>
+  <label class="radio-pill"
+         style="display:inline-flex; gap:0.5rem; align-items:center;">
+    <input type="checkbox" id="showChartTitle" checked />
+    <span data-i18n="labels.showTitle">Show chart title</span>
+  </label>
 </details>
 
 </div>
-
 </div>
+
 
 <!-- TAB 4: AXES -->
 <div id="tab-axes" class="tab-panel">
-
 <div class="panel">
 
-<h3 style="margin-top:0.8rem;">Axes</h3>
+<h3 style="margin-top:0.8rem;" data-i18n="axes.heading">
+  Axes
+</h3>
 
 <details open>
-  <summary>X axis</summary>
-<label>
-  X-axis font family
-  <select id="xAxisFontFamily">
-    <option value="">Auto / default</option>
-    <option value="Arial">Arial</option>
-    <option value="Arial Narrow">Arial Narrow</option>
-    <option value="Aptos">Aptos</option>
-    <option value="Calibri">Calibri</option>
-    <option value="Cambria">Cambria</option>
-    <option value="Century Gothic">Century Gothic</option>
-    <option value="Georgia">Georgia</option>
-    <option value="Helvetica">Helvetica</option>
-    <option value="Segoe UI">Segoe UI</option>
-    <option value="Tahoma">Tahoma</option>
-    <option value="Trebuchet MS">Trebuchet MS</option>
-    <option value="Verdana">Verdana</option>
-    <option value="Gill Sans">Gill Sans</option>
-    <option value="Lucida Sans Unicode">Lucida Sans Unicode</option>
-    <option value="Book Antiqua">Book Antiqua</option>
-    <option value="Garamond">Garamond</option>
-    <option value="Times New Roman">Times New Roman</option>
-    <option value="Courier New">Courier New</option>
-  </select>
-</label>
+  <summary data-i18n="axes.xSection">X axis</summary>
 
   <label>
-    X-axis font size
+    <span data-i18n="axes.xFontFamily">X-axis font family</span>
+    <select id="xAxisFontFamily">
+      <option value="" data-i18n="common.autoDefault">Auto / default</option>
+      <option value="Arial">Arial</option>
+      <option value="Arial Narrow">Arial Narrow</option>
+      <option value="Aptos">Aptos</option>
+      <option value="Calibri">Calibri</option>
+      <option value="Cambria">Cambria</option>
+      <option value="Century Gothic">Century Gothic</option>
+      <option value="Georgia">Georgia</option>
+      <option value="Helvetica">Helvetica</option>
+      <option value="Segoe UI">Segoe UI</option>
+      <option value="Tahoma">Tahoma</option>
+      <option value="Trebuchet MS">Trebuchet MS</option>
+      <option value="Verdana">Verdana</option>
+      <option value="Gill Sans">Gill Sans</option>
+      <option value="Lucida Sans Unicode">Lucida Sans Unicode</option>
+      <option value="Book Antiqua">Book Antiqua</option>
+      <option value="Garamond">Garamond</option>
+      <option value="Times New Roman">Times New Roman</option>
+      <option value="Courier New">Courier New</option>
+    </select>
+  </label>
+
+  <label>
+    <span data-i18n="axes.xFontSize">X-axis font size</span>
     <input type="number" id="xAxisFontSize" min="6" step="1" value="11" />
   </label>
 
   <div class="font-toggle-row">
-  <button type="button" id="xAxisItalicBtn" class="font-toggle-btn" aria-pressed="false" title="Italic"><em>I</em></button>
-  <button type="button" id="xAxisBoldBtn" class="font-toggle-btn" aria-pressed="false" title="Bold"><strong>B</strong></button>
-</div>
+    <button type="button"
+            id="xAxisItalicBtn"
+            class="font-toggle-btn"
+            aria-pressed="false"
+            title="Italic"
+            data-i18n-title="common.italic" data-i18n-aria-label="common.italic"><em data-i18n="common.formatLetter.italic">I</em></button>
+
+    <button type="button"
+            id="xAxisBoldBtn"
+            class="font-toggle-btn"
+            aria-pressed="false"
+            title="Bold"
+            data-i18n-title="common.bold" data-i18n-aria-label="common.bold"><strong data-i18n="common.formatLetter.bold">B</strong></button>
+  </div>
 
 </details>
 
 <hr>
 
 <details open>
-  <summary>Y axis</summary>
-      <label>
-  <span class="label-with-tooltip">
-    Y-axis minimum
-
-    <span class="help-tooltip" tabindex="0" aria-label="Y-axis range help">
-      ?
-      <span class="help-tooltip-text">
-        Leave the minimum and maximum blank to let the chart choose its range automatically.
-      </span>
-    </span>
-  </span>
-
-  <input type="number" id="yAxisMin" />
-</label>
-
-      <label>
-        Y-axis maximum
-        <input type="number" id="yAxisMax" step="any" />
-      </label>
+  <summary data-i18n="axes.ySection">Y axis</summary>
 
   <label>
-  Y-axis font family
-  <select id="yAxisFontFamily">
-    <option value="">Auto / default</option>
-    <option value="Arial">Arial</option>
-    <option value="Arial Narrow">Arial Narrow</option>
-    <option value="Aptos">Aptos</option>
-    <option value="Calibri">Calibri</option>
-    <option value="Cambria">Cambria</option>
-    <option value="Century Gothic">Century Gothic</option>
-    <option value="Georgia">Georgia</option>
-    <option value="Helvetica">Helvetica</option>
-    <option value="Segoe UI">Segoe UI</option>
-    <option value="Tahoma">Tahoma</option>
-    <option value="Trebuchet MS">Trebuchet MS</option>
-    <option value="Verdana">Verdana</option>
-    <option value="Gill Sans">Gill Sans</option>
-    <option value="Lucida Sans Unicode">Lucida Sans Unicode</option>
-    <option value="Book Antiqua">Book Antiqua</option>
-    <option value="Garamond">Garamond</option>
-    <option value="Times New Roman">Times New Roman</option>
-    <option value="Courier New">Courier New</option>
-  </select>
-</label>
+    <span class="label-with-tooltip">
 
-<label>
-  Y-axis font size
-  <input type="number" id="yAxisFontSize" min="6" step="1" value="11" />
-</label>
+      <span data-i18n="axes.yMin">Y-axis minimum</span>
 
-<label>
-  Y-axis format
-  <select id="yAxisFormat">
-    <option value="auto">Auto</option>
-    <option value="decimal">Decimal</option>
-    <option value="integer">Integer</option>
-    <option value="percent">Percent</option>
-  </select>
-</label>
-
-<label>
-  Y-axis decimal places
-  <select id="yAxisDecimals">
-    <option value="auto">Auto</option>
-    <option value="0">0 dp</option>
-    <option value="1">1 dp</option>
-    <option value="2">2 dp</option>
-    <option value="3">3 dp</option>
-  </select>
-</label>
-
-<label>
-  <span class="label-with-tooltip">
-    Y-axis tick interval
-
-    <span class="help-tooltip" tabindex="0" aria-label="Y-axis tick interval help">
-      ?
-      <span class="help-tooltip-text">
-        Leave blank for automatic spacing. For percentages, enter percentage
-        points: for example, 1 means 1%, and 0.5 means 0.5%.
+      <span class="help-tooltip"
+            tabindex="0"
+            aria-label="Y-axis range help"
+            data-i18n-aria-label="axes.yRangeAria">
+        ?
+        <span class="help-tooltip-text"
+              data-i18n="axes.yRangeHelp">
+          Leave the minimum and maximum blank to let
+          the chart choose its range automatically.
+        </span>
       </span>
+
     </span>
-  </span>
 
-  <input
-    type="number"
-    id="yAxisTickStep"
-    min="0"
-    step="any"
-    placeholder="Auto"
-  />
-</label>
+    <input type="number" id="yAxisMin" />
+  </label>
 
-<div class="font-toggle-row">
-  <button type="button" id="yAxisItalicBtn" class="font-toggle-btn" aria-pressed="false" title="Italic"><em>I</em></button>
-  <button type="button" id="yAxisBoldBtn" class="font-toggle-btn" aria-pressed="false" title="Bold"><strong>B</strong></button>
-</div>
+  <label>
+    <span data-i18n="axes.yMax">Y-axis maximum</span>
+    <input type="number" id="yAxisMax" step="any" />
+  </label>
+
+  <label>
+    <span data-i18n="axes.yFontFamily">Y-axis font family</span>
+    <select id="yAxisFontFamily">
+      <option value="" data-i18n="common.autoDefault">Auto / default</option>
+      <option value="Arial">Arial</option>
+      <option value="Arial Narrow">Arial Narrow</option>
+      <option value="Aptos">Aptos</option>
+      <option value="Calibri">Calibri</option>
+      <option value="Cambria">Cambria</option>
+      <option value="Century Gothic">Century Gothic</option>
+      <option value="Georgia">Georgia</option>
+      <option value="Helvetica">Helvetica</option>
+      <option value="Segoe UI">Segoe UI</option>
+      <option value="Tahoma">Tahoma</option>
+      <option value="Trebuchet MS">Trebuchet MS</option>
+      <option value="Verdana">Verdana</option>
+      <option value="Gill Sans">Gill Sans</option>
+      <option value="Lucida Sans Unicode">Lucida Sans Unicode</option>
+      <option value="Book Antiqua">Book Antiqua</option>
+      <option value="Garamond">Garamond</option>
+      <option value="Times New Roman">Times New Roman</option>
+      <option value="Courier New">Courier New</option>
+    </select>
+  </label>
+
+  <label>
+    <span data-i18n="axes.yFontSize">Y-axis font size</span>
+    <input type="number" id="yAxisFontSize" min="6" step="1" value="11" />
+  </label>
+
+  <label>
+    <span data-i18n="axes.yFormat">Y-axis format</span>
+    <select id="yAxisFormat">
+      <option value="auto" data-i18n="axes.formatAuto">Auto</option>
+      <option value="decimal" data-i18n="axes.formatDecimal">Decimal</option>
+      <option value="integer" data-i18n="axes.formatInteger">Integer</option>
+      <option value="percent" data-i18n="axes.formatPercent">Percent</option>
+    </select>
+  </label>
+
+  <label>
+    <span data-i18n="axes.decimals">Y-axis decimal places</span>
+    <select id="yAxisDecimals">
+      <option value="auto" data-i18n="axes.decimalsAuto">Auto</option>
+      <option value="0" data-i18n="axes.dp0">0 dp</option>
+      <option value="1" data-i18n="axes.dp1">1 dp</option>
+      <option value="2" data-i18n="axes.dp2">2 dp</option>
+      <option value="3" data-i18n="axes.dp3">3 dp</option>
+    </select>
+  </label>
+
+  <label>
+    <span class="label-with-tooltip">
+
+      <span data-i18n="axes.tickInterval">Y-axis tick interval</span>
+
+      <span class="help-tooltip"
+            tabindex="0"
+            aria-label="Y-axis tick interval help"
+            data-i18n-aria-label="axes.tickAria">
+        ?
+        <span class="help-tooltip-text"
+              data-i18n="axes.tickHelp">
+          Leave blank for automatic spacing. For percentages,
+          enter percentage points: for example, 1 means 1%,
+          and 0.5 means 0.5%.
+        </span>
+      </span>
+
+    </span>
+
+    <input
+      type="number"
+      id="yAxisTickStep"
+      min="0"
+      step="any"
+      placeholder="Auto"
+      data-i18n-placeholder="common.auto"
+    />
+  </label>
+
+  <div class="font-toggle-row">
+    <button type="button"
+            id="yAxisItalicBtn"
+            class="font-toggle-btn"
+            aria-pressed="false"
+            title="Italic"
+            data-i18n-title="common.italic" data-i18n-aria-label="common.italic"><em data-i18n="common.formatLetter.italic">I</em></button>
+
+    <button type="button"
+            id="yAxisBoldBtn"
+            class="font-toggle-btn"
+            aria-pressed="false"
+            title="Bold"
+            data-i18n-title="common.bold" data-i18n-aria-label="common.bold"><strong data-i18n="common.formatLetter.bold">B</strong></button>
+  </div>
 
 </details>
 
 </div>
-
 </div>
+
 
 <!-- TAB 5: BASELINE -->
 <div id="tab-baseline" class="tab-panel">
-
 <div class="panel">
-
 
 <h3 style="margin-top:0.8rem;">
   <span class="label-with-tooltip">
-    Baseline data
 
-    <span
-      class="help-tooltip"
-      tabindex="0"
-      aria-label="Baseline data help"
-    >
+    <span data-i18n="baseline.heading">Baseline data</span>
+
+    <span class="help-tooltip"
+          tabindex="0"
+          aria-label="Baseline data help"
+          data-i18n-aria-label="baseline.helpAria">
       ?
-      <span class="help-tooltip-text">
+      <span class="help-tooltip-text"
+            data-i18n="baseline.help">
         A baseline is an initial reference period used
         to understand how your process was performing
         before later observations.
@@ -785,30 +1063,33 @@ Y-axis label
         inconvenient signals.
       </span>
     </span>
+
   </span>
 </h3>
 
-
 <label>
-Use first
-<input type="number" id="baselinePoints" min="2" step="1">
-points as baseline<br>
-<i>(leave blank if no baseline period)</i>
-</label>	
+  <span data-i18n="baseline.useFirst">Use first</span>
+  <input type="number" id="baselinePoints" min="2" step="1">
+  <span data-i18n="baseline.pointsAsBaseline">points as baseline</span><br>
+  <i data-i18n="baseline.blankHint">
+    (leave blank if no baseline period)
+  </i>
+</label>
 
 <hr>
 
 <h3 style="margin-top:0.8rem;">
   <span class="label-with-tooltip">
-    Target
 
-    <span
-      class="help-tooltip"
-      tabindex="0"
-      aria-label="How to set a target"
-    >
+    <span data-i18n="baseline.targetHeading">Target</span>
+
+    <span class="help-tooltip"
+          tabindex="0"
+          aria-label="How to set a target"
+          data-i18n-aria-label="baseline.targetHelpAria">
       ?
-      <span class="help-tooltip-text">
+      <span class="help-tooltip-text"
+            data-i18n="baseline.targetHelp">
         Enter the performance level you want to achieve,
         then choose whether values at or above, or at
         or below, that level are good.
@@ -817,290 +1098,381 @@ points as baseline<br>
         control limit.
       </span>
     </span>
+
   </span>
 </h3>
 
-<div class="hint small-hint" style="margin-bottom:0.5rem;">
+<div class="hint small-hint"
+     style="margin-bottom:0.5rem;"
+     data-i18n="baseline.targetHint">
   Enter your target value, then choose whether higher
   or lower values are better.
 </div>
 
 <label>
-Target value
-<input type="number" id="targetValue" step="any">
+  <span data-i18n="baseline.targetValue">Target value</span>
+  <input type="number" id="targetValue" step="any">
 </label>
 
 <label>
-<select id="targetDirection">
-<option value="above">At or above target is good</option>
-<option value="below">At or below target is good</option>
-</select>
+  <select id="targetDirection">
+    <option value="above" data-i18n="baseline.atOrAbove">
+      At or above target is good
+    </option>
+    <option value="below" data-i18n="baseline.atOrBelow">
+      At or below target is good
+    </option>
+  </select>
 </label>
 
 <button type="button" id="targetToggleBtn">
-Hide target line
+  Hide target line
 </button>
 
 </div>
-
 </div>
+
+
+
 
 <!-- TAB 6: RULES -->
 <div id="tab-rules" class="tab-panel">
-
 <div class="panel">
 
-<div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem;">
-  <strong>Detection rules</strong>
+  <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem;">
+    <strong data-i18n="rules.heading">Detection rules</strong>
 
-  <button id="ruleExplainerBtn" type="button" class="help-btn">
-    Rule explainer
-  </button>
-</div>
+    <button id="ruleExplainerBtn"
+            type="button"
+            class="help-btn"
+            data-i18n="rules.explainer">
+      Rule explainer
+    </button>
+  </div>
 
-<div style="margin-top:0.75rem;">
-  <label>
-  <span class="label-with-tooltip">
-    Shift (run) length
-
-    <span class="help-tooltip" tabindex="0" aria-label="Shift rule help">
-      ?
-      <span class="help-tooltip-text">
-        Number of consecutive points on the same side of the centre line
-        required to flag a shift. Default: 8.
-      </span>
-    </span>
-  </span>
-
-  <input
-    type="number"
-    id="shiftRulePoints"
-    min="3"
-    step="1"
-    value="8"
-    style="width:6rem;"
-  />
-</label>
-</div>
-
-<div>
-  <label>
-  <span class="label-with-tooltip">
-    Trend length
-
-    <span class="help-tooltip" tabindex="0" aria-label="Trend rule help">
-      ?
-      <span class="help-tooltip-text">
-        Number of consecutive increases or decreases required to flag a trend.
-        Default: 6. This setting is only used when the trend rule is available
-        and enabled.
-      </span>
-    </span>
-  </span>
-
-  <input
-    type="number"
-    id="trendRulePoints"
-    min="3"
-    step="1"
-    value="6"
-    style="width:6rem;"
-  />
-</label>
-</div>
-
-<hr />
-
-<details id="advancedRulesDetails" style="margin-top:0.25rem;">
-  <summary>Advanced detection options</summary>
-
-  <div class="panel" style="margin-top:0.25rem; padding:0.25rem;">
-    <div id="advancedTrendRow" style="display:none; margin-top:0;">
-      <label class="radio-pill" style="display:inline-flex; gap:0.5rem; align-items:center;">
-  <input type="checkbox" id="enableAdvancedTrend" />
-
-  <span class="label-with-tooltip">
-    Enable trend rule
-
-    <span class="help-tooltip" tabindex="0" aria-label="Trend rule help">
-      ?
-      <span class="help-tooltip-text">
-        Looks for a sustained sequence of consecutive increases or decreases.
-        The required length is set by the Trend length control above.
-      </span>
-    </span>
-  </span>
-</label>
-
-<div class="hint small-hint" style="margin-top:0.15rem;">
-  Advanced option — may increase false alerts.
-</div>
-    </div>
-
-    <div id="rareRulesRow" style="display:none; margin-top:0.25rem;">
-     <label class="radio-pill" style="display:inline-flex; gap:0.5rem; align-items:center;">
-  <input type="checkbox" id="enableRareRunTrend" />
-
-  <span class="label-with-tooltip">
-    Run &amp; trend rules for T/G charts
-
-    <span class="help-tooltip" tabindex="0" aria-label="Rare event rules help">
-      ?
-      <span class="help-tooltip-text">
-        Enables run and trend detection on T and G rare-event charts.
-        These chart types are naturally irregular, so pattern rules should be used cautiously.
-      </span>
-    </span>
-  </span>
-</label>
-
-<div class="hint small-hint" style="margin-top:0.25rem;">
-  Advanced option — rare-event charts can produce false run/trend signals.
-</div>
-    </div>
-
-    <div id="lclClampRow" style="display:none; margin-top:0.25rem;">
-      <label class="radio-pill" style="display:inline-flex; gap:0.5rem; align-items:center;">
-  <input type="checkbox" id="clampLclAtZero" />
-
-  <span class="label-with-tooltip">
-    Clamp LCL at zero
-
-    <span class="help-tooltip" tabindex="0" aria-label="Clamp LCL help">
-      ?
-      <span class="help-tooltip-text">
-        If the calculated lower control limit is below zero, display the LCL at zero instead.
-        Useful for measures such as counts or times that cannot be negative.
-      </span>
-    </span>
-  </span>
-</label>
-    </div>
-
-    <div id="zoneRulesSection" style="display:none; margin-top:0.25rem;">
-      <div class="hint small-hint" style="margin-top:0;">
-        Optional zone rules (off by default). Use only on chart types where they are supported.
-      </div>
-
-      <label class="radio-pill" style="display:inline-flex; gap:0.5rem; align-items:center; margin-top:0.25rem;">
-        <input type="checkbox" id="ruleTwoOfThreeOuterThird" />
-        Apply “2 out of 3 in the outer third” rule
-      </label>
-
-      <label class="radio-pill" style="display:inline-flex; gap:0.5rem; align-items:center; margin-top:0.25rem;">
-        <input type="checkbox" id="ruleFourOfFiveOneSigma" />
-        Apply “4 out of 5 beyond 1-sigma” rule
-      </label>
-
-      <div id="advancedContinuousCaution" class="hint small-hint" style="display:none; margin-top:0.25rem;">
-        Additional pattern rules can increase false alerts on XmR / individuals charts. They are off by default and should only be used when you understand the trade-off.
-      </div>
-    </div>
-
-    <div
-  id="mrScreeningRow"
-  style="
-    display:none;
-    margin-top:0.9rem;
-    padding-top:0.75rem;
-    border-top:1px solid #d6dde3;
-  "
->
-  <div class="hint small-hint" style="margin-top:0;">
-    <strong>
+  <div style="margin-top:0.75rem;">
+    <label>
       <span class="label-with-tooltip">
-        XmR limit calculation
+        <span data-i18n="rules.shift">Shift (run) length</span>
 
-        <span
-          class="help-tooltip"
-          tabindex="0"
-          aria-label="XmR moving range screening help"
-        >
+        <span class="help-tooltip"
+              tabindex="0"
+              aria-label="Shift rule help"
+              data-i18n-aria-label="rules.shiftAria">
           ?
-          <span class="help-tooltip-text">
-            A very large jump between two consecutive points can make XmR
-            control limits too wide. When this is on, SimpleSPC keeps all data
-            points and moving ranges on the chart, but does not use unusually
-            large moving ranges to estimate routine variation. Uses the Nelson
-            method: moving ranges greater than 3.5 times the initial average
-            moving range are excluded from the variation estimate.
+          <span class="help-tooltip-text"
+                data-i18n="rules.shiftHelp">
+            Number of consecutive points on the same side
+            of the centre line required to flag a shift.
+            Default: 8.
           </span>
         </span>
       </span>
-    </strong>
-  </div>
 
-  <div
-    style="
-      display:grid;
-      grid-template-columns:auto minmax(0, 1fr);
-      column-gap:0.5rem;
-      align-items:start;
-      margin-top:0.45rem;
-      width:100%;
-      box-sizing:border-box;
-    "
-  >
-    <input
-      type="checkbox"
-      id="screenLargeMRs"
-      checked
-      style="margin:0.15rem 0 0 0;"
-    />
-
-    <label
-      for="screenLargeMRs"
-      style="
-        display:block;
-        margin:0;
-        padding:0;
-        width:auto;
-        min-width:0;
-        white-space:normal;
-        line-height:1.35;
-      "
-    >
-      Screen unusually large jumps when setting limits
+      <input type="number"
+             id="shiftRulePoints"
+             min="3"
+             step="1"
+             value="8"
+             style="width:6rem;" />
     </label>
   </div>
-</div>
 
-    <div id="conservativeRulesMessage" class="hint small-hint" style="display:none; margin-top:0.75rem;">
-      This chart uses a conservative rule set designed for reliable interpretation.
-    </div>
+  <div>
+    <label>
+      <span class="label-with-tooltip">
+        <span data-i18n="rules.trend">Trend length</span>
+
+        <span class="help-tooltip"
+              tabindex="0"
+              aria-label="Trend rule help"
+              data-i18n-aria-label="rules.trendAria">
+          ?
+          <span class="help-tooltip-text"
+                data-i18n="rules.trendHelp">
+            Number of consecutive increases or decreases
+            required to flag a trend. Default: 6.
+            This setting is only used when the trend rule
+            is available and enabled.
+          </span>
+        </span>
+      </span>
+
+      <input type="number"
+             id="trendRulePoints"
+             min="3"
+             step="1"
+             value="6"
+             style="width:6rem;" />
+    </label>
   </div>
-</details>
 
-<hr />
+  <hr />
 
-<label class="radio-pill" style="display:inline-flex; gap:0.5rem; align-items:center;">
-  <input type="checkbox" id="flagSpecialCauseOnChart" checked />
-  Flag special-cause signals on the chart
-</label>
+  <details id="advancedRulesDetails" style="margin-top:0.25rem;">
 
-	<label class="radio-pill" style="display:inline-flex; gap:0.5rem; align-items:center;">
-  	<input type="checkbox" id="colourBlindMode" />
-  	Colour-blind friendly colours and symbols
-	</label>
+    <summary data-i18n="rules.advanced">
+      Advanced detection options
+    </summary>
+
+    <div class="panel" style="margin-top:0.25rem; padding:0.25rem;">
+
+      <div id="advancedTrendRow"
+           style="display:none; margin-top:0;">
+
+        <label class="radio-pill"
+               style="display:inline-flex; gap:0.5rem; align-items:center;">
+          <input type="checkbox" id="enableAdvancedTrend" />
+
+          <span class="label-with-tooltip">
+            <span data-i18n="rules.enableTrend">
+              Enable trend rule
+            </span>
+
+            <span class="help-tooltip"
+                  tabindex="0"
+                  aria-label="Trend rule help"
+                  data-i18n-aria-label="rules.trendAria">
+              ?
+              <span class="help-tooltip-text"
+                    data-i18n="rules.enableTrendHelp">
+                Looks for a sustained sequence of consecutive
+                increases or decreases. The required length
+                is set by the Trend length control above.
+              </span>
+            </span>
+          </span>
+        </label>
+
+        <div class="hint small-hint"
+             style="margin-top:0.15rem;"
+             data-i18n="rules.advancedCaution">
+          Advanced option — may increase false alerts.
+        </div>
+      </div>
+
+      <div id="rareRulesRow"
+           style="display:none; margin-top:0.25rem;">
+
+        <label class="radio-pill"
+               style="display:inline-flex; gap:0.5rem; align-items:center;">
+          <input type="checkbox" id="enableRareRunTrend" />
+
+          <span class="label-with-tooltip">
+            <span data-i18n="rules.rareLabel">
+              Run &amp; trend rules for T/G charts
+            </span>
+
+            <span class="help-tooltip"
+                  tabindex="0"
+                  aria-label="Rare event rules help"
+                  data-i18n-aria-label="rules.rareAria">
+              ?
+              <span class="help-tooltip-text"
+                    data-i18n="rules.rareHelp">
+                Enables run and trend detection on T and G
+                rare-event charts. These chart types are
+                naturally irregular, so pattern rules
+                should be used cautiously.
+              </span>
+            </span>
+          </span>
+        </label>
+
+        <div class="hint small-hint"
+             style="margin-top:0.25rem;"
+             data-i18n="rules.rareCaution">
+          Advanced option — rare-event charts can produce
+          false run/trend signals.
+        </div>
+      </div>
+
+      <div id="lclClampRow"
+           style="display:none; margin-top:0.25rem;">
+
+        <label class="radio-pill"
+               style="display:inline-flex; gap:0.5rem; align-items:center;">
+          <input type="checkbox" id="clampLclAtZero" />
+
+          <span class="label-with-tooltip">
+            <span data-i18n="rules.clamp">
+              Clamp LCL at zero
+            </span>
+
+            <span class="help-tooltip"
+                  tabindex="0"
+                  aria-label="Clamp LCL help"
+                  data-i18n-aria-label="rules.clampAria">
+              ?
+              <span class="help-tooltip-text"
+                    data-i18n="rules.clampHelp">
+                If the calculated lower control limit is
+                below zero, display the LCL at zero instead.
+                Useful for measures such as counts or times
+                that cannot be negative.
+              </span>
+            </span>
+          </span>
+        </label>
+      </div>
+
+      <div id="zoneRulesSection"
+           style="display:none; margin-top:0.25rem;">
+
+        <div class="hint small-hint"
+             style="margin-top:0;"
+             data-i18n="rules.zoneIntro">
+          Optional zone rules (off by default).
+          Use only on chart types where they are supported.
+        </div>
+
+        <label class="radio-pill"
+               style="display:inline-flex; gap:0.5rem; align-items:center; margin-top:0.25rem;">
+          <input type="checkbox" id="ruleTwoOfThreeOuterThird" />
+          <span data-i18n="rules.zone23">
+            Apply “2 out of 3 in the outer third” rule
+          </span>
+        </label>
+
+        <label class="radio-pill"
+               style="display:inline-flex; gap:0.5rem; align-items:center; margin-top:0.25rem;">
+          <input type="checkbox" id="ruleFourOfFiveOneSigma" />
+          <span data-i18n="rules.zone45">
+            Apply “4 out of 5 beyond 1-sigma” rule
+          </span>
+        </label>
+
+        <div id="advancedContinuousCaution"
+             class="hint small-hint"
+             style="display:none; margin-top:0.25rem;"
+             data-i18n="rules.zoneCaution">
+          Additional pattern rules can increase false alerts
+          on XmR / individuals charts. They are off by default
+          and should only be used when you understand the trade-off.
+        </div>
+      </div>
+
+      <div id="mrScreeningRow"
+           style="
+             display:none;
+             margin-top:0.9rem;
+             padding-top:0.75rem;
+             border-top:1px solid #d6dde3;
+           ">
+
+        <div class="hint small-hint" style="margin-top:0;">
+          <strong>
+            <span class="label-with-tooltip">
+              <span data-i18n="rules.mrHeading">
+                XmR limit calculation
+              </span>
+
+              <span class="help-tooltip"
+                    tabindex="0"
+                    aria-label="XmR moving range screening help"
+                    data-i18n-aria-label="rules.mrAria">
+                ?
+                <span class="help-tooltip-text"
+                      data-i18n="rules.mrHelp">
+                  A very large jump between two consecutive
+                  points can make XmR control limits too wide.
+                  When this is on, SimpleSPC keeps all data
+                  points and moving ranges on the chart, but
+                  does not use unusually large moving ranges
+                  to estimate routine variation.
+
+                  Uses the Nelson method: moving ranges greater
+                  than 3.5 times the initial average moving
+                  range are excluded from the variation estimate.
+                </span>
+              </span>
+            </span>
+          </strong>
+        </div>
+
+        <div style="
+          display:grid;
+          grid-template-columns:auto minmax(0, 1fr);
+          column-gap:0.5rem;
+          align-items:start;
+          margin-top:0.45rem;
+          width:100%;
+          box-sizing:border-box;
+        ">
+          <input type="checkbox"
+                 id="screenLargeMRs"
+                 checked
+                 style="margin:0.15rem 0 0 0;" />
+
+          <label for="screenLargeMRs"
+                 style="
+                   display:block;
+                   margin:0;
+                   padding:0;
+                   width:auto;
+                   min-width:0;
+                   white-space:normal;
+                   line-height:1.35;
+                 "
+                 data-i18n="rules.mrScreen">
+            Screen unusually large jumps when setting limits
+          </label>
+        </div>
+      </div>
+
+      <div id="conservativeRulesMessage"
+           class="hint small-hint"
+           style="display:none; margin-top:0.75rem;"
+           data-i18n="rules.conservative">
+        This chart uses a conservative rule set designed
+        for reliable interpretation.
+      </div>
+
+    </div>
+  </details>
+
+  <hr />
+
+  <label class="radio-pill"
+         style="display:inline-flex; gap:0.5rem; align-items:center;">
+    <input type="checkbox" id="flagSpecialCauseOnChart" checked />
+    <span data-i18n="rules.flag">
+      Flag special-cause signals on the chart
+    </span>
+  </label>
+
+  <label class="radio-pill"
+         style="display:inline-flex; gap:0.5rem; align-items:center;">
+    <input type="checkbox" id="colourBlindMode" />
+    <span data-i18n="rules.colourBlind">
+      Colour-blind friendly colours and symbols
+    </span>
+  </label>
 
 </div>
-</div>    </aside>
+</div>
+</aside>
 
 <!-- MAIN AREA: charts + analysis -->
     <main class="main">
       <div id="reportContent">  
 
         <div class="panel">
-          <strong class="label-with-tooltip">
-  Chart:
+          
+<strong class="label-with-tooltip">
+  <span data-i18n="results.chartHeading">Chart:</span>
+
 
   <span
     class="help-tooltip"
     tabindex="0"
     aria-label="Chart right-click menu help"
+    data-i18n-aria-label="results.chartHelpAria"
   >
     ?
-    <span class="help-tooltip-text">
+    
+<span class="help-tooltip-text" data-i18n="results.chartHelp">
+
       Right-click the chart for additional options.
 
       Depending on the chart type, you can add annotations,
@@ -1125,15 +1497,50 @@ Hide target line
   font-size:1.05rem;
   line-height:1.35;
 ">
-  Quick start:
-  <ol style="margin:0.5rem 0 0 1.25rem; padding:0;">
-    <li>Upload a CSV or Excel file, or open the Data editor to paste/type data</li>
-    <li>If needed, clean or trim the data in the Data editor, then click <strong>Apply data</strong></li>
-    <li>Select your chart type and confirm the X and Y columns</li>
-    <li>Click <strong>Generate / Recalculate</strong> if changes do not load automatically</li>
-    <li>Add titles, labels, targets, splits, or annotations as needed</li>
-    <li>Right-click the chart for additional options, and use <strong>Save chart</strong> if you want to return later</li>
-  </ol>
+  
+<span data-i18n="results.quickStart">Quick start:</span>
+
+<ol style="margin:0.5rem 0 0 1.25rem; padding:0;">
+
+  <li data-i18n="results.quick1">
+    Upload a CSV or Excel file, or open the Data editor to paste/type data
+  </li>
+
+  <li>
+    <span data-i18n="results.quick2Before">
+      If needed, clean or trim the data in the Data editor, then click
+    </span>
+    <strong data-i18n="results.quickApply">Apply data</strong>
+  </li>
+
+  <li data-i18n="results.quick3">
+    Select your chart type and confirm the X and Y columns
+  </li>
+
+  <li>
+    <span data-i18n="results.quick4Before">Click</span>
+    <strong data-i18n="buttons.generate">Generate / Recalculate</strong>
+    <span data-i18n="results.quick4After">
+      if changes do not load automatically
+    </span>
+  </li>
+
+  <li data-i18n="results.quick5">
+    Add titles, labels, targets, splits, or annotations as needed
+  </li>
+
+  <li>
+    <span data-i18n="results.quick6Before">
+      Right-click the chart for additional options, and use
+    </span>
+    <strong data-i18n="data.saveButton">Save chart</strong>
+    <span data-i18n="results.quick6After">
+      if you want to return later
+    </span>
+  </li>
+
+</ol>
+
 </div>
 
 <div class="chart-container">
@@ -1164,459 +1571,1006 @@ Hide target line
     <div class="modal-shell">
       <div class="modal-header">
         <div class="modal-header-text">
-          <h2 id="helpModalTitle">Help &amp; guidance</h2>
-          <p class="sub">
-            A practical guide to loading data, building charts, interpreting SPC signals, and saving your work.
-          </p>
+          <h2 id="helpModalTitle" data-i18n="buttons.help">Help &amp; guidance</h2>
+          
+<p class="sub" data-i18n="help.subtitle">
+  A practical guide to loading data, building charts, interpreting SPC signals, and saving your work.
+</p>
+
         </div>
 
-        <button type="button" class="modal-close" aria-label="Close help" onclick="toggleHelpSection(false)">×</button>
+        
+<button
+  type="button"
+  class="modal-close"
+  aria-label="Close help"
+  data-i18n-aria-label="help.closeAria"
+  onclick="toggleHelpSection(false)">×</button>
+
       </div>
 
       <div class="modal-body">
-        <details open>
-  <summary><strong>1. What this tool does</strong></summary>
+        
+<!-- HELP SECTION 1: WHAT THIS TOOL DOES -->
+<details open>
+  <summary>
+    <strong data-i18n="help.1.title">
+      1. What this tool does
+    </strong>
+  </summary>
 
   <p>
-    <strong>SimpleSPC</strong> is a free, browser-based tool for
-    creating Statistical Process Control (SPC) charts and
-    Pareto charts.
+    <strong>SimpleSPC</strong>
+    <span data-i18n="help.1.intro">
+      is a free, browser-based tool for creating Statistical Process
+      Control (SPC) charts and Pareto charts.
+    </span>
   </p>
 
-  <p>
-    It helps you understand patterns in data, distinguish
-    routine variation from signals of change, and identify
-    opportunities for improvement. All calculations take
-    place locally in your browser. Your data are not
-    uploaded to a server.
+  <p data-i18n="help.1.purpose">
+    It helps you understand patterns in data, distinguish routine
+    variation from signals of change, and identify opportunities
+    for improvement. All calculations take place locally in your
+    browser. Your data are not uploaded to a server.
   </p>
 
-  <p>
+  <p data-i18n="help.1.scope">
     SimpleSPC is designed for learning, quality improvement,
-    service monitoring and practical analysis. It is not
-    intended to replace a regulated statistical package.
+    service monitoring and practical analysis. It is not intended
+    to replace a regulated statistical package.
   </p>
 
-  <p><strong>Available charts:</strong></p>
+  <p>
+    <strong data-i18n="help.1.available">
+      Available charts:
+    </strong>
+  </p>
 
   <ul>
     <li>
-      <strong>Run chart</strong> – shows values in time or
-      sequence order, using a median and simple rules to
-      identify non-random patterns.
+      <strong data-i18n="help.chart.runName">Run chart</strong>
+      –
+      <span data-i18n="help.chart.runDesc">
+        shows values in time or sequence order, using a median
+        and simple rules to identify non-random patterns.
+      </span>
     </li>
 
     <li>
-      <strong>XmR chart</strong> – shows individual measurements
-      with a mean and control limits, alongside an optional
-      moving-range chart.
+      <strong data-i18n="help.chart.xmrName">XmR chart</strong>
+      –
+      <span data-i18n="help.chart.xmrDesc">
+        shows individual measurements with a mean and control
+        limits, alongside an optional moving-range chart.
+      </span>
     </li>
 
     <li>
-      <strong>X̄–S chart</strong> – examines averages and
-      variation within groups of continuous measurements.
+      <strong data-i18n="help.chart.xbarsName">X̄–S chart</strong>
+      –
+      <span data-i18n="help.chart.xbarsDesc">
+        examines averages and variation within groups of
+        continuous measurements.
+      </span>
     </li>
 
     <li>
-      <strong>C chart</strong> – monitors counts of events
-      or defects when the opportunity for events is
-      reasonably constant.
+      <strong data-i18n="help.chart.cName">C chart</strong>
+      –
+      <span data-i18n="help.chart.cDesc">
+        monitors counts of events or defects when the opportunity
+        for events is reasonably constant.
+      </span>
     </li>
 
     <li>
-      <strong>P and Laney P′ charts</strong> – monitor
-      proportions, such as the percentage of patients
-      experiencing an event. P′ adjusts control limits
-      when observed variation differs from that expected
-      by a standard P chart.
+      <strong data-i18n="help.chart.pName">
+        P and Laney P′ charts
+      </strong>
+      –
+      <span data-i18n="help.chart.pDesc">
+        monitor proportions, such as the percentage of patients
+        experiencing an event. P′ adjusts control limits when
+        observed variation differs from that expected by a
+        standard P chart.
+      </span>
     </li>
 
     <li>
-      <strong>U and Laney U′ charts</strong> – monitor
-      event rates when the number of opportunities varies.
-      U′ adjusts control limits when observed variation
-      differs from that expected by a standard U chart.
+      <strong data-i18n="help.chart.uName">
+        U and Laney U′ charts
+      </strong>
+      –
+      <span data-i18n="help.chart.uDesc">
+        monitor event rates when the number of opportunities
+        varies. U′ adjusts control limits when observed variation
+        differs from that expected by a standard U chart.
+      </span>
     </li>
 
     <li>
-      <strong>T chart</strong> – monitors the time
-      between rare events.
+      <strong data-i18n="help.chart.tName">T chart</strong>
+      –
+      <span data-i18n="help.chart.tDesc">
+        monitors the time between rare events.
+      </span>
     </li>
 
     <li>
-      <strong>G chart</strong> – monitors the number of
-      opportunities between rare events.
+      <strong data-i18n="help.chart.gName">G chart</strong>
+      –
+      <span data-i18n="help.chart.gDesc">
+        monitors the number of opportunities between rare events.
+      </span>
     </li>
 
     <li>
-      <strong>Pareto chart</strong> – ranks categories
-      from most to least frequent to help prioritise
-      investigation and improvement.
+      <strong data-i18n="help.chart.paretoName">
+        Pareto chart
+      </strong>
+      –
+      <span data-i18n="help.chart.paretoDesc">
+        ranks categories from most to least frequent to help
+        prioritise investigation and improvement.
+      </span>
     </li>
   </ul>
 
   <p>
-    <strong>Important:</strong> Pareto charts are different
-    from time-ordered SPC charts. They help identify which
-    categories account for the most occurrences, but do
-    not establish whether a process is stable or whether
-    a change is statistically significant.
+    <strong data-i18n="help.1.importantTitle">
+      Important:
+    </strong>
+    <span data-i18n="help.1.important">
+      Pareto charts are different from time-ordered SPC charts.
+      They help identify which categories account for the most
+      occurrences, but do not establish whether a process is
+      stable or whether a change is statistically significant.
+    </span>
   </p>
-
 </details>
 
-        <details>
-          <summary><strong>2. Quick start</strong></summary>
-          <ol>
-            <li>Load data using CSV, Excel, or the Data editor.</li>
-            <li>Select the chart type and choose the relevant columns.</li>
-            <li>Click <strong>Generate / Recalculate</strong> if the chart does not update automatically.</li>
-            <li>Add titles, labels, targets, splits, or annotations if needed.</li>
-            <li>Review the summary text and chart signals.</li>
-            <li>Save the chart if you want to return to it later.</li>
-          </ol>
-        </details>
 
-        <details>
-          <summary><strong>3. Preparing and loading your data</strong></summary>
-          <p>
-  The columns you need depend on the chart type.
-  Most SPC charts need a time or sequence column and
-  a measurement or count.
-</p>
-
-<ul>
-  <li>
-    <strong>P, P′, U and U′ charts</strong> also need
-    a denominator or opportunities column.
-  </li>
-  <li>
-    <strong>X̄–S charts</strong> need a subgroup
-    identifier and individual measurement values.
-  </li>
-  <li>
-    <strong>Pareto charts</strong> need a category
-    column, with an optional frequency/count column
-    if your data are already summarised.
-  </li>
-</ul>
-
-          <div class="modal-note">
-            <strong>You can now load data in three ways:</strong>
-            <ul>
-              <li><strong>Upload a CSV file</strong></li>
-              <li><strong>Upload an Excel workbook</strong> (<code>.xlsx</code> or <code>.xls</code>)</li>
-              <li><strong>Paste or edit data directly</strong> in the Data editor</li>
-            </ul>
-          </div>
-
-          <p>
-            If you upload an Excel workbook, the tool opens the <strong>Data editor</strong> so you can inspect the worksheet before importing it.
-            You can switch between worksheets, trim unwanted rows or columns, and then click <strong>Apply data</strong>.
-          </p>
-
-          <p>
-  The tool tries to suggest sensible X and Y columns automatically, but you can change them yourself at any time.
-</p>
-
-<p>
-  If your date column uses numeric dates such as <strong>01/02/2024</strong>, use the
-  <strong>Date format for numeric dates</strong> setting so the tool interprets them correctly.
-</p>
-
-<p class="hint">
-  Default: <strong>UK day-first (dd/mm/yyyy)</strong>.
-</p>
-        </details>
-
-        <details>
-          <summary><strong>4. Using the Data editor</strong></summary>
-          <p>The Data editor is useful when:</p>
-          <ul>
-            <li>you want to paste data from Excel</li>
-            <li>your Excel workbook contains multiple sheets</li>
-            <li>your worksheet contains extra rows or columns that need trimming</li>
-          </ul>
-
-          <ul>
-            <li>Use the <strong>Worksheet</strong> selector to switch between sheets in an uploaded Excel file.</li>
-            <li>Tick or untick <strong>First row contains headers</strong> depending on whether the top row is headings or data.</li>
-            <li>Use <strong>Auto-detect</strong> as a quick suggestion, but always sense-check it.</li>
-            <li><strong>Right-click a row number</strong> to delete or insert rows.</li>
-            <li><strong>Right-click a column heading</strong> to delete or insert columns.</li>
-            <li>You can select multiple rows or columns before deleting them.</li>
-          </ul>
-
-          <p class="hint">
-            Tip: the Data editor lets you clean a worksheet inside the tool before applying it to the chart.
-          </p>
-        </details>
-
-        
+<!-- HELP SECTION 2: QUICK START -->
 <details>
-  <summary><strong>5. X-axis type and chart type</strong></summary>
+  <summary>
+    <strong data-i18n="help.2.title">
+      2. Quick start
+    </strong>
+  </summary>
+
+  <ol>
+    <li data-i18n="help.2.step1">
+      Load data using CSV, Excel, or the Data editor.
+    </li>
+
+    <li data-i18n="help.2.step2">
+      Select the chart type and choose the relevant columns.
+    </li>
+
+    <li>
+      <span data-i18n="help.2.step3Before">Click</span>
+      <strong data-i18n="buttons.generate">
+        Generate / Recalculate
+      </strong>
+      <span data-i18n="help.2.step3After">
+        if the chart does not update automatically.
+      </span>
+    </li>
+
+    <li data-i18n="help.2.step4">
+      Add titles, labels, targets, splits, or annotations
+      if needed.
+    </li>
+
+    <li data-i18n="help.2.step5">
+      Review the summary text and chart signals.
+    </li>
+
+    <li data-i18n="help.2.step6">
+      Save the chart if you want to return to it later.
+    </li>
+  </ol>
+</details>
+
+
+<!-- HELP SECTION 3: PREPARING AND LOADING DATA -->
+<details>
+  <summary>
+    <strong data-i18n="help.3.title">
+      3. Preparing and loading your data
+    </strong>
+  </summary>
+
+  <p data-i18n="help.3.intro">
+    The columns you need depend on the chart type.
+    Most SPC charts need a time or sequence column
+    and a measurement or count.
+  </p>
+
+  <ul>
+    <li>
+      <strong data-i18n="help.3.pName">
+        P, P′, U and U′ charts
+      </strong>
+      <span data-i18n="help.3.pDesc">
+        also need a denominator or opportunities column.
+      </span>
+    </li>
+
+    <li>
+      <strong data-i18n="help.3.xbarsName">
+        X̄–S charts
+      </strong>
+      <span data-i18n="help.3.xbarsDesc">
+        need a subgroup identifier and individual
+        measurement values.
+      </span>
+    </li>
+
+    <li>
+      <strong data-i18n="help.3.paretoName">
+        Pareto charts
+      </strong>
+      <span data-i18n="help.3.paretoDesc">
+        need a category column, with an optional
+        frequency/count column if your data
+        are already summarised.
+      </span>
+    </li>
+  </ul>
+
+  <div class="modal-note">
+    <strong data-i18n="help.3.ways">
+      You can now load data in three ways:
+    </strong>
+
+    <ul>
+      <li>
+        <strong data-i18n="help.3.csv">
+          Upload a CSV file
+        </strong>
+      </li>
+
+      <li>
+        <strong data-i18n="help.3.excel">
+          Upload an Excel workbook
+        </strong>
+        (<code>.xlsx</code> or <code>.xls</code>)
+      </li>
+
+      <li>
+        <strong data-i18n="help.3.paste">
+          Paste or edit data directly
+        </strong>
+        <span data-i18n="help.3.pasteAfter">
+          in the Data editor
+        </span>
+      </li>
+    </ul>
+  </div>
 
   <p>
+    <span data-i18n="help.3.excelBefore">
+      If you upload an Excel workbook, the tool opens the
+    </span>
+    <strong data-i18n="editor.title">
+      Data editor
+    </strong>
+    <span data-i18n="help.3.excelMiddle">
+      so you can inspect the worksheet before importing it.
+      You can switch between worksheets, trim unwanted rows
+      or columns, and then click
+    </span>
+    <strong data-i18n="editor.apply">
+      Apply data
+    </strong>.
+  </p>
+
+  <p data-i18n="help.3.axisAuto">
+    The tool tries to suggest sensible X and Y columns
+    automatically, but you can change them yourself
+    at any time.
+  </p>
+
+  <p>
+    <span data-i18n="help.3.dateBefore">
+      If your date column uses numeric dates such as
+    </span>
+    <strong>01/02/2024</strong>,
+    <span data-i18n="help.3.dateMiddle">
+      use the
+    </span>
+    <strong data-i18n="help.3.dateSetting">
+      Date format for numeric dates
+    </strong>
+    <span data-i18n="help.3.dateAfter">
+      setting so the tool interprets them correctly.
+    </span>
+  </p>
+
+  <p class="hint">
+    <span data-i18n="help.3.default">
+      Default:
+    </span>
+    <strong data-i18n="help.3.defaultFormat">
+      UK day-first (dd/mm/yyyy)
+    </strong>.
+  </p>
+</details>
+
+
+        
+<!-- HELP SECTION 4: USING THE DATA EDITOR -->
+<details>
+  <summary>
+    <strong data-i18n="help.4.title">
+      4. Using the Data editor
+    </strong>
+  </summary>
+
+  <p data-i18n="help.4.intro">
+    The Data editor is useful when:
+  </p>
+
+  <ul>
+    <li data-i18n="help.4.paste">
+      you want to paste data from Excel
+    </li>
+    <li data-i18n="help.4.sheets">
+      your Excel workbook contains multiple sheets
+    </li>
+    <li data-i18n="help.4.trim">
+      your worksheet contains extra rows or columns that need trimming
+    </li>
+  </ul>
+
+  <ul>
+    <li>
+      <span data-i18n="help.4.sheetBefore">Use the</span>
+      <strong data-i18n="help.4.sheetName">Worksheet</strong>
+      <span data-i18n="help.4.sheetAfter">
+        selector to switch between sheets in an uploaded Excel file.
+      </span>
+    </li>
+
+    <li>
+      <span data-i18n="help.4.headersBefore">Tick or untick</span>
+      <strong data-i18n="editor.hasHeaders">
+        First row contains headers
+      </strong>
+      <span data-i18n="help.4.headersAfter">
+        depending on whether the top row is headings or data.
+      </span>
+    </li>
+
+    <li>
+      <span data-i18n="help.4.detectBefore">Use</span>
+      <strong data-i18n="editor.detect">Auto-detect</strong>
+      <span data-i18n="help.4.detectAfter">
+        as a quick suggestion, but always sense-check it.
+      </span>
+    </li>
+
+    <li>
+      <strong data-i18n="help.4.rowAction">
+        Right-click a row number
+      </strong>
+      <span data-i18n="help.4.rowAfter">
+        to delete or insert rows.
+      </span>
+    </li>
+
+    <li>
+      <strong data-i18n="help.4.columnAction">
+        Right-click a column heading
+      </strong>
+      <span data-i18n="help.4.columnAfter">
+        to delete or insert columns.
+      </span>
+    </li>
+
+    <li data-i18n="help.4.multiple">
+      You can select multiple rows or columns before deleting them.
+    </li>
+  </ul>
+
+  <p class="hint" data-i18n="help.4.tip">
+    Tip: the Data editor lets you clean a worksheet inside
+    the tool before applying it to the chart.
+  </p>
+</details>
+
+
+<!-- HELP SECTION 5: X-AXIS AND CHART TYPE -->
+<details>
+  <summary>
+    <strong data-i18n="help.5.title">
+      5. X-axis type and chart type
+    </strong>
+  </summary>
+
+  <p data-i18n="help.5.intro">
     Choose the chart type that matches the kind of data you have.
     The main options are:
   </p>
 
   <ul>
-    <li><strong>Run chart</strong> – a simple starting point for values over time.</li>
-    <li><strong>XmR chart</strong> – individual continuous measurements, with control limits.</li>
-    <li><strong>X̄–S chart</strong> – continuous measurements collected in subgroups.</li>
-    <li><strong>C chart</strong> – counts where the opportunity for events is reasonably constant.</li>
-    <li><strong>P and Laney P′ charts</strong> – proportions, using a numerator and denominator. P′ adjusts for greater or smaller variation than expected.</li>
-    <li><strong>U and Laney U′ charts</strong> – event rates with changing opportunities. U′ adjusts for greater or smaller variation than expected.</li>
-    <li><strong>T and G charts</strong> – time or opportunities between rare events.</li>
-    <li><strong>Pareto chart</strong> – ranks categories from most to least frequent to help prioritise investigation.</li>
+    <li>
+      <strong data-i18n="help.chart.runName">Run chart</strong>
+      –
+      <span data-i18n="help.5.run">
+        a simple starting point for values over time.
+      </span>
+    </li>
+
+    <li>
+      <strong data-i18n="help.chart.xmrName">XmR chart</strong>
+      –
+      <span data-i18n="help.5.xmr">
+        individual continuous measurements, with control limits.
+      </span>
+    </li>
+
+    <li>
+      <strong data-i18n="help.chart.xbarsName">X̄–S chart</strong>
+      –
+      <span data-i18n="help.5.xbars">
+        continuous measurements collected in subgroups.
+      </span>
+    </li>
+
+    <li>
+      <strong data-i18n="help.chart.cName">C chart</strong>
+      –
+      <span data-i18n="help.5.c">
+        counts where the opportunity for events is reasonably constant.
+      </span>
+    </li>
+
+    <li>
+      <strong data-i18n="help.chart.pName">
+        P and Laney P′ charts
+      </strong>
+      –
+      <span data-i18n="help.5.p">
+        proportions, using a numerator and denominator.
+        P′ adjusts for greater or smaller variation than expected.
+      </span>
+    </li>
+
+    <li>
+      <strong data-i18n="help.chart.uName">
+        U and Laney U′ charts
+      </strong>
+      –
+      <span data-i18n="help.5.u">
+        event rates with changing opportunities.
+        U′ adjusts for greater or smaller variation than expected.
+      </span>
+    </li>
+
+    <li>
+      <strong data-i18n="help.5.tgName">T and G charts</strong>
+      –
+      <span data-i18n="help.5.tg">
+        time or opportunities between rare events.
+      </span>
+    </li>
+
+    <li>
+      <strong data-i18n="help.chart.paretoName">Pareto chart</strong>
+      –
+      <span data-i18n="help.5.pareto">
+        ranks categories from most to least frequent
+        to help prioritise investigation.
+      </span>
+    </li>
   </ul>
 
   <p>
-    <strong>X-axis type:</strong>
+    <strong data-i18n="help.5.xaxis">X-axis type:</strong>
   </p>
 
   <ul>
     <li>
-      <strong>Date / time</strong> – use when observations have
-      dates or times and you want to display them chronologically.
+      <strong data-i18n="help.5.dateName">Date / time</strong>
+      –
+      <span data-i18n="help.5.date">
+        use when observations have dates or times and you
+        want to display them chronologically.
+      </span>
     </li>
+
     <li>
-      <strong>Sequence / category</strong> – use when observations
-      should be shown in order without treating their labels as dates.
+      <strong data-i18n="help.5.sequenceName">
+        Sequence / category
+      </strong>
+      –
+      <span data-i18n="help.5.sequence">
+        use when observations should be shown in order
+        without treating their labels as dates.
+      </span>
     </li>
   </ul>
 
-  <p>
-    Pareto charts use categories rather than dates. Categories are
-    ranked by frequency, with a cumulative percentage line.
-    They are not time-ordered SPC charts and do not have
+  <p data-i18n="help.5.paretoNote">
+    Pareto charts use categories rather than dates.
+    Categories are ranked by frequency, with a
+    cumulative percentage line. They are not
+    time-ordered SPC charts and do not have
     statistical control limits.
   </p>
 
   <p>
-    If you are unsure which chart to use, click
-    <strong>Help me choose</strong>. You can also use
-    <strong>Chart setup</strong> for guidance on the data
-    columns required by the selected chart.
+    <span data-i18n="help.5.chooseBefore">
+      If you are unsure which chart to use, click
+    </span>
+    <strong data-i18n="chart.helpChoose">Help me choose</strong>.
+    <span data-i18n="help.5.chooseMiddle">
+      You can also use
+    </span>
+    <strong data-i18n="chart.setup">Chart setup</strong>
+    <span data-i18n="help.5.chooseAfter">
+      for guidance on the data columns required by the selected chart.
+    </span>
   </p>
 </details>
 
-<details>
-  <summary><strong>6. Baselines, splits, targets and the right-click menu</strong></summary>
 
-  <p>
-    SimpleSPC offers additional features to help you investigate
-    and explain your data.
+<!-- HELP SECTION 6: BASELINES, SPLITS AND CONTEXT MENU -->
+<details>
+  <summary>
+    <strong data-i18n="help.6.title">
+      6. Baselines, splits, targets and the right-click menu
+    </strong>
+  </summary>
+
+  <p data-i18n="help.6.intro">
+    SimpleSPC offers additional features to help you
+    investigate and explain your data.
   </p>
 
   <ul>
     <li>
-      <strong>Set a baseline:</strong>
-      Open the <strong>Baseline</strong> tab and enter the number
-      of initial points you want to use as a reference period.
-      Leave this blank if you do not need a separate initial baseline.
+      <strong data-i18n="help.6.baselineHeading">
+        Set a baseline:
+      </strong>
+      <span data-i18n="help.6.baselineBefore">Open the</span>
+      <strong data-i18n="tabs.baseline">Baseline</strong>
+      <span data-i18n="help.6.baselineAfter">
+        tab and enter the number of initial points you want
+        to use as a reference period. Leave this blank if
+        you do not need a separate initial baseline.
+      </span>
     </li>
 
     <li>
-      <strong>Set a target:</strong>
-      Open the <strong>Baseline</strong> tab and find
-      <strong>Target</strong>. Enter the level of performance
-      you want to achieve, then select whether values at or
-      above, or at or below, that target are good.
-      You can also show or hide the target line.
-      A target is a performance goal, not a statistical control limit.
+      <strong data-i18n="help.6.targetHeading">
+        Set a target:
+      </strong>
+      <span data-i18n="help.6.targetBefore">Open the</span>
+      <strong data-i18n="tabs.baseline">Baseline</strong>
+      <span data-i18n="help.6.targetMiddle">tab and find</span>
+      <strong data-i18n="help.6.targetName">Target</strong>.
+      <span data-i18n="help.6.targetAfter">
+        Enter the level of performance you want to achieve,
+        then select whether values at or above, or at or
+        below, that target are good. You can also show or
+        hide the target line. A target is a performance goal,
+        not a statistical control limit.
+      </span>
     </li>
 
     <li>
-      <strong>Add a split:</strong>
-      Right-click a plotted point and choose
-      <strong>Splits</strong>, then
-      <strong>Add split after this point</strong>.
-      This divides the chart into separate analysis periods
-      where supported.
+      <strong data-i18n="help.6.splitHeading">
+        Add a split:
+      </strong>
+      <span data-i18n="help.6.splitBefore">
+        Right-click a plotted point and choose
+      </span>
+      <strong data-i18n="help.6.splitsMenu">Splits</strong>,
+      <span data-i18n="help.6.splitMiddle">then</span>
+      <strong data-i18n="help.6.addSplitAction">
+        Add split after this point
+      </strong>.
+      <span data-i18n="help.6.splitAfter">
+        This divides the chart into separate analysis
+        periods where supported.
+      </span>
     </li>
 
     <li>
-      <strong>Add an annotation:</strong>
-      Right-click a plotted point and use the
-      <strong>Annotations</strong> menu to record
-      an event, intervention or explanation.
+      <strong data-i18n="help.6.annotationHeading">
+        Add an annotation:
+      </strong>
+      <span data-i18n="help.6.annotationBefore">
+        Right-click a plotted point and use the
+      </span>
+      <strong data-i18n="help.6.annotationsMenu">
+        Annotations
+      </strong>
+      <span data-i18n="help.6.annotationAfter">
+        menu to record an event, intervention or explanation.
+      </span>
     </li>
   </ul>
 
   <p>
-    <strong>Discover the right-click menu</strong>
+    <strong data-i18n="help.6.menuHeading">
+      Discover the right-click menu
+    </strong>
   </p>
 
-  <p>
+  <p data-i18n="help.6.menuIntro">
     Right-click directly on a chart to discover additional
     options. Available actions depend on the chart type
     and where you click.
   </p>
 
   <ul>
-    <li>Add, edit or delete annotations.</li>
-    <li>Add or remove split periods.</li>
-    <li>Exclude or reinclude investigated observations from control-limit calculations.</li>
-    <li>Show, hide or restore centre-line labels.</li>
-    <li>Copy the chart, copy its analysis, or export an image.</li>
+    <li data-i18n="help.6.menuAnnotations">
+      Add, edit or delete annotations.
+    </li>
+    <li data-i18n="help.6.menuSplits">
+      Add or remove split periods.
+    </li>
+    <li data-i18n="help.6.menuExclusions">
+      Exclude or reinclude investigated observations
+      from control-limit calculations.
+    </li>
+    <li data-i18n="help.6.menuCentre">
+      Show, hide or restore centre-line labels.
+    </li>
+    <li data-i18n="help.6.menuExport">
+      Copy the chart, copy its analysis, or export an image.
+    </li>
   </ul>
 
   <p>
-    <strong>Important – excluding data points:</strong>
-    Only exclude an observation from limit calculations after
-    investigating and understanding the reason it differs,
-    and deciding it does not represent routine process variation.
-    Excluded observations remain visible and can be reincluded.
-    Consider annotating the reason for exclusion.
+    <strong data-i18n="help.6.excludeHeading">
+      Important – excluding data points:
+    </strong>
+    <span data-i18n="help.6.excludeAdvice">
+      Only exclude an observation from limit calculations
+      after investigating and understanding the reason it
+      differs, and deciding it does not represent routine
+      process variation. Excluded observations remain
+      visible and can be reincluded. Consider annotating
+      the reason for exclusion.
+    </span>
   </p>
 
-  <p>
+  <p data-i18n="help.6.subgroups">
     On X̄–S charts, exclusion applies to an entire subgroup.
     Pareto charts do not use control-limit splits or point exclusions.
   </p>
 
-  <p>
+  <p data-i18n="help.6.splitAdvice">
     Similarly, only use a split when there is good reason
-    to believe the process has changed. Splits should reflect
-    investigated changes, not simply remove inconvenient signals.
+    to believe the process has changed. Splits should
+    reflect investigated changes, not simply remove
+    inconvenient signals.
   </p>
 
   <p>
-    Look for the small <strong>?</strong> symbols beside
-    controls throughout SimpleSPC. Hover over them, or
-    focus them with the keyboard, for additional guidance.
-    You can also ask the <strong>SPC helper</strong> about
-    your chart and its interpretation.
+    <span data-i18n="help.6.extraBefore">
+      Look for the small
+    </span>
+    <strong>?</strong>
+    <span data-i18n="help.6.extraMiddle">
+      symbols beside controls throughout SimpleSPC.
+      Hover over them, or focus them with the keyboard,
+      for additional guidance. You can also ask the
+    </span>
+    <strong data-i18n="buttons.spcHelper">SPC helper</strong>
+    <span data-i18n="help.6.extraAfter">
+      about your chart and its interpretation.
+    </span>
   </p>
 </details>
 
 
-        <details>
-          <summary><strong>7. Interpreting the summary</strong></summary>
-          <p>
-            The summary underneath the chart helps explain what the tool has found.
-          </p>
-          <ul>
-            <li><strong>Common-cause variation</strong> means the process looks stable within its current level of performance.</li>
-            <li><strong>Special-cause variation</strong> means the pattern suggests something may have changed.</li>
-            <li>A process can be <strong>stable but still poor</strong> if the level of performance is consistently below what you need.</li>
-          </ul>
-          <p>
-            Look for sustained changes, not just one good or bad point. Use local knowledge to interpret what was happening at that time.
-          </p>
-        </details>
 
-        <details>
-  <summary><strong>8. Saving and reopening your work</strong></summary>
+        
+<!-- HELP SECTION 7: INTERPRETING THE SUMMARY -->
+<details>
+  <summary>
+    <strong data-i18n="help.7.title">
+      7. Interpreting the summary
+    </strong>
+  </summary>
 
-  <p>
-    You can save your work in two different ways, depending on how you want to use it later.
+  <p data-i18n="help.7.intro">
+    The summary underneath the chart helps explain
+    what the tool has found.
   </p>
 
   <ul>
     <li>
-      <strong>Save chart</strong> stores the current data and chart settings together
-      in a <code>.json</code> project file.
+      <strong data-i18n="help.7.commonName">
+        Common-cause variation
+      </strong>
+      <span data-i18n="help.7.commonDesc">
+        means the process looks stable within its
+        current level of performance.
+      </span>
     </li>
+
     <li>
-      <strong>Open saved chart</strong> restores a previously saved
-      <code>.json</code> project file so you can continue working on it later.
+      <strong data-i18n="help.7.specialName">
+        Special-cause variation
+      </strong>
+      <span data-i18n="help.7.specialDesc">
+        means the pattern suggests something may
+        have changed.
+      </span>
     </li>
+
     <li>
-      <strong>Save portable chart</strong> creates a self-contained
-      <code>.html</code> file containing the SPC tool, your data and your chart
-      settings. The saved file can be opened directly in a web browser and used
-      again without an internet connection.
+      <span data-i18n="help.7.stableBefore">
+        A process can be
+      </span>
+      <strong data-i18n="help.7.stableHighlight">
+        stable but still poor
+      </strong>
+      <span data-i18n="help.7.stableAfter">
+        if the level of performance is consistently
+        below what you need.
+      </span>
     </li>
   </ul>
 
-  <p>
+  <p data-i18n="help.7.advice">
+    Look for sustained changes, not just one good
+    or bad point. Use local knowledge to interpret
+    what was happening at that time.
+  </p>
+</details>
+
+
+<!-- HELP SECTION 8: SAVING AND REOPENING -->
+<details>
+  <summary>
+    <strong data-i18n="help.8.title">
+      8. Saving and reopening your work
+    </strong>
+  </summary>
+
+  <p data-i18n="help.8.intro">
+    You can save your work in different ways,
+    depending on how you want to use it later.
+  </p>
+
+  <ul>
+    <li>
+      <strong data-i18n="data.saveButton">
+        Save chart
+      </strong>
+      <span data-i18n="help.8.saveDesc">
+        stores the current data and chart settings
+        together in a .json project file.
+      </span>
+    </li>
+
+    <li>
+      <strong data-i18n="data.openButton">
+        Open saved chart
+      </strong>
+      <span data-i18n="help.8.openDesc">
+        restores a previously saved project file
+        so you can continue working on it later.
+      </span>
+    </li>
+
+    <li>
+      <strong data-i18n="data.portableButton">
+        Save portable chart
+      </strong>
+      <span data-i18n="help.8.portableBefore">
+        creates a self-contained
+      </span>
+      <code>.html</code>
+      <span data-i18n="help.8.portableAfter">
+        file containing the SPC tool, your data
+        and your chart settings. The saved file
+        can be opened directly in a web browser
+        and used again without an internet connection.
+      </span>
+    </li>
+  </ul>
+
+  <p data-i18n="help.8.preservedHeading">
     Saved charts can preserve things such as:
   </p>
 
   <ul>
-    <li>the underlying chart data</li>
-    <li>selected columns and X-axis type</li>
-    <li>chart type</li>
-    <li>titles, labels and axis settings</li>
-    <li>rules and targets</li>
-    <li>baseline settings</li>
-    <li>splits and annotations</li>
+    <li data-i18n="help.8.data">
+      the underlying chart data
+    </li>
+    <li data-i18n="help.8.columns">
+      selected columns and X-axis type
+    </li>
+    <li data-i18n="help.8.type">
+      chart type
+    </li>
+    <li data-i18n="help.8.labels">
+      titles, labels and axis settings
+    </li>
+    <li data-i18n="help.8.rules">
+      rules and targets
+    </li>
+    <li data-i18n="help.8.baseline">
+      baseline settings
+    </li>
+    <li data-i18n="help.8.splits">
+      splits and annotations
+    </li>
   </ul>
 
   <p>
-    A portable HTML file remains editable. After opening it, you can change the
-    data or chart settings and use <strong>Save portable chart</strong> again to
-    create an updated copy.
+    <span data-i18n="help.8.editableBefore">
+      A portable HTML file remains editable.
+      After opening it, you can change the data
+      or chart settings and use
+    </span>
+    <strong data-i18n="data.portableButton">
+      Save portable chart
+    </strong>
+    <span data-i18n="help.8.editableAfter">
+      again to create an updated copy.
+    </span>
   </p>
 
   <p>
-    <strong>Important:</strong> both JSON project files and portable HTML files
-    contain the data used to create the chart. Store and share saved files in
-    line with your organisation's information-governance, confidentiality and
-    cybersecurity requirements.
+    <strong data-i18n="help.1.importantTitle">
+      Important:
+    </strong>
+    <span data-i18n="help.8.privacy">
+      Both JSON project files and portable HTML files
+      contain the data used to create the chart.
+      Store and share saved files in line with your
+      organisation's information-governance,
+      confidentiality and cybersecurity requirements.
+    </span>
   </p>
 </details>
 
+
+<!-- HELP SECTION 9: COPYING AND DOWNLOADING -->
 <details>
-  <summary><strong>9. Copying and downloading charts</strong></summary>
+  <summary>
+    <strong data-i18n="help.9.title">
+      9. Copying and downloading charts
+    </strong>
+  </summary>
 
   <ul>
-    <li>
-      Right-click the chart to open the menu for exporting the chart as an image.
+    <li data-i18n="help.9.context">
+      Right-click the chart to open the menu for
+      exporting the chart as an image.
     </li>
-    <li>
-      Use the chart options to adjust the chart's appearance before exporting.
+
+    <li data-i18n="help.9.appearance">
+      Use the chart options to adjust the chart's
+      appearance before exporting.
     </li>
-    <li>
-      You can copy the chart(s) and/or analysis to your clipboard for easy
-      pasting into a report, presentation or document.
+
+    <li data-i18n="help.9.clipboard">
+      You can copy the chart(s) and/or analysis
+      to your clipboard for easy pasting into
+      a report, presentation or document.
     </li>
+
     <li>
-      Use the <strong>Show/hide MR/S chart</strong> option in the
-      <strong>Chart</strong> tab to control whether the secondary chart is
-      included in copied or downloaded output.
+      <span data-i18n="help.9.secondaryBefore">
+        Use the
+      </span>
+      <strong data-i18n="help.9.secondaryName">
+        Show/hide MR/S chart
+      </strong>
+      <span data-i18n="help.9.secondaryMiddle">
+        option in the
+      </span>
+      <strong data-i18n="tabs.chart">
+        Chart
+      </strong>
+      <span data-i18n="help.9.secondaryAfter">
+        tab to control whether the secondary
+        chart is included in copied or
+        downloaded output.
+      </span>
     </li>
   </ul>
 </details>
 
-        <details>
-          <summary><strong>10. Data privacy</strong></summary>
-          <p>The tool runs entirely in your browser:</p>
-          <ul>
-            <li>data are not sent to a server</li>
-            <li>uploaded files are processed locally in your browser session</li>
-            <li>
-  Unsaved work may be lost when you close or refresh
-  the page. Use <strong>Save chart</strong> (JSON)
-  or <strong>Save portable chart</strong> (HTML)
-  to keep a copy of your work.
-</li>
-          </ul>
-          <p class="hint">
-  <strong>Important:</strong> SimpleSPC is not designed
-  for patient-identifiable or other sensitive personal data.
-  Use anonymised or appropriately aggregated data, and
-  follow your organisation's information-governance,
-  confidentiality and cybersecurity requirements.
-  Remember that saved JSON and portable HTML files
-  contain the data used to create the chart.
-</p>
-        </details>
 
-        <details>
-          <summary><strong>11. About the tool</strong></summary>
-          <p>
-            This tool was developed by Jem Ramazanoglu –
-            <a href="mailto:j.ramazanoglu@nhs.net">j.ramazanoglu@nhs.net</a>
-            as a free resource to support Quality Improvement in the NHS.
-          </p>
-          <p class="hint">
-            Feedback and suggestions are very welcome.
-          </p>
-        </details>
+<!-- HELP SECTION 10: DATA PRIVACY -->
+<details>
+  <summary>
+    <strong data-i18n="help.10.title">
+      10. Data privacy
+    </strong>
+  </summary>
+
+  <p data-i18n="help.10.intro">
+    The tool runs entirely in your browser:
+  </p>
+
+  <ul>
+    <li data-i18n="help.10.noServer">
+      data are not sent to a server
+    </li>
+
+    <li data-i18n="help.10.localFiles">
+      uploaded files are processed locally
+      in your browser session
+    </li>
+
+    <li>
+      <span data-i18n="help.10.unsavedBefore">
+        Unsaved work may be lost when you close
+        or refresh the page. Use
+      </span>
+      <strong data-i18n="data.saveButton">
+        Save chart
+      </strong>
+      <span data-i18n="help.10.unsavedMiddle">
+        (JSON) or
+      </span>
+      <strong data-i18n="data.portableButton">
+        Save portable chart
+      </strong>
+      <span data-i18n="help.10.unsavedAfter">
+        (HTML) to keep a copy of your work.
+      </span>
+    </li>
+  </ul>
+
+  <p class="hint">
+    <strong data-i18n="help.1.importantTitle">
+      Important:
+    </strong>
+    <span data-i18n="help.10.caution">
+      SimpleSPC is not designed for patient-identifiable
+      or other sensitive personal data.
+      Use anonymised or appropriately aggregated data,
+      and follow your organisation's information-governance,
+      confidentiality and cybersecurity requirements.
+      Remember that saved JSON and portable HTML files
+      contain the data used to create the chart.
+    </span>
+  </p>
+</details>
+
+
+<!-- HELP SECTION 11: ABOUT THE TOOL -->
+<details>
+  <summary>
+    <strong data-i18n="help.11.title">
+      11. About the tool
+    </strong>
+  </summary>
+
+  <p>
+    <span data-i18n="help.11.authorBefore">
+      This tool was developed by Jem Ramazanoglu –
+    </span>
+    <a href="mailto:j.ramazanoglu@nhs.net">
+      j.ramazanoglu@nhs.net
+    </a>
+    <span data-i18n="help.11.authorAfter">
+      as a free resource to support Quality
+      Improvement in the NHS.
+    </span>
+  </p>
+
+  <p class="hint" data-i18n="help.11.feedback">
+    Feedback and suggestions are very welcome.
+  </p>
+</details>
+
+<!-- END OF HELP TRANSLATION -->
+
       </div>
     </div>
   </div>
@@ -1627,13 +2581,18 @@ Hide target line
   <div class="modal-backdrop" aria-hidden="true"></div>
 
   <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="chartWizardTitle">
-    <button type="button" class="modal-close" aria-label="Close chart wizard" onclick="toggleChartWizard(false)">×</button>
+    <button type="button" class="modal-close"
+        aria-label="Close chart wizard"
+        data-i18n-aria-label="wizard.closeAria"
+        onclick="toggleChartWizard(false)">×</button>
 
     <section class="panel chart-wizard-panel">
-      <h2 id="chartWizardTitle">Help me choose a chart</h2>
-      <p class="sub">
-        Answer a couple of questions and the tool will pick a chart type and show the extra columns (if needed).
-      </p>
+      <h2 id="chartWizardTitle"
+    data-i18n="wizard.title">Help me choose a chart</h2>
+
+<p class="sub" data-i18n="wizard.subtitle">
+  Answer a couple of questions and the tool will pick a chart type and show the extra columns (if needed).
+</p>
 
       <div id="chartWizardBody">
         <!-- Step content inserted by JS in Step 2 -->
@@ -1641,7 +2600,9 @@ Hide target line
       </div>
 
       <div style="display:flex; gap:0.5rem; justify-content:flex-end; margin-top:1rem;">
-        <button type="button" onclick="toggleChartWizard(false)">Close</button>
+        <button type="button"
+        onclick="toggleChartWizard(false)"
+        data-i18n="wizard.close">Close</button>
       </div>
     </section>
   </div>
@@ -1652,7 +2613,7 @@ Hide target line
   <div class="modal-backdrop" aria-hidden="true" onclick="toggleChartSetupModal(false)"></div>
 
   <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="chartSetupTitle">
-    <button type="button" class="modal-close" aria-label="Close chart setup" onclick="toggleChartSetupModal(false)">×</button>
+    <button type="button" class="modal-close" aria-label="Close chart setup" data-i18n-aria-label="setup.closeAria" onclick="toggleChartSetupModal(false)">×</button>
 
     <section class="panel" style="display:block; margin:0;">
       <h2 id="chartSetupTitle">Chart setup</h2>
@@ -1678,15 +2639,95 @@ Hide target line
   </div>
 </div>
 
+
+<!-- What's new — release information panel -->
+<dialog
+  id="whatsNewDialog"
+  class="wn-dialog"
+  aria-labelledby="wn-title">
+
+  <div class="wn-dialog-top">
+    <h2 id="wn-title" data-i18n="whatsNew.title">
+      What's new in SimpleSPC?
+    </h2>
+
+    <button
+      id="wn-close"
+      type="button"
+      aria-label="Close What's new"
+      data-i18n-aria-label="whatsNew.closeAria">
+      ×
+    </button>
+  </div>
+
+  <p class="wn-release" data-i18n="whatsNew.release">
+    November 2026 update · v2026.11
+  </p>
+
+  <p data-i18n="whatsNew.intro">
+    We've made a few improvements to help you use
+    and understand SPC charts.
+  </p>
+
+  <section class="wn-feature">
+    <h3 data-i18n="whatsNew.languagesTitle">
+      More languages
+    </h3>
+    <p data-i18n="whatsNew.languagesText">
+      Choose from six languages, with translated
+      guidance and chart explanations.
+    </p>
+  </section>
+
+  <section class="wn-feature">
+    <h3 data-i18n="whatsNew.signalsTitle">
+      Clearer chart explanations
+    </h3>
+    <p data-i18n="whatsNew.signalsText">
+      Find out which observations and rules are
+      behind special-cause signals.
+    </p>
+  </section>
+
+  <section class="wn-feature">
+    <h3 data-i18n="whatsNew.refinementsTitle">
+      Improvements and fixes
+    </h3>
+    <p data-i18n="whatsNew.refinementsText">
+      Refinements to tooltips, X̄–S charts,
+      number formats and exporting.
+    </p>
+  </section>
+
+  <p class="wn-reassure" data-i18n="whatsNew.reassure">
+    You can keep using SimpleSPC as before.
+    You don't need to do anything differently.
+  </p>
+
+  <p class="wn-footer">
+    <a
+      href="https://github.com/FreeSPC-nhs/spc-web-tool/releases"
+      target="_blank"
+      rel="noopener noreferrer"
+      data-i18n="whatsNew.history">
+      Previous releases on GitHub
+    </a>
+  </p>
+
+</dialog>
+<!-- End What's new panel -->
+
+
+
 <!-- RULE EXPLAINER MODAL -->
 <div id="ruleExplainerModal" class="modal" aria-hidden="true">
   <div class="modal-backdrop" aria-hidden="true" onclick="toggleRuleExplainerModal(false)"></div>
 
   <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="ruleExplainerTitle">
-    <button type="button" class="modal-close" aria-label="Close rule explainer" onclick="toggleRuleExplainerModal(false)">×</button>
+    <button type="button" class="modal-close" aria-label="Close rule explainer" data-i18n-aria-label="explainer.closeAria" onclick="toggleRuleExplainerModal(false)">×</button>
 
     <section class="panel" style="display:block; margin:0;">
-      <h2 id="ruleExplainerTitle">SPC rule explainer</h2>
+      <h2 id="ruleExplainerTitle" data-i18n="explainer.title">SPC rule explainer</h2>
       <p class="sub" id="ruleExplainerSubtitle">
         This tool uses a conservative, chart-aware rule policy designed to reduce false alerts.
       </p>
@@ -1696,7 +2737,7 @@ Hide target line
       </div>
 	
       <div style="display:flex; justify-content:flex-end; margin-top:1rem;">
-        <button type="button" onclick="toggleRuleExplainerModal(false)">Close</button>
+        <button type="button" onclick="toggleRuleExplainerModal(false)" data-i18n="explainer.close">Close</button>
       </div>
     </section>
   </div>
@@ -1704,20 +2745,27 @@ Hide target line
 
 <div id="dataEditorOverlay">
   <div class="data-editor-dialog">
-    <h2>Data editor</h2>
+    <h2 data-i18n="editor.title">Data editor</h2>
 
-    <p class="hint data-editor-intro-hint">
-  Paste data directly into the grid, or use this editor to review Excel worksheets before importing.
-  You can switch worksheets, delete unwanted rows/columns, and then click
-  <strong>Apply data</strong>.
+    
+<p class="hint data-editor-intro-hint">
+  <span data-i18n="editor.intro">
+    Paste data directly into the grid, or use this editor to review Excel
+    worksheets before importing. You can switch worksheets, delete unwanted
+    rows/columns, and then click
+  </span>
+  <strong data-i18n="editor.apply">Apply data</strong>.
+
   <span class="data-editor-help-inline">
     <button
       id="dataEditorDeleteHelpBtn"
       type="button"
       class="data-editor-help-btn"
       aria-label="How do I delete rows or columns?"
+      data-i18n-aria-label="editor.helpAria"
       aria-expanded="false"
-      aria-controls="dataEditorDeleteHelpPopup">
+      aria-controls="dataEditorDeleteHelpPopup"
+      data-i18n="editor.helpButton">
       How do I delete rows/columns?
     </button>
 
@@ -1726,18 +2774,19 @@ Hide target line
       class="data-editor-help-popup"
       role="tooltip"
       aria-hidden="true">
-      <strong>Editing tip</strong><br>
-      • Right-click a <strong>row number</strong> to delete a row<br>
-      • Right-click a <strong>column heading</strong> to delete a column<br>
-      • You can also insert rows/columns the same way
+      <strong data-i18n="editor.helpHeading">Editing tip</strong>
+      <div>• <span data-i18n="editor.helpRow">Right-click a row number to delete a row</span></div>
+      <div>• <span data-i18n="editor.helpColumn">Right-click a column heading to delete a column</span></div>
+      <div>• <span data-i18n="editor.helpInsert">You can also insert rows/columns the same way</span></div>
     </span>
   </span>
 </p>
 
+
     <div id="dataEditorWorkbookBar" class="data-editor-workbook-bar" style="display:none;">
       <div class="data-editor-workbook-row">
         <label for="dataEditorSheetSelect" class="data-editor-sheet-label">
-          <strong>Worksheet:</strong>
+          <strong data-i18n="editor.worksheet">Worksheet:</strong>
         </label>
         <select id="dataEditorSheetSelect"></select>
       </div>
@@ -1749,15 +2798,18 @@ Hide target line
 
         <div class="data-editor-controls">
       <div class="data-editor-controls-left">
-        <label class="data-editor-checkbox">
-          <input type="checkbox" id="dataEditorHasHeaders" checked>
-          First row contains headers
-        </label>
+        
+<label class="data-editor-checkbox">
+  <input type="checkbox" id="dataEditorHasHeaders" checked>
+  <span data-i18n="editor.hasHeaders">First row contains headers</span>
+</label>
+
       </div>
 
-      <button id="dataEditorDetectHeadersButton" type="button" class="data-editor-secondary">
-        Auto-detect
-      </button>
+      <button id="dataEditorDetectHeadersButton"
+        type="button"
+        class="data-editor-secondary"
+        data-i18n="editor.detect">Auto-detect</button>
     </div>
 
     <div id="dataEditorHeaderStatus" class="data-editor-status" aria-live="polite"></div>
@@ -1765,8 +2817,12 @@ Hide target line
     <div id="dataEditorGrid" class="data-editor-grid"></div>
 
     <div class="data-editor-buttons">
-      <button id="dataEditorApplyButton" type="button">Apply data</button>
-      <button id="dataEditorCancelButton" type="button">Cancel</button>
+      <button id="dataEditorApplyButton"
+        type="button"
+        data-i18n="editor.apply">Apply data</button>
+      <button id="dataEditorCancelButton"
+        type="button"
+        data-i18n="editor.cancel">Cancel</button>
     </div>
   </div>
 </div>
@@ -1774,92 +2830,141 @@ Hide target line
 <!-- Excel sheet picker modal -->
 <div id="sheetPickerOverlay">
   <div class="data-editor-dialog" style="max-width:520px;">
-    <h2 style="margin-top:0;">Choose worksheet</h2>
-    <p class="hint" style="margin-bottom:0.75rem;">
-      This Excel file contains more than one worksheet. Choose which one to import.
-    </p>
+    <h2 style="margin-top:0;"
+    data-i18n="editor.chooseWorksheet">Choose worksheet</h2>
+    <p class="hint"
+   style="margin-bottom:0.75rem;"
+   data-i18n="editor.chooseDescription">
+  This Excel file contains more than one worksheet. Choose which one to import.
+</p>
 
-    <label for="sheetPickerSelect"><strong>Worksheet:</strong></label>
-    <select id="sheetPickerSelect"></select>
+    <label for="sheetPickerSelect">
+  <strong data-i18n="editor.worksheet">Worksheet:</strong>
+</label>
+<select id="sheetPickerSelect"></select>
 
-    <div class="data-editor-buttons">
-      <button type="button" id="sheetPickerCancelButton" class="data-editor-secondary">Cancel</button>
-      <button type="button" id="sheetPickerConfirmButton">Load sheet</button>
-    </div>
+<div class="data-editor-buttons">
+  <button type="button"
+          id="sheetPickerCancelButton"
+          class="data-editor-secondary"
+          data-i18n="editor.cancel">Cancel</button>
+
+  <button type="button"
+          id="sheetPickerConfirmButton"
+          data-i18n="editor.loadSheet">Load sheet</button>
+</div>
   </div>
 </div>
 
-<!-- SPC Helper (rule-based "AI") -->
+
+<!-- SPC Helper (offline, rule-based) -->
 <div id="spcHelperPanel">
+
   <div id="spcHelperHeader">
-  <span>SPC helper</span>
-  <button
-    type="button"
-    id="spcHelperCloseBtn"
-    aria-label="Close SPC helper"
-    title="Close"
-  >
-    ×
-  </button>
-</div>
+    <span data-i18n="helper.title">SPC helper</span>
+
+    <button
+      type="button"
+      id="spcHelperCloseBtn"
+      aria-label="Close SPC helper"
+      data-i18n-aria-label="helper.close"
+      title="Close"
+      data-i18n-title="helper.closeTitle">
+      ×
+    </button>
+  </div>
+
   <div id="spcHelperBody">
-  <div id="spcHelperIntro"></div>
+    <div id="spcHelperIntro"></div>
 
-  <!-- Toggle: collapses/expands the suggested question chips -->
-  <button
-    id="spcHelperToggleSuggestions"
-    type="button"
-    class="spc-helper-toggle-suggestions"
-    aria-expanded="true"
-    aria-controls="spcHelperSuggestions"
-  >
-    Hide suggested questions
-  </button>
-
-  <!-- Suggested questions area (chips live in here) -->
-<div id="spcHelperSuggestions">
-  <div class="spc-chip-section">
+    <!-- Toggle suggested questions -->
     <button
-      id="spcHelperToggleGeneral"
+      id="spcHelperToggleSuggestions"
       type="button"
-      class="spc-chip-section-toggle"
+      class="spc-helper-toggle-suggestions"
       aria-expanded="true"
-      aria-controls="spcHelperGeneralSection">
-      <span>General SPC questions</span>
-      <span class="spc-chip-section-toggle-icon">▾</span>
+      aria-controls="spcHelperSuggestions">
+      Hide suggested questions
     </button>
 
-    <div id="spcHelperGeneralSection" class="spc-chip-section-body">
-      <div id="spcHelperChipsGeneral" class="spc-helper-chips" aria-label="General SPC suggested questions"></div>
+    <div id="spcHelperSuggestions">
+
+      <!-- General questions -->
+      <div class="spc-chip-section">
+        <button
+          id="spcHelperToggleGeneral"
+          type="button"
+          class="spc-chip-section-toggle"
+          aria-expanded="true"
+          aria-controls="spcHelperGeneralSection">
+
+          <span data-i18n="helper.generalHeading">
+            General SPC questions
+          </span>
+
+          <span class="spc-chip-section-toggle-icon">▾</span>
+        </button>
+
+        <div id="spcHelperGeneralSection"
+             class="spc-chip-section-body">
+          <div
+            id="spcHelperChipsGeneral"
+            class="spc-helper-chips"
+            aria-label="General SPC suggested questions"
+            data-i18n-aria-label="helper.generalAria">
+          </div>
+        </div>
+      </div>
+
+      <!-- Current-chart questions -->
+      <div class="spc-chip-section">
+        <button
+          id="spcHelperToggleChart"
+          type="button"
+          class="spc-chip-section-toggle"
+          aria-expanded="true"
+          aria-controls="spcHelperChartSection">
+
+          <span data-i18n="helper.chartHeading">
+            My chart questions
+          </span>
+
+          <span class="spc-chip-section-toggle-icon">▾</span>
+        </button>
+
+        <div id="spcHelperChartSection"
+             class="spc-chip-section-body">
+          <div
+            id="spcHelperChipsChart"
+            class="spc-helper-chips"
+            aria-label="My chart suggested questions"
+            data-i18n-aria-label="helper.chartAria">
+          </div>
+        </div>
+      </div>
+
     </div>
-  </div>
 
-  <div class="spc-chip-section">
-    <button
-      id="spcHelperToggleChart"
-      type="button"
-      class="spc-chip-section-toggle"
-      aria-expanded="true"
-      aria-controls="spcHelperChartSection">
-      <span>My chart questions</span>
-      <span class="spc-chip-section-toggle-icon">▾</span>
-    </button>
+    <div id="spcHelperOutput" aria-live="polite"></div>
 
-    <div id="spcHelperChartSection" class="spc-chip-section-body">
-      <div id="spcHelperChipsChart" class="spc-helper-chips" aria-label="My chart suggested questions"></div>
+    <div id="spcHelperControls">
+      <input
+        id="aiQuestionInput"
+        type="text"
+        placeholder="Ask a question…"
+        data-i18n-placeholder="helper.askPlaceholder" />
+
+      <button
+        id="aiAskButton"
+        type="button"
+        data-i18n="helper.askButton">
+        Ask
+      </button>
     </div>
+
   </div>
 </div>
 
-  <div id="spcHelperOutput" aria-live="polite"></div>
-
-  <div id="spcHelperControls">
-    <input id="aiQuestionInput" type="text" placeholder="Ask a question…" />
-    <button id="aiAskButton" type="button">Ask</button>
-  </div>
-</div>
-
-</div>
 <!-- Chart right-click menu -->
 <div id="chartContextMenu" class="chart-context-menu" style="display:none;">
   <div class="context-submenu-wrap">
@@ -1964,10 +3069,40 @@ Hide target line
   <button type="button" data-action="saveChartsAs" title="Save a copy of the chart as a PNG image file">Save chart(s) as PNG image</button>
   <button type="button" data-action="downloadPdf" class="hidden" title="Export the chart and analysis to PDF">Download PDF report</button>
 </div>
-
+ 
+  <script src="./i18n.js"></script>
+  <script src="./i18n/en.js"></script>
+  <script src="./i18n/fr.js"></script>
+  <script src="./i18n/es.js"></script>
+  <script src="./i18n/de.js"></script>
+  <script src="./i18n/it.js"></script>
+  <script src="./i18n/pt.js"></script>
   <script src="spc-helper-library.js"></script>
   <script src="./js/modals.js"></script>
   <script src="spc.js"></script>
   <script src="./portable.js"></script>
+
+  <!-- Fix: connect the translated Choose file button -->
+  <script>
+    document.addEventListener("click", function(event) {
+      if (!event.target.closest?.("#chooseDataFileButton")) return;
+
+      event.preventDefault();
+      event.stopImmediatePropagation();
+
+      const input = document.getElementById("fileInput");
+      if (!input || input.disabled) return;
+
+      try {
+        if (typeof input.showPicker === "function") {
+          input.showPicker();
+        } else {
+          input.click();
+        }
+      } catch (error) {
+        console.error("Unable to open file picker:", error);
+      }
+    }, true);
+  </script>
 </body>
 </html>

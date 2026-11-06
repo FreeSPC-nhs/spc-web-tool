@@ -172,36 +172,60 @@
   };
 }
 
+
 function describeRulesForCurrentChart(chartType) {
+  const t = helperDynamicText;
+
+  // Use the same chart-family policy as before.
+  // Translate only the explanation.
+
   switch (chartType) {
     case "p":
     case "pprime":
     case "u":
     case "uprime":
     case "c":
-      return "For this chart, SimpleSPC uses beyond-limit signals and the run rule. Zone rules are blocked because they may create misleading alerts on attribute charts.";
+      return t(
+        "helper.rules.attribute",
+        "For this chart, SimpleSPC uses beyond-limit signals and the run rule. Zone rules are blocked because they may create misleading alerts on attribute charts."
+      );
 
     case "t":
     case "g":
-      return "For this chart, beyond-limit signals are used by default. Run and trend rules are advanced options only, because rare-event charts can naturally look irregular.";
+      return t(
+        "helper.rules.rare",
+        "For this chart, beyond-limit signals are used by default. Run and trend rules are advanced options only, because rare-event charts can naturally look irregular."
+      );
 
     case "xmr":
-      return "For this XmR chart, beyond-limit signals and the run rule are used by default. Trend and zone-style rules are advanced options because adding more rules can increase false alerts.";
+      return t(
+        "helper.rules.xmr",
+        "For this XmR chart, beyond-limit signals and the run rule are used by default. Trend and zone-style rules are advanced options because adding more rules can increase false alerts."
+      );
 
     case "xbars":
-      return "For this X̄–S chart, beyond-limit signals and the run rule are used by default. Trend and zone rules are available as advanced options.";
+      return t(
+        "helper.rules.xbars",
+        "For this X̄–S chart, beyond-limit signals and the run rule are used by default. Trend and zone rules are available as advanced options."
+      );
 
     case "run":
-      return "For this run chart, SimpleSPC uses run-chart rules such as shifts and, where enabled, trends. Control-limit rules do not apply to run charts.";
+      return t(
+        "helper.rules.run",
+        "For this run chart, SimpleSPC uses run-chart rules such as shifts and, where enabled, trends. Control-limit rules do not apply to run charts."
+      );
 
     case "pareto":
-  return (
-    "SPC signal rules are not used on a Pareto chart. " +
-    "A Pareto chart ranks categories rather than showing process behaviour over time."
-  );
+      return t(
+        "helper.rules.pareto",
+        "SPC signal rules are not used on a Pareto chart. A Pareto chart ranks categories rather than showing process behaviour over time."
+      );
 
     default:
-      return "SimpleSPC uses a conservative, chart-aware rule set. Not every rule is available for every chart type.";
+      return t(
+        "helper.rules.default",
+        "SimpleSPC uses a conservative, chart-aware rule set. Not every rule is available for every chart type."
+      );
   }
 }
 
@@ -219,9 +243,27 @@ function describeRulesForCurrentChart(chartType) {
     "What should I do next?",
     "Should I add a split here?",
 
+    
     chartType === "xmr"
       ? "Why are my XmR limits different?"
       : null,
+
+    chartType === "xmr"
+      ? "Why do XmR signals disappear with a short baseline?"
+      : null,
+
+    chartType === "xmr"
+      ? "Why does XmR need 12 usable points?"
+      : null,
+
+    chartType === "xmr"
+      ? "Why is excluding this point from the limits disabled?"
+      : null,
+
+    chartType === "xmr"
+      ? "Why doesn't Nelson screening flag changes after the baseline?"
+      : null,
+
 
     chartType === "pprime"
       ? "Why am I using a P′ chart?"
@@ -724,6 +766,203 @@ function describeRulesForCurrentChart(chartType) {
     return bestScore >= 15 ? best : null;
   }
 
+
+/*
+ * Translate a matched FAQ answer.
+ *
+ * Matching still uses the original English aliases,
+ * keywords and priority scores. Only the returned
+ * answer text changes with the selected language.
+ */
+function localisedFaqAnswer(faq) {
+  if (!faq) return "";
+
+  const key = `helper.faq.${faq.id}`;
+  const i18n = window.SimpleSPCi18n;
+
+  // Preserve the original answer when translation
+  // support is unavailable (including older portable files).
+  if (
+    !i18n ||
+    typeof i18n.translate !== "function"
+  ) {
+    return faq.answer;
+  }
+
+  const translated = i18n.translate(key);
+
+  // A missing dictionary key must not appear as
+  // user-facing text.
+  if (!translated || translated === key) {
+    return faq.answer;
+  }
+
+  return translated;
+}
+
+
+/*
+ * Translate dynamic helper text while preserving
+ * numbers, statistical decisions and English fallbacks.
+ */
+function helperDynamicText(key, englishFallback, values = {}) {
+  const i18n = window.SimpleSPCi18n;
+
+  if (i18n && typeof i18n.translate === "function") {
+    const translated = i18n.translate(key, values);
+
+    if (translated && translated !== key) {
+      return translated;
+    }
+  }
+
+  return String(englishFallback).replace(
+    /\{([a-zA-Z0-9_]+)\}/g,
+    (match, name) =>
+      Object.prototype.hasOwnProperty.call(values, name)
+        ? String(values[name])
+        : match
+  );
+}
+
+/*
+ * Translate only the signal descriptions already produced
+ * by the existing signalTextList() function.
+ *
+ * Unrecognised descriptions are preserved unchanged.
+ * The original signals array is never modified.
+ */
+
+function helperXmRSignalDescription(text) {
+  const original = String(text ?? "").trim();
+  const normalised = original.toLowerCase();
+
+  // Existing fixed descriptions from signalTextList().
+  const keys = {
+    "one or more points above the upper limit":
+      "helper.xmr.signal.above",
+    "one or more points below the lower limit":
+      "helper.xmr.signal.below",
+    "a sustained run on one side of the centre line":
+      "helper.xmr.signal.run",
+    "a sustained trend":
+      "helper.xmr.signal.trend",
+    "an unusual outlier":
+      "helper.xmr.signal.outlier",
+    "an unusual clustering of points far from the centre line":
+      "helper.xmr.signal.cluster",
+    "a sustained bias away from the centre line":
+      "helper.xmr.signal.bias"
+  };
+
+  if (keys[normalised]) {
+    return helperDynamicText(
+      keys[normalised],
+      original
+    );
+  }
+
+  // Original XmR shift descriptor.
+  if (
+    normalised ===
+    "a sustained shift (many points on the same side of the mean)"
+  ) {
+    return helperDynamicText(
+      "helper.signal.shiftMean",
+      original
+    );
+  }
+
+  // Attribute-chart shift descriptors.
+  // Retain the rule threshold and original date range.
+  const shift =
+    /^Shift: (\d+)\+ points in a row (above|below) the centre line \(from (.+?) to (.+)\)$/i
+      .exec(original);
+
+  if (shift) {
+    const direction = helperDynamicText(
+      shift[2].toLowerCase() === "above"
+        ? "helper.signal.sideAbove"
+        : "helper.signal.sideBelow",
+      shift[2].toLowerCase()
+    );
+
+    return helperDynamicText(
+      "helper.signal.shiftDetailed",
+      "Shift: {count}+ points in a row {direction} the centre line (from {start} to {end})",
+      {
+        count: shift[1],
+        direction,
+        start: shift[3],
+        end: shift[4]
+      }
+    );
+  }
+
+  // Attribute-chart trend descriptors.
+  const trend =
+    /^Trend: (\d+)\+ points steadily (increasing|decreasing) \(from (.+?) to (.+)\)$/i
+      .exec(original);
+
+  if (trend) {
+    const direction = helperDynamicText(
+      trend[2].toLowerCase() === "increasing"
+        ? "helper.signal.directionIncreasing"
+        : "helper.signal.directionDecreasing",
+      trend[2].toLowerCase()
+    );
+
+    return helperDynamicText(
+      "helper.signal.trendDetailed",
+      "Trend: {count}+ points steadily {direction} (from {start} to {end})",
+      {
+        count: trend[1],
+        direction,
+        start: trend[3],
+        end: trend[4]
+      }
+    );
+  }
+
+  // Do not invent translations for unknown messages.
+  return original;
+}
+
+function helperXmRSignalList(signals) {
+  const items = signalTextList(signals)
+    .map(helperXmRSignalDescription)
+    .filter(Boolean);
+
+  if (!items.length) {
+    return helperDynamicText(
+      "helper.xmr.signal.other",
+      "special-cause signals"
+    );
+  }
+
+  if (items.length === 1) {
+    return items[0];
+  }
+
+  if (items.length === 2) {
+    return helperDynamicText(
+      "helper.xmr.signal.joinTwo",
+      "{first} and {last}",
+      { first: items[0], last: items[1] }
+    );
+  }
+
+  return helperDynamicText(
+    "helper.xmr.signal.joinMany",
+    "{first}, and {last}",
+    {
+      first: items.slice(0, -1).join(", "),
+      last: items[items.length - 1]
+    }
+  );
+}
+
+
 function isXmRPeriodAssessable(period) {
   if (!period) return false;
 
@@ -740,51 +979,92 @@ function isXmRPeriodAssessable(period) {
   return typeof period.isStable === "boolean";
 }
 
-  function describeXmRPeriods(periods) {
-  if (!Array.isArray(periods) || periods.length === 0) return null;
+  
+function describeXmRPeriods(periods) {
+  if (!Array.isArray(periods) || periods.length === 0) {
+    return null;
+  }
+
+  const t = helperDynamicText;
 
   const pieces = periods.map((p, idx) => {
-    const label = `Period ${idx + 1}`;
+    const label = t(
+      "helper.xmr.period.label",
+      "Period {number}",
+      { number: idx + 1 }
+    );
+
     const start = (p.startIndex ?? 0) + 1;
     const end = (p.endIndex ?? 0) + 1;
-    const meanTxt = finiteNumber(p.mean) ? p.mean.toFixed(2) : null;
 
+    const mean = finiteNumber(p.mean)
+      ? t(
+          "helper.xmr.period.mean",
+          " around a mean of {mean}",
+          { mean: p.mean.toFixed(2) }
+        )
+      : "";
+
+    const values = { label, start, end, mean };
+
+    // Keep the original provisional-limit decision.
     if (!isXmRPeriodAssessable(p)) {
-      const count = finiteNumber(p.limitEstimatePointCount)
-        ? p.limitEstimatePointCount
-        : null;
+      const count =
+        finiteNumber(p.limitEstimatePointCount)
+          ? p.limitEstimatePointCount
+          : null;
 
-      const minimum = finiteNumber(p.minimumPointsForInterpretation)
-        ? p.minimumPointsForInterpretation
-        : 12;
+      const minimum =
+        finiteNumber(p.minimumPointsForInterpretation)
+          ? p.minimumPointsForInterpretation
+          : 12;
 
-      return (
-        `${label} (points ${start}–${end}) has provisional XmR limits` +
-        `${meanTxt ? ` around a mean of ${meanTxt}` : ""}. ` +
-        `${count !== null ? `Only ${count} points were used to estimate the limits, so ` : ""}` +
-        `SimpleSPC will wait until at least ${minimum} points are available before describing this period as stable or showing special-cause variation`
+      const countText = count !== null
+        ? t(
+            "helper.xmr.period.count",
+            "Only {count} points contributed to the limit estimate, so ",
+            { count }
+          )
+        : "";
+
+      return t(
+        "helper.xmr.period.provisional",
+        "{label} (points {start}–{end}) has provisional XmR limits{mean}. {count}At least {minimum} usable points are required before SimpleSPC interprets stability and special-cause signals for this period",
+        { ...values, count: countText, minimum }
       );
     }
 
-    const sigs = signalTextList(p.signals);
-
+    // Keep the original stable/special-cause decision.
     if (p.isStable === true) {
-      return `${label} (points ${start}–${end}) looks stable${meanTxt ? ` around a mean of ${meanTxt}` : ""}`;
+      return t(
+        "helper.xmr.period.stable",
+        "{label} (points {start}–{end}) appears stable{mean}",
+        values
+      );
     }
 
-    return `${label} (points ${start}–${end}) shows ${joinNice(sigs) || "special-cause signals"}${meanTxt ? ` around a mean of ${meanTxt}` : ""}`;
+    return t(
+      "helper.xmr.period.signals",
+      "{label} (points {start}–{end}) shows {signals}{mean}",
+      {
+        ...values,
+        signals: helperXmRSignalList(p.signals)
+      }
+    );
   });
 
   return pieces.join(". ") + ".";
 }
 
-  function buildXmRChangeAnswer(ctx) {
+
+ 
+function buildXmRChangeAnswer(ctx) {
   const latest = ctx.xmr;
   const periods = ctx.xmrPeriods;
+  const t = helperDynamicText;
 
-  // Helper used only inside this answer:
-  // look for early warning features without treating them as a
-  // formal stability conclusion when the period is still provisional.
+  // Preserve the existing early-warning checks.
+  // These do not establish a formal stability conclusion.
   function provisionalHasWarningSigns() {
     if (!latest) return false;
 
@@ -796,356 +1076,512 @@ function isXmRPeriodAssessable(period) {
     );
   }
 
+  // MULTIPLE PERIODS
   if (Array.isArray(periods) && periods.length > 1) {
     const latestPeriod = periods[periods.length - 1];
-    const latestAssessable = isXmRPeriodAssessable(latestPeriod);
 
-    const earlierAssessablePeriods =
-      periods
-        .slice(0, -1)
-        .filter(isXmRPeriodAssessable);
+    const latestAssessable =
+      isXmRPeriodAssessable(latestPeriod);
 
-    const earlierUnstable =
-      earlierAssessablePeriods.some(p => p.isStable === false);
+    const earlierAssessablePeriods = periods
+      .slice(0, -1)
+      .filter(isXmRPeriodAssessable);
 
-    const latestStart = (latestPeriod.startIndex ?? 0) + 1;
-    const latestEnd = (latestPeriod.endIndex ?? 0) + 1;
+    const earlierUnstable = earlierAssessablePeriods
+      .some(p => p.isStable === false);
 
-    let out = "";
+    const start = (latestPeriod.startIndex ?? 0) + 1;
+    const end = (latestPeriod.endIndex ?? 0) + 1;
 
-    if (earlierUnstable) {
-      out +=
-        "Looking across the XmR chart, one or more periods with enough data show special-cause signals. That is evidence that the process may have changed.\n\n";
-    } else {
-      out +=
-        "This XmR chart has been divided into separate process periods using one or more splits. A split marks a point where you believe the process may have changed and tells SimpleSPC to recalculate the mean and limits. The split itself does not prove that a change occurred.\n\n";
-    }
+    let out = earlierUnstable
+      ? t(
+          "helper.xmr.multi.earlier",
+          "Across the XmR chart, at least one assessable period shows special-cause signals. This suggests the process may have changed.\n\n"
+        )
+      : t(
+          "helper.xmr.multi.splits",
+          "This XmR chart has multiple periods separated by splits. Each split starts a new calculation of the mean and limits, but the presence of a split does not itself prove a process change.\n\n"
+        );
 
     out += describeXmRPeriods(periods) + "\n\n";
 
-    // Latest period is still provisional
+    // Latest period: provisional limits.
     if (!latestAssessable) {
-      const count = finiteNumber(latestPeriod.limitEstimatePointCount)
-        ? latestPeriod.limitEstimatePointCount
-        : null;
+      const count =
+        finiteNumber(latestPeriod.limitEstimatePointCount)
+          ? latestPeriod.limitEstimatePointCount
+          : null;
 
-      const minimum = finiteNumber(latestPeriod.minimumPointsForInterpretation)
-        ? latestPeriod.minimumPointsForInterpretation
-        : 12;
+      const minimum =
+        finiteNumber(latestPeriod.minimumPointsForInterpretation)
+          ? latestPeriod.minimumPointsForInterpretation
+          : 12;
 
-      out +=
-        `For the most recent period (points ${latestStart}–${latestEnd}), there are not yet enough data to make a firm judgement about stability. ` +
-        `${count !== null ? `There are currently ${count} points in this period, and ` : ""}` +
-        `SimpleSPC uses at least ${minimum} points before making a formal XmR stability interpretation.`;
+      const countText = count !== null
+        ? t(
+            "helper.xmr.multi.count",
+            "There are currently {count} usable points in this period, and ",
+            { count }
+          )
+        : "";
 
-      if (provisionalHasWarningSigns()) {
-        out +=
-          "\n\nThere are already some features in the latest points that are worth watching. That means the early picture is not yet clearly consistent with a settled process. More data will help show whether those features disappear as temporary fluctuation or develop into a sustained signal.";
-      } else {
-        out +=
-          "\n\nSo far, the latest points look fairly consistent around their current level and there are no obvious warning signs in this short period. That is encouraging, but it is still provisional rather than proof of stability. If the next points continue in a similar pattern, that would strengthen the evidence that the process has settled into a new stable level.";
-      }
+      out += t(
+        "helper.xmr.multi.provisional",
+        "The latest period (points {start}–{end}) does not yet have enough data for a firm stability conclusion. {count}SimpleSPC requires at least {minimum} usable points before interpreting XmR stability.",
+        { start, end, count: countText, minimum }
+      );
+
+      out += provisionalHasWarningSigns()
+        ? t(
+            "helper.xmr.multi.warning",
+            "\n\nSome early warning features are present, but this period is still provisional. More observations are needed to see whether the pattern persists."
+          )
+        : t(
+            "helper.xmr.multi.calm",
+            "\n\nNo obvious early warning features appear in this short period. That is encouraging, but does not yet establish stability."
+          );
 
       return out;
     }
 
-    // Latest period has enough data for a formal interpretation
+    // Latest period: enough points for interpretation.
     if (latestPeriod.isStable === true) {
-      out +=
-        `In the most recent period (points ${latestStart}–${latestEnd}), I cannot see a clear special-cause signal. With enough data now available for interpretation, the latest section is consistent with routine variation around its current level.`;
+      out += t(
+        "helper.xmr.multi.stable",
+        "In the latest period (points {start}–{end}), no clear special-cause signal is detected. With sufficient data, this is consistent with routine variation around the current level.",
+        { start, end }
+      );
     } else {
-      const latestSignals =
-        joinNice(signalTextList(latestPeriod.signals));
-
-      out +=
-        `In the most recent period (points ${latestStart}–${latestEnd}), there are still signs of possible change — specifically ${latestSignals || "special-cause signals"}.`;
+      out += t(
+        "helper.xmr.multi.signals",
+        "In the latest period (points {start}–{end}), possible special-cause variation remains: {signals}.",
+        {
+          start,
+          end,
+          signals: helperXmRSignalList(latestPeriod.signals)
+        }
+      );
     }
 
     return out;
   }
 
-  // No current XmR analysis
+  // NO CURRENT XmR ANALYSIS
   if (!latest) {
-    return "Please generate an XmR chart first, then ask again.";
-  }
-
-  // Single provisional period
-  if (!isXmRPeriodAssessable(latest)) {
-    const count = finiteNumber(latest.limitEstimatePointCount)
-      ? latest.limitEstimatePointCount
-      : null;
-
-    const minimum = finiteNumber(latest.minimumPointsForInterpretation)
-      ? latest.minimumPointsForInterpretation
-      : 12;
-
-    let out =
-      "There are not yet enough data to make a firm judgement about stability. " +
-      `${count !== null ? `There are currently ${count} points being used to estimate the limits, and ` : ""}` +
-      `SimpleSPC uses at least ${minimum} points before making a formal XmR stability interpretation.`;
-
-    if (provisionalHasWarningSigns()) {
-      out +=
-        "\n\nThere are already some features in the pattern that are worth watching, so I would not yet describe the process as settled. More observations will help show whether these develop into a sustained signal.";
-    } else {
-      out +=
-        "\n\nSo far, the pattern looks fairly consistent and there are no obvious warning signs. That is encouraging, but still provisional. If future points continue in a similar pattern, confidence that the process is stable will become stronger.";
-    }
-
-    return out;
-  }
-
-  // Single period with enough data
-  if (latest.isStable === true) {
-    return (
-      "Looking at the current XmR chart, I cannot see a clear special-cause signal. " +
-      "There are enough data for interpretation, so the pattern is consistent with routine variation around its current level. " +
-      "That does not necessarily mean performance is good enough; stability and performance against a target are separate questions."
+    return t(
+      "helper.xmr.single.noChart",
+      "Generate an XmR chart first, then ask again."
     );
   }
 
-  return (
-    "This XmR chart shows evidence that something may have changed. " +
-    "The pattern is not fully explained by routine variation alone, so it would be worth investigating what changed in the system or the data around that time."
+  // SINGLE PERIOD: PROVISIONAL LIMITS
+  if (!isXmRPeriodAssessable(latest)) {
+    const count =
+      finiteNumber(latest.limitEstimatePointCount)
+        ? latest.limitEstimatePointCount
+        : null;
+
+    const minimum =
+      finiteNumber(latest.minimumPointsForInterpretation)
+        ? latest.minimumPointsForInterpretation
+        : 12;
+
+    const countText = count !== null
+      ? t(
+          "helper.xmr.single.count",
+          "There are currently {count} usable points for limit estimation, and ",
+          { count }
+        )
+      : "";
+
+    let out = t(
+      "helper.xmr.single.provisional",
+      "There are not yet enough data to make a firm judgement about stability. {count}SimpleSPC requires at least {minimum} usable points for a formal XmR interpretation.",
+      { count: countText, minimum }
+    );
+
+    out += provisionalHasWarningSigns()
+      ? t(
+          "helper.xmr.single.warning",
+          "\n\nThere are features worth watching, but more observations are needed to determine whether they form a sustained signal."
+        )
+      : t(
+          "helper.xmr.single.calm",
+          "\n\nThe pattern currently looks reasonably consistent, with no obvious early warnings. This remains provisional until enough observations are available."
+        );
+
+    return out;
+  }
+
+  // SINGLE PERIOD: STABLE
+  if (latest.isStable === true) {
+    return t(
+      "helper.xmr.single.stable",
+      "The current XmR chart has enough data for interpretation and shows no clear special-cause signals. This is consistent with routine variation, although stable performance is not necessarily satisfactory performance."
+    );
+  }
+
+  // SINGLE PERIOD: SPECIAL-CAUSE SIGNALS
+  return t(
+    "helper.xmr.single.signals",
+    "The current XmR chart suggests that the process may have changed. The pattern is not fully explained by routine variation, so investigate what happened in the process or its measurement."
   );
 }
 
+
+
+/*
+ * Batch 33 — Laney P′, U′ and Sigma Z explanations.
+ *
+ * Preserve the original sigmaZ values and the existing
+ * > 1, < 1 and === 1 interpretation branches.
+ * Only the explanatory text is translated.
+ */
+
 function buildPPrimeExplanation(ctx) {
   const a = ctx.attribute;
+  const t = helperDynamicText;
 
   if (!a || ctx.chartType !== "pprime") {
-    return (
+    return t(
+      "helper.laney.pprime.noChart",
       "A P′ chart is a Laney-adjusted version of a P chart. " +
       "It is used for proportion data when the amount of variation is noticeably different from what a standard P chart expects."
     );
   }
 
+  // Use exactly the same calculated Sigma Z value.
   const sigmaZ =
     a.stats && finiteNumber(a.stats.sigmaZ)
       ? a.stats.sigmaZ
       : null;
 
-  let out =
+  let out = t(
+    "helper.laney.pprime.intro",
     "This P′ chart uses the same numerator, denominator, observed proportions and centre line as a standard P chart. " +
-    "The difference is that it adjusts the width of the control limits so they better match the amount of variation actually seen in the data.";
+    "The difference is that it adjusts the width of the control limits so they better match the amount of variation actually seen in the data."
+  );
 
   if (sigmaZ != null) {
     if (sigmaZ > 1) {
-      out +=
+      out += t(
+        "helper.laney.pprime.more",
         "\n\nYour data vary more than a standard P chart expects, so P′ uses wider control limits. " +
-        "This helps avoid treating ordinary variation as a possible process change.";
+        "This helps avoid treating ordinary variation as a possible process change."
+      );
+
     } else if (sigmaZ < 1) {
-      out +=
+      out += t(
+        "helper.laney.pprime.less",
         "\n\nYour data vary less than a standard P chart expects, so P′ uses narrower control limits. " +
-        "This can make genuinely unusual variation easier to detect.";
+        "This can make genuinely unusual variation easier to detect."
+      );
+
     } else {
-      out +=
-        "\n\nThe amount of variation is very close to what a standard P chart expects, so the P′ adjustment is very small.";
+      out += t(
+        "helper.laney.pprime.equal",
+        "\n\nThe amount of variation is very close to what a standard P chart expects, so the P′ adjustment is very small."
+      );
     }
 
-    out +=
-      `\n\nThe Sigma Z adjustment factor for this chart is ${sigmaZ.toFixed(3)}. ` +
-      "A value above 1 widens the standard P-chart limits; a value below 1 narrows them.";
+    out += t(
+      "helper.laney.pprime.factor",
+      "\n\nThe Sigma Z adjustment factor for this chart is {sigmaZ}. " +
+      "A value above 1 widens the standard P-chart limits; a value below 1 narrows them.",
+      { sigmaZ: sigmaZ.toFixed(3) }
+    );
   }
 
   return out;
 }
 
+
 function buildUPrimeExplanation(ctx) {
   const a = ctx.attribute;
+  const t = helperDynamicText;
 
   if (!a || ctx.chartType !== "uprime") {
-    return (
+    return t(
+      "helper.laney.uprime.noChart",
       "A U′ chart is a Laney-adjusted version of a U chart. " +
       "It is used for rate data when the amount of variation is noticeably different from what a standard U chart expects."
     );
   }
 
+  // Preserve the original calculated value.
   const sigmaZ =
     a.stats && finiteNumber(a.stats.sigmaZ)
       ? a.stats.sigmaZ
       : null;
 
-  let out =
+  let out = t(
+    "helper.laney.uprime.intro",
     "This U′ chart uses the same event counts, opportunities, observed rates and centre line as a standard U chart. " +
-    "The difference is that it adjusts the width of the control limits so they better match the amount of variation actually seen in the data.";
+    "The difference is that it adjusts the width of the control limits so they better match the amount of variation actually seen in the data."
+  );
 
   if (sigmaZ != null) {
     if (sigmaZ > 1) {
-      out +=
+      out += t(
+        "helper.laney.uprime.more",
         "\n\nYour data vary more than a standard U chart expects, so U′ uses wider control limits. " +
-        "This helps avoid treating ordinary variation as a possible process change.";
+        "This helps avoid treating ordinary variation as a possible process change."
+      );
+
     } else if (sigmaZ < 1) {
-      out +=
+      out += t(
+        "helper.laney.uprime.less",
         "\n\nYour data vary less than a standard U chart expects, so U′ uses narrower control limits. " +
-        "This can make genuinely unusual variation easier to detect.";
+        "This can make genuinely unusual variation easier to detect."
+      );
+
     } else {
-      out +=
-        "\n\nThe amount of variation is very close to what a standard U chart expects, so the U′ adjustment is very small.";
+      out += t(
+        "helper.laney.uprime.equal",
+        "\n\nThe amount of variation is very close to what a standard U chart expects, so the U′ adjustment is very small."
+      );
     }
 
-    out +=
-      `\n\nThe Sigma Z adjustment factor for this chart is ${sigmaZ.toFixed(3)}. ` +
-      "A value above 1 widens the standard U-chart limits; a value below 1 narrows them.";
+    out += t(
+      "helper.laney.uprime.factor",
+      "\n\nThe Sigma Z adjustment factor for this chart is {sigmaZ}. " +
+      "A value above 1 widens the standard U-chart limits; a value below 1 narrows them.",
+      { sigmaZ: sigmaZ.toFixed(3) }
+    );
   }
 
   return out;
 }
 
+
 function buildSigmaZExplanation(ctx) {
   const chartType = ctx.chartType;
   const a = ctx.attribute;
+  const t = helperDynamicText;
 
-  const isPPrime =
-    chartType === "pprime";
+  const isPPrime = chartType === "pprime";
+  const isUPrime = chartType === "uprime";
 
-  const isUPrime =
-    chartType === "uprime";
-
+  // Generic explanation when the selected chart is
+  // not a Laney P′ or U′ chart.
   if (!isPPrime && !isUPrime) {
-    return (
+    return t(
+      "helper.laney.sigma.general",
       "Sigma Z is used on Laney P′ and U′ charts. " +
       "It is an adjustment factor that tells SimpleSPC whether the data are varying more or less than a standard P or U chart would normally expect."
     );
   }
 
   const sigmaZ =
-    a?.stats &&
-    finiteNumber(a.stats.sigmaZ)
+    a?.stats && finiteNumber(a.stats.sigmaZ)
       ? a.stats.sigmaZ
       : null;
 
-  const standardChart =
-    isPPrime
-      ? "P chart"
-      : "U chart";
+  // Translate the displayed names only.
+  const standardChart = isPPrime
+    ? t("helper.laney.chart.p", "P chart")
+    : t("helper.laney.chart.u", "U chart");
 
-  const primeChart =
-    isPPrime
-      ? "P′ chart"
-      : "U′ chart";
+  const primeChart = isPPrime
+    ? t("helper.laney.chart.pprime", "P′ chart")
+    : t("helper.laney.chart.uprime", "U′ chart");
 
-  let out =
+  let out = t(
+    "helper.laney.sigma.intro",
     "Sigma Z is the adjustment factor used by a Laney chart. " +
-    `It tells SimpleSPC whether your data are varying more or less than a standard ${standardChart} expects.\n\n` +
-    "A Sigma Z of about 1 means the amount of variation is close to what the standard chart expects. " +
+    "It tells SimpleSPC whether your data are varying more or less than a standard {standard} expects.",
+    { standard: standardChart }
+  );
+
+  out += t(
+    "helper.laney.sigma.guidance",
+    "\n\nA Sigma Z of about 1 means the amount of variation is close to what the standard chart expects. " +
     "A value above 1 means there is more variation than expected, so the control limits are made wider. " +
-    "A value below 1 means there is less variation than expected, so the control limits are made narrower.\n\n" +
+    "A value below 1 means there is less variation than expected, so the control limits are made narrower.\n\n"
+  );
+
+  out += t(
+    "helper.laney.sigma.unchanged",
     "Sigma Z does not change your original observations or the centre line. " +
-    `It only adjusts the width of the control limits on the ${primeChart}.`;
+    "It only adjusts the width of the control limits on the {prime}.",
+    { prime: primeChart }
+  );
 
   if (sigmaZ != null) {
-    out +=
-      `\n\nFor your current chart, Sigma Z = ${sigmaZ.toFixed(3)}.`;
+    out += t(
+      "helper.laney.sigma.value",
+      "\n\nFor your current chart, Sigma Z = {sigmaZ}.",
+      { sigmaZ: sigmaZ.toFixed(3) }
+    );
 
+    // Retain all original greater-than,
+    // less-than and equal-to-one decisions.
     if (sigmaZ > 1) {
-      out +=
-        ` This means the data are showing more variation than the standard ${standardChart} expects, so the ${primeChart} uses wider limits.`;
+      out += t(
+        "helper.laney.sigma.more",
+        " This means the data are showing more variation than the standard {standard} expects, so the {prime} uses wider limits.",
+        {
+          standard: standardChart,
+          prime: primeChart
+        }
+      );
+
     } else if (sigmaZ < 1) {
-      out +=
-        ` This means the data are showing less variation than the standard ${standardChart} expects, so the ${primeChart} uses narrower limits.`;
+      out += t(
+        "helper.laney.sigma.less",
+        " This means the data are showing less variation than the standard {standard} expects, so the {prime} uses narrower limits.",
+        {
+          standard: standardChart,
+          prime: primeChart
+        }
+      );
+
     } else {
-      out +=
-        ` This is exactly 1, so the Laney adjustment does not change the width of the standard ${standardChart} limits.`;
+      out += t(
+        "helper.laney.sigma.equal",
+        " This is exactly 1, so the Laney adjustment does not change the width of the standard {standard} limits.",
+        { standard: standardChart }
+      );
     }
   }
 
-  out +=
+  out += t(
+    "helper.laney.sigma.technical",
     "\n\nTechnical detail: SimpleSPC first allows for the amount of variation the standard chart expects at each point. " +
     "It then looks at the point-to-point changes in those standardised values. " +
-    "Sigma Z summarises that extra or reduced variation into a single adjustment factor.";
+    "Sigma Z summarises that extra or reduced variation into a single adjustment factor."
+  );
 
   return out;
 }
 
 
+
 function buildRunChartAnswer(ctx) {
   const a = ctx.run;
+  const t = helperDynamicText;
 
   if (!a) {
-    return "Generate a Run chart first so I can interpret it.";
+    return t(
+      "helper.stability.run.noChart",
+      "Generate a Run chart first so I can interpret it."
+    );
   }
 
   const splitCount =
     Array.isArray(a.splits) ? a.splits.length : 0;
 
-  // With splits, rules are assessed separately within
-  // each period. No within-period signal does not mean
-  // that the overall process level has not changed.
+  // Preserve existing split-period interpretation.
   if (splitCount > 0) {
     const periodCount = splitCount + 1;
 
-    let answer =
-      `This Run chart has been divided into ${periodCount} ` +
-      "periods using splits. Each period has its own median, " +
-      "and SimpleSPC checks for shifts and trends separately " +
-      "within each period.\n\n";
+    let answer = t(
+      "helper.stability.run.splitIntro",
+      "This Run chart has been divided into {count} periods using splits. Each period has its own median, and SimpleSPC checks for shifts and trends separately within each period.\n\n",
+      { count: periodCount }
+    );
 
+    // No within-period signal does not prove that
+    // the process stayed unchanged across splits.
     if (a.isStable === true) {
-      answer +=
-        "No shift or trend has been detected within the " +
-        "individual periods using the current rule settings. " +
-        "However, this does not mean that the overall process " +
-        "has remained unchanged.\n\n";
+      answer += t(
+        "helper.stability.run.splitStable",
+        "No shift or trend has been detected within the individual periods using the current rule settings. However, this does not mean that the overall process has remained unchanged.\n\n"
+      );
     } else {
-      answer +=
-        "One or more periods contain a shift or trend signal " +
-        "that may warrant investigation.\n\n";
+      answer += t(
+        "helper.stability.run.splitSignals",
+        "One or more periods contain a shift or trend signal that may warrant investigation.\n\n"
+      );
     }
 
-    answer +=
-      "Compare the medians reported for the different periods. " +
-      "A difference in their levels may indicate an important " +
-      "change in performance, even if there are no further " +
-      "signals within each period.\n\n" +
-      "A split is a boundary chosen for analysis; it does not " +
-      "by itself prove a statistically significant change. " +
-      "Consider why the split was introduced, what happened " +
-      "in the process around that time, and whether the new " +
-      "level is sustained.";
+    answer += t(
+      "helper.stability.run.splitAdvice",
+      "Compare the medians reported for the different periods. A difference in their levels may indicate an important change in performance, even if there are no further signals within each period.\n\nA split is a boundary chosen for analysis; it does not by itself prove a statistically significant change. Consider why the split was introduced, what happened in the process around that time, and whether the new level is sustained."
+    );
 
     return answer;
   }
 
-  // Existing behaviour for an unsplit Run chart.
+  // Preserve existing unsplit Run-chart interpretation.
   if (a.isStable === true) {
-    return (
-      "Looking at the current Run chart, no shift or trend " +
-      "has been detected using the selected run-chart rules."
+    return t(
+      "helper.stability.run.stable",
+      "Looking at the current Run chart, no shift or trend has been detected using the selected run-chart rules."
     );
   }
 
-  return (
-    "The current Run chart shows one or more shift or trend " +
-    "signals, suggesting that the pattern may have changed. " +
-    "Investigate what happened in the process around that time."
+  return t(
+    "helper.stability.run.signals",
+    "The current Run chart shows one or more shift or trend signals, suggesting that the pattern may have changed. Investigate what happened in the process around that time."
   );
 }
 
 
-
-
-  function buildLatestPeriodSummary(ctx) {
+  
+function buildLatestPeriodSummary(ctx) {
   const chartType = ctx.chartType;
+  const t = helperDynamicText;
 
-  if (
-    chartType === "pareto"
-  ) {
+  // Translate the chart name for shared attribute
+  // and rare-event explanations.
+  const chartName = t(
+    `helper.stability.chart.${chartType}`,
+    titleCaseChartType(chartType).toLowerCase()
+  );
+
+  // Translate existing signal descriptions for display.
+  // Do not modify the underlying analysis or signals.
+  function displaySignals(signals) {
+    const items = signalTextList(signals);
+
+    if (!items.length) {
+      return t(
+        "helper.stability.signalFallback",
+        "one or more SPC signals"
+      );
+    }
+
+    return helperXmRSignalList(signals);
+  }
+
+  // PARETO: categorisation, not stability assessment.
+  if (chartType === "pareto") {
     return (
       buildParetoAnswer(ctx) +
-      "\n\nA Pareto chart does not assess process stability because the categories are not plotted in time order."
+      "\n\n" +
+      t(
+        "helper.stability.pareto",
+        "A Pareto chart does not assess process stability because the categories are not plotted in time order."
+      )
     );
   }
 
+  // XmR: retain provisional, stable and special-cause
+  // outcomes exactly as before.
   if (chartType === "xmr" && ctx.xmr) {
     const a = ctx.xmr;
+
     const start = (a.startIndex ?? 0) + 1;
     const end = (a.endIndex ?? 0) + 1;
 
     const periodText =
       (a.periodCount && a.periodCount > 1)
-        ? `Looking at the latest period (Period ${a.periodIndex} of ${a.periodCount}, points ${start}–${end})`
-        : `Looking at the chart (points ${start}–${end})`;
+        ? t(
+            "helper.stability.xmr.latest",
+            "Looking at the latest period (Period {period} of {total}, points {start}–{end})",
+            {
+              period: a.periodIndex,
+              total: a.periodCount,
+              start,
+              end
+            }
+          )
+        : t(
+            "helper.stability.xmr.single",
+            "Looking at the chart (points {start}–{end})",
+            { start, end }
+          );
 
     if (!isXmRPeriodAssessable(a)) {
       const count =
@@ -1164,40 +1600,58 @@ function buildRunChartAnswer(ctx) {
         !!a.hasTrend ||
         !!a.hasAstronomical;
 
-      let out =
-        `${periodText}, there are not yet enough data to make a firm judgement about stability. ` +
-        `${count !== null ? `There are currently ${count} points in this period, and ` : ""}` +
-        `SimpleSPC uses at least ${minimum} points before making a formal XmR stability interpretation.`;
+      const countText = count !== null
+        ? t(
+            "helper.stability.xmr.count",
+            "There are currently {count} points in this period, and ",
+            { count }
+          )
+        : "";
+
+      let out = t(
+        "helper.stability.xmr.provisional",
+        "{scope}, there are not yet enough data to make a firm judgement about stability. {count}SimpleSPC uses at least {minimum} points before making a formal XmR stability interpretation.",
+        {
+          scope: periodText,
+          count: countText,
+          minimum
+        }
+      );
 
       if (provisionalHasWarning) {
-        out +=
-          "\n\nThere are already some features in this short period that are worth watching, so I would not yet describe the process as stable. More data will help show whether these are temporary fluctuations or part of a real pattern.";
+        out += t(
+          "helper.stability.xmr.warning",
+          "\n\nThere are already some features in this short period that are worth watching, so I would not yet describe the process as stable. More data will help show whether these are temporary fluctuations or part of a real pattern."
+        );
       } else {
-        out +=
-          "\n\nSo far, the pattern looks fairly consistent and there are no obvious warning signs in this short period. That is encouraging, but it is still provisional rather than proof of stability.";
+        out += t(
+          "helper.stability.xmr.calm",
+          "\n\nSo far, the pattern looks fairly consistent and there are no obvious warning signs in this short period. That is encouraging, but it is still provisional rather than proof of stability."
+        );
       }
 
       return out;
     }
 
     if (a.isStable === true) {
-      return (
-        `${periodText}, I cannot see a clear special-cause signal using the current rule settings. ` +
-        "This suggests the process is behaving broadly consistently around its current level."
+      return t(
+        "helper.stability.xmr.stable",
+        "{scope}, I cannot see a clear special-cause signal using the current rule settings. This suggests the process is behaving broadly consistently around its current level.",
+        { scope: periodText }
       );
     }
 
-    const sigs =
-      joinNice(
-        signalTextList(a.signals)
-      );
-
-    return (
-      `${periodText}, this XmR chart shows possible special-cause variation — specifically ` +
-      `${sigs || "one or more SPC signals"}.`
+    return t(
+      "helper.stability.xmr.signals",
+      "{scope}, this XmR chart shows possible special-cause variation — specifically {signals}.",
+      {
+        scope: periodText,
+        signals: displaySignals(a.signals)
+      }
     );
   }
 
+  // X̄–S: preserve all four existing combinations.
   if (chartType === "xbars" && ctx.xbars) {
     const xStable =
       !!ctx.xbars.xbar?.isStable;
@@ -1206,108 +1660,113 @@ function buildRunChartAnswer(ctx) {
       !!ctx.xbars.s?.isStable;
 
     if (xStable && sStable) {
-      return (
-        "Looking at the latest X̄–S period, both the subgroup averages and the within-subgroup variation look stable. " +
-        "I cannot see a clear special-cause signal in either part of the chart."
+      return t(
+        "helper.stability.xbars.bothStable",
+        "Looking at the latest X̄–S period, both the subgroup averages and the within-subgroup variation look stable. I cannot see a clear special-cause signal in either part of the chart."
       );
     }
 
     if (!xStable && sStable) {
-      return (
-        "Looking at the latest X̄–S period, the subgroup averages show possible change, " +
-        "but the within-subgroup variation looks stable."
+      return t(
+        "helper.stability.xbars.xChanged",
+        "Looking at the latest X̄–S period, the subgroup averages show possible change, but the within-subgroup variation looks stable."
       );
     }
 
     if (xStable && !sStable) {
-      return (
-        "Looking at the latest X̄–S period, the subgroup averages look stable, " +
-        "but the within-subgroup variation shows possible change."
+      return t(
+        "helper.stability.xbars.sChanged",
+        "Looking at the latest X̄–S period, the subgroup averages look stable, but the within-subgroup variation shows possible change."
       );
     }
 
-    return (
+    return t(
+      "helper.stability.xbars.bothChanged",
       "Looking at the latest X̄–S period, both the subgroup averages and the within-subgroup variation show possible change."
     );
   }
 
+  // C, P, P′, U and U′: preserve the original verdict.
   if (ctx.attribute) {
-    const sigs =
-      joinNice(
-        signalTextList(
-          ctx.attribute.signals
-        )
-      );
-
     if (ctx.attribute.isStable === true) {
-      return (
-        `Looking at the latest ${titleCaseChartType(chartType).toLowerCase()} period, ` +
-        "I cannot see a clear special-cause signal using the current rule settings."
+      return t(
+        "helper.stability.attribute.stable",
+        "Looking at the latest {chart} period, I cannot see a clear special-cause signal using the current rule settings.",
+        { chart: chartName }
       );
     }
 
-    return (
-      `Looking at the latest ${titleCaseChartType(chartType).toLowerCase()} period, ` +
-      `there are signs of possible special-cause variation — specifically ${sigs || "one or more SPC signals"}.`
+    return t(
+      "helper.stability.attribute.signals",
+      "Looking at the latest {chart} period, there are signs of possible special-cause variation — specifically {signals}.",
+      {
+        chart: chartName,
+        signals: displaySignals(ctx.attribute.signals)
+      }
     );
   }
 
+  // T and G: use the existing rare-event rule verdict.
   if (ctx.rare) {
-    const sigs =
-      joinNice(
-        signalTextList(
-          ctx.rare.signals
-        )
-      );
-
     if (ctx.rare.isStable === true) {
-      return (
-        `Looking at the latest ${titleCaseChartType(chartType).toLowerCase()} period, ` +
-        "I cannot see a clear special-cause signal using the current rare-event rule settings."
+      return t(
+        "helper.stability.rare.stable",
+        "Looking at the latest {chart} period, I cannot see a clear special-cause signal using the current rare-event rule settings.",
+        { chart: chartName }
       );
     }
 
-    return (
-      `Looking at the latest ${titleCaseChartType(chartType).toLowerCase()} period, ` +
-      `there are signs of possible special-cause variation — specifically ${sigs || "one or more SPC signals"}.`
+    return t(
+      "helper.stability.rare.signals",
+      "Looking at the latest {chart} period, there are signs of possible special-cause variation — specifically {signals}.",
+      {
+        chart: chartName,
+        signals: displaySignals(ctx.rare.signals)
+      }
     );
   }
 
-    if (ctx.run) {
+  // Run charts share their answer with the change question.
+  if (ctx.run) {
     return buildRunChartAnswer(ctx);
   }
 
-  return (
+  return t(
+    "helper.stability.noChart",
     "Generate the currently selected chart first and I can give you a chart-specific interpretation."
   );
 }
 
-  function buildTargetAnswer(ctx) {
-  const chartType = ctx.chartType;
 
+  
+function buildTargetAnswer(ctx) {
+  const chartType = ctx.chartType;
+  const t = helperDynamicText;
+
+  const chartName = t(
+    `helper.stability.chart.${chartType}`,
+    titleCaseChartType(chartType).toLowerCase()
+  );
+
+  // XmR: preserve all existing target, provisional-limit
+  // and capability decisions.
   if (chartType === "xmr" && ctx.xmr) {
     const a = ctx.xmr;
 
-    const hasTarget =
-      finiteNumber(a.target);
-
-    const hasMean =
-      finiteNumber(a.mean);
+    const hasTarget = finiteNumber(a.target);
+    const hasMean = finiteNumber(a.mean);
 
     if (!hasTarget) {
-      return (
-        "There is no target currently set on this XmR chart. " +
-        "If you add one, SimpleSPC can help interpret performance against the target alongside process stability."
+      return t(
+        "helper.target.xmr.none",
+        "There is no target currently set on this XmR chart. If you add one, SimpleSPC can help interpret performance against the target alongside process stability."
       );
     }
 
-    const target =
-      a.target;
+    const target = a.target;
 
     const direction =
-      a.direction === "above"
-        ? "above"
-        : "below";
+      a.direction === "above" ? "above" : "below";
 
     let currentPositionText = "";
 
@@ -1317,12 +1776,21 @@ function buildRunChartAnswer(ctx) {
           ? a.mean >= target
           : a.mean <= target;
 
-      currentPositionText =
-        meanMeetsTarget
-          ? `The current period mean (${a.mean.toFixed(2)}) is on the favourable side of the target (${target}).`
-          : `The current period mean (${a.mean.toFixed(2)}) is not yet on the favourable side of the target (${target}).`;
+      currentPositionText = meanMeetsTarget
+        ? t(
+            "helper.target.xmr.meanFavourable",
+            "The current period mean ({mean}) is on the favourable side of the target ({target}).",
+            { mean: a.mean.toFixed(2), target }
+          )
+        : t(
+            "helper.target.xmr.meanUnfavourable",
+            "The current period mean ({mean}) is not yet on the favourable side of the target ({target}).",
+            { mean: a.mean.toFixed(2), target }
+          );
     }
 
+    // XmR: provisional limits. Never estimate capability
+    // or report a firm stability conclusion here.
     if (!isXmRPeriodAssessable(a)) {
       const count =
         finiteNumber(a.limitEstimatePointCount)
@@ -1334,17 +1802,28 @@ function buildRunChartAnswer(ctx) {
           ? a.minimumPointsForInterpretation
           : 12;
 
-      let out =
-        "The latest XmR period is still provisional, so it is too early to make a firm judgement about whether the process can reliably meet the target.";
+      let out = t(
+        "helper.target.xmr.provisional",
+        "The latest XmR period is still provisional, so it is too early to make a firm judgement about whether the process can reliably meet the target."
+      );
 
       if (currentPositionText) {
-        out +=
-          `\n\n${currentPositionText}`;
+        out += "\n\n" + currentPositionText;
       }
 
-      out +=
-        `\n\n${count !== null ? `There are currently ${count} points in this period, and ` : ""}` +
-        `SimpleSPC uses at least ${minimum} points before making a formal stability or capability interpretation.`;
+      const countText = count !== null
+        ? t(
+            "helper.target.xmr.count",
+            "There are currently {count} points in this period, and ",
+            { count }
+          )
+        : "";
+
+      out += "\n\n" + t(
+        "helper.target.xmr.minimum",
+        "{count}SimpleSPC uses at least {minimum} points before making a formal stability or capability interpretation.",
+        { count: countText, minimum }
+      );
 
       if (hasMean) {
         const meanMeetsTarget =
@@ -1352,56 +1831,76 @@ function buildRunChartAnswer(ctx) {
             ? a.mean >= target
             : a.mean <= target;
 
-        if (meanMeetsTarget) {
-          out +=
-            "\n\nThe early results are encouraging, but they do not yet show that this level of performance is predictable or sustainable.";
-        } else {
-          out +=
-            "\n\nThe early pattern may still be settling. More data will show whether the process level is genuinely different and whether further improvement is needed to reach the target reliably.";
-        }
+        out += "\n\n" + (
+          meanMeetsTarget
+            ? t(
+                "helper.target.xmr.earlyFavourable",
+                "The early results are encouraging, but they do not yet show that this level of performance is predictable or sustainable."
+              )
+            : t(
+                "helper.target.xmr.earlyUnfavourable",
+                "The early pattern may still be settling. More data will show whether the process level is genuinely different and whether further improvement is needed to reach the target reliably."
+              )
+        );
       }
 
       return out;
     }
 
+    // XmR: assessable and stable.
     if (a.isStable === true) {
-      let out =
-        "The latest XmR period has enough data for interpretation and currently looks stable.";
+      let out = t(
+        "helper.target.xmr.stable",
+        "The latest XmR period has enough data for interpretation and currently looks stable."
+      );
 
       if (currentPositionText) {
-        out +=
-          `\n\n${currentPositionText}`;
+        out += "\n\n" + currentPositionText;
       }
 
       if (
         a.capability &&
         finiteNumber(a.capability.prob)
       ) {
-        out +=
-          `\n\nBased on the current stable process, SimpleSPC estimates that about ${(a.capability.prob * 100).toFixed(1)}% of future results would meet the target, assuming the process continues to behave in the same way.`;
+        // Keep the existing percentage calculation.
+        const percentage =
+          (a.capability.prob * 100).toFixed(1);
+
+        out += "\n\n" + t(
+          "helper.target.xmr.capability",
+          "Based on the current stable process, SimpleSPC estimates that about {percentage}% of future results would meet the target, assuming the process continues to behave in the same way.",
+          { percentage }
+        );
       } else {
-        out +=
-          "\n\nBecause the process appears stable, the target comparison is more meaningful: the main question is whether the current system is predictably good enough.";
+        out += "\n\n" + t(
+          "helper.target.xmr.stableNoCapability",
+          "Because the process appears stable, the target comparison is more meaningful: the main question is whether the current system is predictably good enough."
+        );
       }
 
       return out;
     }
 
-    let out =
-      "The latest XmR period has enough data for interpretation, but it shows special-cause variation. " +
-      "That means target performance should be interpreted cautiously because the process is not yet behaving predictably.";
+    // XmR: assessable, but special-cause signals exist.
+    let out = t(
+      "helper.target.xmr.unstable",
+      "The latest XmR period has enough data for interpretation, but it shows special-cause variation. That means target performance should be interpreted cautiously because the process is not yet behaving predictably."
+    );
 
     if (currentPositionText) {
-      out +=
-        `\n\n${currentPositionText}`;
+      out += "\n\n" + currentPositionText;
     }
 
-    out +=
-      "\n\nThe priority is to understand what is changing in the system, demand, staffing, pathway, coding, or measurement before relying on a capability estimate.";
+    out += "\n\n" + t(
+      "helper.target.xmr.unstableAction",
+      "The priority is to understand what is changing in the system, demand, staffing, pathway, coding, or measurement before relying on a capability estimate."
+    );
 
     return out;
   }
 
+  // Other charts: preserve the existing source of
+  // the target setting.
   let target = null;
 
   try {
@@ -1411,9 +1910,10 @@ function buildRunChartAnswer(ctx) {
   } catch (e) {}
 
   if (!finiteNumber(target)) {
-    return (
-      `There is no target currently set on this ${titleCaseChartType(chartType).toLowerCase()}. ` +
-      "If you add one, SimpleSPC can help you interpret the target alongside the pattern of variation."
+    return t(
+      "helper.target.general.none",
+      "There is no target currently set on this {chart}. If you add one, SimpleSPC can help you interpret the target alongside the pattern of variation.",
+      { chart: chartName }
     );
   }
 
@@ -1429,6 +1929,8 @@ function buildRunChartAnswer(ctx) {
     }
   } catch (e) {}
 
+  // Keep the original chart-specific centre line
+  // and stability sources unchanged.
   let centre = null;
   let stable = null;
 
@@ -1437,37 +1939,27 @@ function buildRunChartAnswer(ctx) {
     ctx.attribute.stats &&
     finiteNumber(ctx.attribute.stats.cl)
   ) {
-    centre =
-      ctx.attribute.stats.cl;
-
-    stable =
-      ctx.attribute.isStable;
+    centre = ctx.attribute.stats.cl;
+    stable = ctx.attribute.isStable;
   } else if (
     ctx.rare &&
     ctx.rare.stats &&
     finiteNumber(ctx.rare.stats.cl)
   ) {
-    centre =
-      ctx.rare.stats.cl;
-
-    stable =
-      ctx.rare.isStable;
+    centre = ctx.rare.stats.cl;
+    stable = ctx.rare.isStable;
   } else if (
     ctx.run &&
     finiteNumber(ctx.run.median)
   ) {
-    centre =
-      ctx.run.median;
-
-    stable =
-      ctx.run.isStable;
+    centre = ctx.run.median;
+    stable = ctx.run.isStable;
   } else if (
     ctx.xbars &&
     ctx.xbars.stats &&
     finiteNumber(ctx.xbars.stats.xbarbar)
   ) {
-    centre =
-      ctx.xbars.stats.xbarbar;
+    centre = ctx.xbars.stats.xbarbar;
 
     stable =
       !!ctx.xbars.xbar?.isStable &&
@@ -1476,11 +1968,20 @@ function buildRunChartAnswer(ctx) {
 
   const betterText =
     direction === "above"
-      ? "higher values are treated as better"
-      : "lower values are treated as better";
+      ? t(
+          "helper.target.general.higher",
+          "higher values are treated as better"
+        )
+      : t(
+          "helper.target.general.lower",
+          "lower values are treated as better"
+        );
 
-  let out =
-    `The target is ${target}, and ${betterText}.`;
+  let out = t(
+    "helper.target.general.intro",
+    "The target is {target}, and {direction}.",
+    { target, direction: betterText }
+  );
 
   if (finiteNumber(centre)) {
     const centreMeetsTarget =
@@ -1488,45 +1989,189 @@ function buildRunChartAnswer(ctx) {
         ? centre >= target
         : centre <= target;
 
-    out +=
+    out += "\n\n" + (
       centreMeetsTarget
-        ? `\n\nThe current centre line (${centre.toFixed(3)}) is on the favourable side of the target.`
-        : `\n\nThe current centre line (${centre.toFixed(3)}) is not yet on the favourable side of the target.`;
+        ? t(
+            "helper.target.general.centreFavourable",
+            "The current centre line ({centre}) is on the favourable side of the target.",
+            { centre: centre.toFixed(3) }
+          )
+        : t(
+            "helper.target.general.centreUnfavourable",
+            "The current centre line ({centre}) is not yet on the favourable side of the target.",
+            { centre: centre.toFixed(3) }
+          )
+    );
   }
 
   if (stable === true) {
-    out +=
-      "\n\nThe latest period does not show a clear special-cause signal, so the comparison with the target is more meaningful. " +
-      "Remember that being stable does not automatically mean performance is good enough.";
+    out += "\n\n" + t(
+      "helper.target.general.stable",
+      "The latest period does not show a clear special-cause signal, so the comparison with the target is more meaningful. Remember that being stable does not automatically mean performance is good enough."
+    );
   } else if (stable === false) {
-    out +=
-      "\n\nThe latest period shows possible special-cause variation, so target performance should be interpreted cautiously. " +
-      "The priority is to understand what may have changed before assuming the current level will continue.";
+    out += "\n\n" + t(
+      "helper.target.general.unstable",
+      "The latest period shows possible special-cause variation, so target performance should be interpreted cautiously. The priority is to understand what may have changed before assuming the current level will continue."
+    );
   } else {
-    out +=
-      "\n\nInterpret the target alongside the pattern of variation rather than judging individual points on their own.";
+    out += "\n\n" + t(
+      "helper.target.general.unknown",
+      "Interpret the target alongside the pattern of variation rather than judging individual points on their own."
+    );
   }
 
   return out;
 }
 
-function buildXmRLimitsAnswer(ctx) {
-  const a = ctx.xmr;
 
-  if (!a) {
-    return (
-      "XmR limits are estimated from the moving ranges between consecutive points. " +
-      "Generate an XmR chart and I can explain the calculation used for your current data."
+/*
+ * Batch 37 — Educational XmR explanations.
+ *
+ * Reads the existing chart context without changing it.
+ * Does not perform any new SPC calculations.
+ */
+function buildXmREducationAnswer(ctx, topic) {
+  const t = helperDynamicText;
+
+  const a =
+    ctx.chartType === "xmr"
+      ? ctx.xmr
+      : null;
+
+  const minimum =
+    a && finiteNumber(a.minimumPointsForInterpretation)
+      ? a.minimumPointsForInterpretation
+      : 12;
+
+  const count =
+    a && finiteNumber(a.limitEstimatePointCount)
+      ? a.limitEstimatePointCount
+      : null;
+
+  const prefix = a
+    ? ""
+    : t(
+        "helper.xmrEducation.noChart",
+        "Generate an XmR chart to see information about your current period. The general explanation is below.\n\n"
+      );
+
+  // 1. Why signals disappear with a short baseline.
+  if (topic === "short") {
+    let answer = prefix + t(
+      "helper.xmrEducation.short.intro",
+      "SimpleSPC deliberately does not give formal special-cause interpretations when the XmR control limits are provisional. The limits may still be displayed, but an apparent signal is not reported as a confirmed SPC signal until there are enough usable observations in the limit-estimation period."
+    );
+
+    if (a && !isXmRPeriodAssessable(a)) {
+      answer += "\n\n" + (
+        count !== null
+          ? t(
+              "helper.xmrEducation.short.provisional",
+              "Your latest XmR period currently has {count} usable points for estimating the limits; at least {minimum} are required for interpretation. This explains why a signal may disappear when you shorten the baseline, even if later plotted values look unusual.",
+              { count, minimum }
+            )
+          : t(
+              "helper.xmrEducation.short.provisionalUnknown",
+              "The latest XmR period does not yet meet the minimum of {minimum} usable points. Its limits and stability interpretation therefore remain provisional.",
+              { minimum }
+            )
+      );
+    } else if (a && count !== null) {
+      answer += "\n\n" + t(
+        "helper.xmrEducation.short.assessable",
+        "Your latest period has {count} usable points and meets the {minimum}-point minimum, so the selected SPC rules can now be interpreted. Not finding a signal does not necessarily mean performance is satisfactory.",
+        { count, minimum }
+      );
+    }
+
+    return answer;
+  }
+
+  // 2. Why twelve usable observations are required.
+  if (topic === "minimum") {
+    let answer = prefix + t(
+      "helper.xmrEducation.minimum",
+      "SimpleSPC uses a conservative minimum of {minimum} usable points for interpreting XmR limits, special-cause signals and capability. This is a safeguard against treating limits estimated from very little information as sufficiently reliable. It is a rule adopted by this tool, not a guarantee that any process with 12 points is stable.\n\n" +
+      "The distinction matters: having {minimum} points somewhere on the chart is not enough. They must contribute to the relevant period's limit estimate. If the initial baseline contains only 10 points, or a split starts a short new period, the limits may remain provisional. Excluded observations are not automatically replaced by later points.",
+      { minimum }
+    );
+
+    if (a && count !== null) {
+      answer += t(
+        "helper.xmrEducation.minimum.current",
+        "\n\nFor your current period, {count} usable points contribute to the limit estimate; the minimum is {minimum}.",
+        { count, minimum }
+      );
+    }
+
+    return answer;
+  }
+
+  // 3. Why the right-click exclusion may be disabled.
+  // No specific clicked-point context is assumed.
+  if (topic === "exclusion") {
+    return prefix + t(
+      "helper.xmrEducation.exclusion",
+      "Excluding a point from control-limit calculations is only useful if that point contributes to the limits being estimated. If you fixed the initial baseline, a later point outside that baseline does not contribute to those limits, so excluding it would have no effect. A later period created by a split has its own limit-estimation window.\n\n" +
+      "SimpleSPC may also disable a new exclusion if it would leave too few included observations, or — for an XmR chart — no consecutive pair of included observations for estimating moving-range variation.\n\n" +
+      "An excluded observation remains visible. Its adjacent moving ranges are omitted from the variation estimate; the tool does not join the observations across the gap to create an artificial moving range.\n\n" +
+      "Only exclude an observation after investigating a known special cause. If you believe the process has moved to a lasting new level, consider whether a justified phase split is more appropriate. The right-click menu provides the specific reason when an exclusion is unavailable; this helper answer does not identify which point you clicked."
     );
   }
 
-  let out =
-    "XmR control limits depend on the estimated routine variation. " +
-    "SimpleSPC estimates this from the moving ranges between consecutive observations.";
+  // 4. Why Nelson screening does not detect later changes.
+  if (topic === "nelson") {
+    let answer = prefix + t(
+      "helper.xmrEducation.nelson",
+      "Nelson moving-range screening is a method for estimating XmR control limits, not a rule for flagging changes anywhere on the chart.\n\n" +
+      "SimpleSPC examines consecutive moving ranges within the period used to estimate the limits. When screening is enabled, moving ranges strictly greater than 3.5 times the initial average moving range are omitted from the variation estimate. The observations and original moving ranges remain visible.\n\n" +
+      "A jump after a fixed baseline is not part of that baseline's variation estimate, so Nelson screening will not remove or flag it. Later observations are assessed separately using the selected SPC signal rules, provided the relevant period has enough usable data for interpretation. A split starts a separate period with its own limit estimate.\n\n" +
+      "Nelson screening also differs from manually excluding a point: screening omits qualifying moving ranges from the variation estimate; a manual exclusion omits an investigated observation and its adjacent moving ranges."
+    );
 
+    if (a && a.mrScreeningEnabled === true) {
+      answer += t(
+        "helper.xmrEducation.nelson.on",
+        "\n\nOn your current XmR chart, moving-range screening is enabled."
+      );
+    } else if (a && a.mrScreeningEnabled === false) {
+      answer += t(
+        "helper.xmrEducation.nelson.off",
+        "\n\nOn your current XmR chart, moving-range screening is disabled."
+      );
+    }
+
+    return answer;
+  }
+
+  return prefix;
+}
+
+
+function buildXmRLimitsAnswer(ctx) {
+  const a = ctx.xmr;
+  const t = helperDynamicText;
+
+  // No current XmR analysis.
+  if (!a) {
+    return t(
+      "helper.xmrLimits.noChart",
+      "XmR limits are estimated from the moving ranges between consecutive points. Generate an XmR chart and I can explain the calculation used for your current data."
+    );
+  }
+
+  let out = t(
+    "helper.xmrLimits.intro",
+    "XmR control limits depend on the estimated routine variation. SimpleSPC estimates this from the moving ranges between consecutive observations."
+  );
+
+  // Screening enabled: preserve the existing setting.
   if (a.mrScreeningEnabled === true) {
-    out +=
-      "\n\nFor your current chart, moving-range screening is ON.";
+    out += t(
+      "helper.xmrLimits.screeningOn",
+      "\n\nFor your current chart, moving-range screening is ON."
+    );
 
     if (
       finiteNumber(a.excludedMRCount) &&
@@ -1534,152 +2179,233 @@ function buildXmRLimitsAnswer(ctx) {
     ) {
       const count = a.excludedMRCount;
 
-      out +=
-        ` SimpleSPC found ${count} unusually large point-to-point ` +
-        `${count === 1 ? "change" : "changes"} and did not use ` +
-        `${count === 1 ? "it" : "them"} when estimating routine variation. ` +
-        "The original data points and moving ranges remain on the chart.";
+      // Retain the original one-versus-many decision.
+      out += count === 1
+        ? t(
+            "helper.xmrLimits.screenedOne",
+            " SimpleSPC found {count} unusually large point-to-point change and did not use it when estimating routine variation. The original data points and moving ranges remain on the chart.",
+            { count }
+          )
+        : t(
+            "helper.xmrLimits.screenedMany",
+            " SimpleSPC found {count} unusually large point-to-point changes and did not use them when estimating routine variation. The original data points and moving ranges remain on the chart.",
+            { count }
+          );
 
-      out +=
-        "\n\nThis prevents an unusually large jump from making the estimated variation — and therefore the XmR control limits — artificially wide.";
+      out += t(
+        "helper.xmrLimits.whyScreen",
+        "\n\nThis prevents an unusually large jump from making the estimated variation — and therefore the XmR control limits — artificially wide."
+      );
+
     } else {
-      out +=
-        " No moving ranges in the current period exceeded the screening threshold, so screening has not changed the variation estimate for this period.";
+      out += t(
+        "helper.xmrLimits.noneScreened",
+        " No moving ranges in the current period exceeded the screening threshold, so screening has not changed the variation estimate for this period."
+      );
     }
 
+    // Preserve the exact existing three-number condition
+    // and formatting to three decimal places.
     if (
       finiteNumber(a.initialAvgMR) &&
       finiteNumber(a.mrScreeningThreshold) &&
       finiteNumber(a.avgMR)
     ) {
-      out +=
+      out += t(
+        "helper.xmrLimits.statistics",
         "\n\nFor the current period:\n" +
-        `• initial average MR = ${a.initialAvgMR.toFixed(3)}\n` +
-        `• Nelson screening threshold = ${a.mrScreeningThreshold.toFixed(3)}\n` +
-        `• average MR used for the limits = ${a.avgMR.toFixed(3)}`;
+        "• initial average MR = {initial}\n" +
+        "• Nelson screening threshold = {threshold}\n" +
+        "• average MR used for the limits = {average}",
+        {
+          initial: a.initialAvgMR.toFixed(3),
+          threshold: a.mrScreeningThreshold.toFixed(3),
+          average: a.avgMR.toFixed(3)
+        }
+      );
     }
+
   } else if (a.mrScreeningEnabled === false) {
-    out +=
-      "\n\nFor your current chart, moving-range screening is OFF. " +
-      "All baseline moving ranges are therefore used to estimate routine variation. " +
-      "If one point-to-point jump is unusually large, this can increase the average moving range and produce wider control limits.";
+
+    // Screening disabled: use the existing unscreened result.
+    out += t(
+      "helper.xmrLimits.screeningOff",
+      "\n\nFor your current chart, moving-range screening is OFF. All baseline moving ranges are therefore used to estimate routine variation. If one point-to-point jump is unusually large, this can increase the average moving range and produce wider control limits."
+    );
 
     if (finiteNumber(a.avgMR)) {
-      out +=
-        `\n\nThe average MR currently being used for the limits is ${a.avgMR.toFixed(3)}.`;
+      out += t(
+        "helper.xmrLimits.offAverage",
+        "\n\nThe average MR currently being used for the limits is {average}.",
+        { average: a.avgMR.toFixed(3) }
+      );
     }
+
   } else {
-    out +=
-      "\n\nI cannot determine the moving-range screening setting from the current chart snapshot.";
+
+    // Older/incomplete chart snapshots may not specify
+    // the screening setting.
+    out += t(
+      "helper.xmrLimits.unknown",
+      "\n\nI cannot determine the moving-range screening setting from the current chart snapshot."
+    );
   }
 
+  // Phase splits: preserve the existing period-count check.
   if (a.periodCount && a.periodCount > 1) {
-    out +=
-      "\n\nThis chart also contains a split. Each period is treated as a separate process period with its own mean and limits, and the moving range across the split is not used. This can also make the limits different from an unsplit version of the same chart.";
+    out += t(
+      "helper.xmrLimits.splits",
+      "\n\nThis chart also contains a split. Each period is treated as a separate process period with its own mean and limits, and the moving range across the split is not used. This can also make the limits different from an unsplit version of the same chart."
+    );
   }
 
+  // Provisional limits: preserve the existing safeguard.
   if (!isXmRPeriodAssessable(a)) {
-    const count = finiteNumber(a.limitEstimatePointCount)
-      ? a.limitEstimatePointCount
-      : null;
+    const count =
+      finiteNumber(a.limitEstimatePointCount)
+        ? a.limitEstimatePointCount
+        : null;
 
-    const minimum = finiteNumber(a.minimumPointsForInterpretation)
-      ? a.minimumPointsForInterpretation
-      : 12;
+    const minimum =
+      finiteNumber(a.minimumPointsForInterpretation)
+        ? a.minimumPointsForInterpretation
+        : 12;
 
-    out +=
-      "\n\nThe latest period is still provisional. " +
-      `${count !== null ? `Only ${count} points are currently being used to estimate its limits. ` : ""}` +
-      `SimpleSPC waits until at least ${minimum} points are available before making a formal stability interpretation.`;
+    out += t(
+      "helper.xmrLimits.provisionalIntro",
+      "\n\nThe latest period is still provisional. "
+    );
+
+    if (count !== null) {
+      out += t(
+        "helper.xmrLimits.provisionalCount",
+        "Only {count} points are currently being used to estimate its limits. ",
+        { count }
+      );
+    }
+
+    out += t(
+      "helper.xmrLimits.provisionalMinimum",
+      "SimpleSPC waits until at least {minimum} points are available before making a formal stability interpretation.",
+      { minimum }
+    );
   }
 
   return out;
 }
 
-function buildParetoAnswer(ctx) {
-  const p =
-    ctx.pareto;
 
+
+function buildParetoAnswer(ctx) {
+  const p = ctx.pareto;
+  const t = helperDynamicText;
+
+  // No Pareto analysis currently available.
   if (!p) {
-    return (
-      "A Pareto chart ranks categories from most to least frequent. " +
-      "It can help you decide where further investigation or improvement effort may be most useful."
+    return t(
+      "helper.pareto.noChart",
+      "A Pareto chart ranks categories from most to least frequent. It can help you decide where further investigation or improvement effort may be most useful."
     );
   }
 
+  // Keep the original category and count sources.
+  // Do not translate user-supplied category names.
   const topName =
     p.topCategory ||
-    p.items?.[0]
-      ?.category ||
-    "the first category";
+    p.items?.[0]?.category ||
+    t(
+      "helper.pareto.firstCategory",
+      "the first category"
+    );
 
   const topCount =
-    finiteNumber(
-      p.topCount
-    )
+    finiteNumber(p.topCount)
       ? p.topCount
-      : p.items?.[0]
-          ?.count;
+      : p.items?.[0]?.count;
 
   const topPct =
-    finiteNumber(
-      p.topShare
-    )
+    finiteNumber(p.topShare)
       ? p.topShare * 100
       : null;
 
-  let out =
-    `This Pareto chart contains ${p.total} occurrences across ${p.categoryCount} categories. ` +
-    `The categories are ordered from most frequent to least frequent.`;
+  let out = t(
+    "helper.pareto.summary",
+    "This Pareto chart contains {total} occurrences across {categories} categories. The categories are ordered from most frequent to least frequent.",
+    {
+      total: p.total,
+      categories: p.categoryCount
+    }
+  );
 
+  // Leading category: preserve count and percentage.
   if (
     topName &&
     finiteNumber(topCount)
   ) {
-    out +=
-      `\n\nThe largest category is ${topName}, with ${topCount} occurrence${
-        topCount === 1
-          ? ""
-          : "s"
-      }${
-        finiteNumber(topPct)
-          ? ` (${topPct.toFixed(1)}% of the total)`
-          : ""
-      }.`;
+    const shareText = finiteNumber(topPct)
+      ? t(
+          "helper.pareto.topShare",
+          " ({percentage}% of the total)",
+          {
+            percentage: topPct.toFixed(1)
+          }
+        )
+      : "";
+
+    out += "\n\n" + t(
+      topCount === 1
+        ? "helper.pareto.topOne"
+        : "helper.pareto.topMany",
+      topCount === 1
+        ? "The largest category is {category}, with {count} occurrence{share}."
+        : "The largest category is {category}, with {count} occurrences{share}.",
+      {
+        category: topName,
+        count: topCount,
+        share: shareText
+      }
+    );
   }
 
+  // Preserve the existing 80% cutoff and percentage.
   if (
-    finiteNumber(
-      p.cutoff80Count
-    ) &&
-    finiteNumber(
-      p.cutoff80Pct
-    )
+    finiteNumber(p.cutoff80Count) &&
+    finiteNumber(p.cutoff80Pct)
   ) {
-    out +=
-      `\n\nThe first ${p.cutoff80Count} categor${
-        p.cutoff80Count === 1
-          ? "y"
-          : "ies"
-      } account for about ${p.cutoff80Pct.toFixed(1)}% of the occurrences. ` +
-      "That can help you decide where to investigate first, but the 80% line is a prioritisation guide rather than a statistical limit.";
+    out += "\n\n" + t(
+      p.cutoff80Count === 1
+        ? "helper.pareto.cutoffOne"
+        : "helper.pareto.cutoffMany",
+      p.cutoff80Count === 1
+        ? "The first {count} category accounts for about {percentage}% of the occurrences. That can help you decide where to investigate first, but the 80% line is a prioritisation guide rather than a statistical limit."
+        : "The first {count} categories account for about {percentage}% of the occurrences. That can help you decide where to investigate first, but the 80% line is a prioritisation guide rather than a statistical limit.",
+      {
+        count: p.cutoff80Count,
+        percentage: p.cutoff80Pct.toFixed(1)
+      }
+    );
   }
 
+  // Keep the original small-sample condition.
   if (
     finiteNumber(p.total) &&
     p.total < 30
   ) {
-    out +=
-      "\n\nThere are fewer than 30 occurrences in this chart, so the ranking may change quite easily as more data are collected.";
+    out += "\n\n" + t(
+      "helper.pareto.smallSample",
+      "There are fewer than 30 occurrences in this chart, so the ranking may change quite easily as more data are collected."
+    );
   }
 
-  out +=
-    "\n\nDo not assume that the largest categories are necessarily the causes of the problem. " +
-    "They are ways of grouping the data and should normally prompt further investigation.";
+  out += "\n\n" + t(
+    "helper.pareto.causeCaution",
+    "Do not assume that the largest categories are necessarily the causes of the problem. They are ways of grouping the data and should normally prompt further investigation."
+  );
 
-  out +=
-    "\n\nA Pareto chart is not time ordered, so it cannot tell you whether a process is stable or whether a change is statistically significant. " +
-    "Use a run or Shewhart chart alongside it when that question matters.";
+  out += "\n\n" + t(
+    "helper.pareto.notTimeOrdered",
+    "A Pareto chart is not time ordered, so it cannot tell you whether a process is stable or whether a change is statistically significant. Use a run or Shewhart chart alongside it when that question matters."
+  );
 
   return out;
 }
@@ -1710,22 +2436,29 @@ return buildLatestPeriodSummary(
 );
 }
 
+
 function buildChangeAnswer(ctx) {
   const chartType = ctx.chartType;
+  const t = helperDynamicText;
 
-  if (
-    chartType === "pareto"
-  ) {
+  // Pareto: preserve the translation from Batch 34.
+  if (chartType === "pareto") {
     return (
-      "A Pareto chart cannot tell whether something has changed over time because it deliberately removes the time order and ranks categories by frequency.\n\n" +
+      t(
+        "helper.pareto.changeIntro",
+        "A Pareto chart cannot tell whether something has changed over time because it deliberately removes the time order and ranks categories by frequency.\n\n"
+      ) +
       buildParetoAnswer(ctx)
     );
   }
 
+  // XmR: preserve the detailed Batch 29 interpretation,
+  // including provisional limits and multiple periods.
   if (chartType === "xmr" && ctx.xmr) {
     return buildXmRChangeAnswer(ctx);
   }
 
+  // X-bar and S: retain the four original combinations.
   if (chartType === "xbars" && ctx.xbars) {
     const xStable =
       !!ctx.xbars.xbar?.isStable;
@@ -1734,98 +2467,140 @@ function buildChangeAnswer(ctx) {
       !!ctx.xbars.s?.isStable;
 
     if (xStable && sStable) {
-      return (
-        "I cannot see clear evidence that the process has changed in the latest X̄–S period. " +
-        "Neither the subgroup averages nor the within-subgroup variation shows a special-cause signal."
+      return t(
+        "helper.change.xbars.bothStable",
+        "I cannot see clear evidence that the process has changed in the latest X̄–S period. Neither the subgroup averages nor the within-subgroup variation shows a special-cause signal."
       );
     }
 
     if (!xStable && sStable) {
-      return (
+      return t(
+        "helper.change.xbars.xOnly",
         "There are signs that the process level may have changed: the X̄ chart shows a signal, while the S chart remains stable."
       );
     }
 
     if (xStable && !sStable) {
-      return (
+      return t(
+        "helper.change.xbars.sOnly",
         "There are signs that the process variation may have changed: the S chart shows a signal, while the X̄ chart remains stable."
       );
     }
 
-    return (
+    return t(
+      "helper.change.xbars.bothSignals",
       "There are signs that the process may have changed: both the X̄ and S charts show special-cause signals."
     );
   }
 
+  // Attribute and rare-event charts:
+  // retain the original analysis and stable/unstable test.
   const a =
     ctx.attribute ||
     ctx.rare;
 
   if (a) {
-    const sigs =
-      joinNice(
-        signalTextList(a.signals)
-      );
+    const isRare = !!ctx.rare;
+
+    const chartName = t(
+      `helper.stability.chart.${chartType}`,
+      titleCaseChartType(chartType).toLowerCase()
+    );
+
+    // Batch 29 and the Batch 30 corrections already
+    // translate known signal descriptions.
+    // Preserve original flags and signal arrays.
+    const existingSignals =
+      signalTextList(a.signals).filter(Boolean);
+
+    const sigs = existingSignals.length
+      ? helperXmRSignalList(a.signals)
+      : t(
+          "helper.stability.signalFallback",
+          "one or more SPC signals"
+        );
 
     if (a.isStable === true) {
-      return (
-        `I cannot see clear evidence that the process has changed in the latest ${titleCaseChartType(chartType).toLowerCase()} period. ` +
-        "No special-cause signal is detected using the current rule settings."
+      return t(
+        isRare
+          ? "helper.change.rare.stable"
+          : "helper.change.attribute.stable",
+        "I cannot see clear evidence that the process has changed in the latest {chart} period. No special-cause signal is detected using the current rule settings.",
+        { chart: chartName }
       );
     }
 
-    return (
-      `There are signs that the process may have changed in the latest ${titleCaseChartType(chartType).toLowerCase()} period — specifically ` +
-      `${sigs || "one or more SPC signals"}. ` +
+    const assessment = t(
+      isRare
+        ? "helper.change.rare.signals"
+        : "helper.change.attribute.signals",
+      "There are signs that the process may have changed in the latest {chart} period — specifically {signals}.",
+      {
+        chart: chartName,
+        signals: sigs
+      }
+    );
+
+    return assessment + " " + t(
+      "helper.change.investigate",
       "That is a prompt to investigate what changed around that time."
     );
   }
 
-    if (ctx.run) {
+  // Run chart: reuse the already translated answer.
+  if (ctx.run) {
     return buildRunChartAnswer(ctx);
   }
 
-  return (
+  return t(
+    "helper.change.noChart",
     "Generate the currently selected chart first and I can look for evidence of change."
   );
 }
 
+
+
 function buildImprovementAnswer(ctx) {
   const chartType = ctx.chartType;
+  const t = helperDynamicText;
 
+  const chartName = t(
+    `helper.stability.chart.${chartType}`,
+    titleCaseChartType(chartType).toLowerCase()
+  );
+
+  // XmR: preserve the minimum-point safeguard.
   if (chartType === "xmr" && ctx.xmr) {
     if (!isXmRPeriodAssessable(ctx.xmr)) {
-      return (
-        "There are not yet enough data in the latest XmR period to make a firm judgement about stability or improvement. " +
-        "The early pattern may be encouraging, but more points are needed before calling it a sustained change."
+      return t(
+        "helper.improvement.xmr.provisional",
+        "There are not yet enough data in the latest XmR period to make a firm judgement about stability or improvement. The early pattern may be encouraging, but more points are needed before calling it a sustained change."
       );
     }
 
     if (ctx.xmr.isStable === true) {
-      return (
-        "The current XmR period does not show a clear special-cause signal, so the chart alone does not provide strong evidence of a new improvement. " +
-        "Real improvement is more convincing when there is a sustained change in the desired direction and the new pattern is maintained."
+      return t(
+        "helper.improvement.xmr.stable",
+        "The current XmR period does not show a clear special-cause signal, so the chart alone does not provide strong evidence of a new improvement. Real improvement is more convincing when there is a sustained change in the desired direction and the new pattern is maintained."
       );
     }
 
-    return (
-      "The XmR chart shows evidence that the process may have changed. " +
-      "That is not automatically the same as improvement. Check whether the change is in the desired direction, whether it is sustained, and whether local knowledge supports a plausible improvement explanation. " +
-      "The chart can show evidence of change, but it cannot prove that an intervention caused it."
+    return t(
+      "helper.improvement.xmr.unstable",
+      "The XmR chart shows evidence that the process may have changed. That is not automatically the same as improvement. Check whether the change is in the desired direction, whether it is sustained, and whether local knowledge supports a plausible improvement explanation. The chart can show evidence of change, but it cannot prove that an intervention caused it."
     );
   }
 
+  // Other chart families: retain the original stability
+  // decision and its source.
   let stable = null;
 
   if (ctx.attribute) {
-    stable =
-      ctx.attribute.isStable;
+    stable = ctx.attribute.isStable;
   } else if (ctx.rare) {
-    stable =
-      ctx.rare.isStable;
+    stable = ctx.rare.isStable;
   } else if (ctx.run) {
-    stable =
-      ctx.run.isStable;
+    stable = ctx.run.isStable;
   } else if (ctx.xbars) {
     stable =
       !!ctx.xbars.xbar?.isStable &&
@@ -1833,45 +2608,55 @@ function buildImprovementAnswer(ctx) {
   }
 
   if (stable === true) {
-    return (
-      `The current ${titleCaseChartType(chartType).toLowerCase()} does not show a clear special-cause signal, so the chart alone does not provide strong evidence of a new improvement. ` +
-      "Improvement is more convincing when there is a sustained change in the desired direction, not just one favourable point."
+    return t(
+      "helper.improvement.general.stable",
+      "The current {chart} does not show a clear special-cause signal, so the chart alone does not provide strong evidence of a new improvement. Improvement is more convincing when there is a sustained change in the desired direction, not just one favourable point.",
+      { chart: chartName }
     );
   }
 
   if (stable === false) {
-    return (
-      `The current ${titleCaseChartType(chartType).toLowerCase()} shows evidence that the process may have changed. ` +
-      "That could be improvement, deterioration, or another change in the system. " +
-      "To call it improvement, check that the change is in the desired direction, is sustained, and makes sense in the local context. " +
-      "The chart alone does not prove causation."
+    return t(
+      "helper.improvement.general.unstable",
+      "The current {chart} shows evidence that the process may have changed. That could be improvement, deterioration, or another change in the system. To call it improvement, check that the change is in the desired direction, is sustained, and makes sense in the local context. The chart alone does not prove causation.",
+      { chart: chartName }
     );
   }
 
-  return (
+  return t(
+    "helper.improvement.general.noChart",
     "Generate the currently selected chart first and I can help assess whether the pattern is consistent with real improvement."
   );
 }
 
-function buildDecisionAnswer(ctx) {
 
-  if (
-    ctx.chartType === "pareto"
-  ) {
+function buildDecisionAnswer(ctx) {
+  const t = helperDynamicText;
+
+  // Preserve the existing Pareto-specific advice.
+  // The main Pareto analysis will be translated in Batch 34.
+  if (ctx.chartType === "pareto") {
     return (
       buildParetoAnswer(ctx) +
-      "\n\nA sensible next step is to investigate the leading categories in more detail, using local knowledge and, where useful, further stratification. Do not assume the category itself is the underlying cause."
+      t(
+        "helper.decision.paretoNext",
+        "\n\nA sensible next step is to investigate the leading categories in more detail, using local knowledge and, where useful, further stratification. Do not assume the category itself is the underlying cause."
+      )
     );
   }
 
+  // Preserve the original chart-specific assessment.
   const latestSummary =
     buildLatestPeriodSummary(ctx);
 
-  return latestSummary + "\n\n" +
+  // Only translate the general improvement advice.
+  return latestSummary + "\n\n" + t(
+    "helper.decision.general",
     "From a healthcare improvement point of view, the next step is usually:\n" +
     "• if the process looks stable but performance is not good enough, think about redesigning the system\n" +
     "• if the chart shows a signal, investigate what changed in the service, pathway, demand, staffing, coding, or measurement\n" +
-    "• avoid reacting to individual points as if each one proves success or failure";
+    "• avoid reacting to individual points as if each one proves success or failure"
+  );
 }
 
   function answerQuestion(question) {
@@ -1881,9 +2666,14 @@ function buildDecisionAnswer(ctx) {
   const q =
     norm(qRaw);
 
+  
   if (!q) {
-    return "Please type a question about SPC or your chart.";
+    return helperDynamicText(
+      "helper.response.empty",
+      "Please type a question about SPC or your chart."
+    );
   }
+
 
   const ctx =
     getCurrentChartContext();
@@ -1960,9 +2750,16 @@ function buildDecisionAnswer(ctx) {
     q === "what rules apply to this chart" ||
     q === "what is the rule policy for this chart";
 
+  
   const asksXmRLimits =
     ctx.chartType === "xmr" &&
+
+    // Exclusion questions must not be intercepted
+    // by the broad "limit calculation" matcher.
+    !/\b(exclude|excluded|excluding|exclusion|ghost|ghosting)\b/.test(q) &&
+
     (
+
       includesAny(q, [
         "moving range screening",
         "mr screening",
@@ -2002,50 +2799,152 @@ function buildDecisionAnswer(ctx) {
     !!ctx.rare ||
     !!ctx.pareto;
 
-  // Pareto-specific questions
+  
+  // Pareto-specific questions.
+  // Preserve the original English question identifiers.
   if (hasChart && ctx.chartType === "pareto") {
 
     if (q === "what does the 80% line mean") {
       const p = ctx.pareto;
+      const t = helperDynamicText;
 
-      let answer =
-        "The dashed 80% line is a guide to help prioritise " +
-        "further investigation. It is not a statistical control limit. " +
-        "The red cumulative line shows how the percentage of " +
-        "occurrences builds up as categories are added from left to right.";
+      let answer = t(
+        "helper.pareto.eighty.explain",
+        "The dashed 80% line is a guide to help prioritise further investigation. It is not a statistical control limit. The red cumulative line shows how the percentage of occurrences builds up as categories are added from left to right."
+      );
 
+      // Use the existing calculated cutoff.
       if (
         Number.isFinite(p.cutoff80Count) &&
         Number.isFinite(p.cutoff80Pct)
       ) {
-        answer +=
-          `\n\nIn your chart, the first ${p.cutoff80Count} ` +
-          `categories account for ${p.cutoff80Pct.toFixed(1)}% ` +
-          "of all occurrences.";
+        answer += "\n\n" + t(
+          p.cutoff80Count === 1
+            ? "helper.pareto.eighty.countOne"
+            : "helper.pareto.eighty.countMany",
+          p.cutoff80Count === 1
+            ? "In your chart, the first {count} category accounts for {percentage}% of all occurrences."
+            : "In your chart, the first {count} categories account for {percentage}% of all occurrences.",
+          {
+            count: p.cutoff80Count,
+            percentage: p.cutoff80Pct.toFixed(1)
+          }
+        );
       }
 
-      answer +=
-        "\n\nThe 80% line is a useful reference, not a rule " +
-        "that 80% of problems must come from 20% of categories.";
+      answer += "\n\n" + t(
+        "helper.pareto.eighty.notRule",
+        "The 80% line is a useful reference, not a rule that 80% of problems must come from 20% of categories."
+      );
 
       return answer;
     }
 
     if (q === "are the biggest categories the causes") {
-      return (
-        "Not necessarily. A Pareto chart shows which categories " +
-        "contain the most recorded occurrences, but it does not " +
-        "establish what caused them.\n\n" +
-        "The largest categories are often useful starting points " +
-        "for investigation. Look more closely at what happens " +
-        "within those categories, consider how the data were " +
-        "collected, and use local knowledge to identify possible causes.\n\n" +
-        "A frequent category is not automatically a root cause, " +
-        "and a less frequent category may still deserve priority " +
-        "if its consequences are particularly serious."
+      return helperDynamicText(
+        "helper.pareto.causes",
+        "Not necessarily. A Pareto chart shows which categories contain the most recorded occurrences, but it does not establish what caused them.\n\n" +
+        "The largest categories are often useful starting points for investigation. Look more closely at what happens within those categories, consider how the data were collected, and use local knowledge to identify possible causes.\n\n" +
+        "A frequent category is not automatically a root cause, and a less frequent category may still deserve priority if its consequences are particularly serious."
       );
     }
   }
+
+
+  // Batch 37 — Match the four new questions exactly.
+  //
+  // Handle these before the broad XmR/Nelson matcher,
+  // which intentionally recognises many related words.
+  // Existing English question identifiers are preserved.
+
+  
+  // Batch 37 matching correction.
+  // Recognise a small set of common alternative phrasings.
+  // These all point to the existing bilingual answers.
+
+  const xmrEducationQuestions = new Map([
+
+    // Why signals disappear
+    [
+      norm("Why do XmR signals disappear with a short baseline?"),
+      "short"
+    ],
+    [
+      norm("Why have signals disappeared?"),
+      "short"
+    ],
+    [
+      norm("Why have my signals disappeared?"),
+      "short"
+    ],
+    [
+      norm("Why did my XmR signals disappear?"),
+      "short"
+    ],
+    [
+      norm("Why did the SPC signals disappear?"),
+      "short"
+    ],
+
+    // Minimum number of points
+    [
+      norm("Why does XmR need 12 usable points?"),
+      "minimum"
+    ],
+    [
+      norm("Why XmR needs 12 usable points"),
+      "minimum"
+    ],
+    [
+      norm("Why do I need 12 points for XmR?"),
+      "minimum"
+    ],
+    [
+      norm("Why are 12 points needed for XmR?"),
+      "minimum"
+    ],
+
+    // Disabled exclusion
+    [
+      norm("Why is excluding this point from the limits disabled?"),
+      "exclusion"
+    ],
+    [
+      norm("Why can't I exclude this point?"),
+      "exclusion"
+    ],
+    [
+      norm("Why is point exclusion disabled?"),
+      "exclusion"
+    ],
+
+    // Nelson screening
+    [
+      norm("Why doesn't Nelson screening flag changes after the baseline?"),
+      "nelson"
+    ],
+    [
+      norm("Why doesn't Nelson screening detect changes after the baseline?"),
+      "nelson"
+    ],
+    [
+      norm("Why doesn't Nelson catch later changes?"),
+      "nelson"
+    ]
+
+  ]);
+
+
+  const xmrEducationTopic =
+    xmrEducationQuestions.get(q);
+
+  if (xmrEducationTopic) {
+    return buildXmREducationAnswer(
+      ctx,
+      xmrEducationTopic
+    );
+  }
+
 
   if (
     hasChart &&
@@ -2132,33 +3031,89 @@ function buildDecisionAnswer(ctx) {
     return buildDecisionAnswer(ctx);
   }
 
+  
   const faq =
     findBestFaq(q);
 
   if (faq) {
-    return faq.answer;
+    return localisedFaqAnswer(faq);
   }
 
-  if (hasChart) {
-    return (
-      "I’m not fully sure which answer fits best. Try one of these:\n" +
-      "• What is my chart telling me?\n" +
-      "• Has anything changed?\n" +
-      "• Is my process stable?\n" +
-      "• Is this likely to be real improvement?\n" +
-      "• What should I do next?\n" +
-      "• What does this mean for our target?"
-    );
-  }
 
-  return (
-    "I’m not fully sure which answer fits best. Try one of these:\n" +
-    "• What is SPC?\n" +
-    "• How do I choose the right chart?\n" +
-    "• What is the difference between a baseline and a split?\n" +
-    "• What should I do if I see a signal?\n" +
-    "• What if my process is stable but performance is poor?"
+  
+  // Batch 36 — Unmatched-question guidance.
+  //
+  // Reuse the existing suggested-question keys from
+  // Batch 26. This keeps the French question wording
+  // consistent with the clickable helper suggestions.
+  //
+  // Do not change the FAQ scoring or matching logic.
+
+  const fallbackQuestions = hasChart
+    ? [
+        [
+          "helper.q.myChart",
+          "What is my chart telling me?"
+        ],
+        [
+          "helper.q.changed",
+          "Has anything changed?"
+        ],
+        [
+          "helper.q.processStable",
+          "Is my process stable?"
+        ],
+        [
+          "helper.q.improvement",
+          "Is this likely to be real improvement?"
+        ],
+        [
+          "helper.q.next",
+          "What should I do next?"
+        ],
+        [
+          "helper.q.target",
+          "What does this mean for our target?"
+        ]
+      ]
+    : [
+        [
+          "helper.q.whatSpc",
+          "What is SPC?"
+        ],
+        [
+          "helper.q.chooseChart",
+          "How do I choose the right chart?"
+        ],
+        [
+          "helper.q.baselineSplit",
+          "What is the difference between a baseline and a split?"
+        ],
+        [
+          "helper.q.signalAction",
+          "What should I do if I see a signal?"
+        ],
+        [
+          "helper.q.stablePoor",
+          "What if my process is stable but performance is poor?"
+        ]
+      ];
+
+  const fallbackHeading = helperDynamicText(
+    "helper.response.unsure",
+    "I’m not fully sure which answer fits best. Try one of these:"
   );
+
+  const fallbackSuggestions =
+    fallbackQuestions.map(([key, english]) =>
+      "• " + helperDynamicText(key, english)
+    );
+
+  return [
+    fallbackHeading,
+    ...fallbackSuggestions
+  ].join("\n");
+
 }
 
   window.SPC_HELPER_LIBRARY = {

@@ -646,14 +646,35 @@ function appendLimitExclusionSummary() {
   note.className =
     "limit-exclusion-summary";
 
+  
+  const unitKey = isSubgroup ? "subgroup" : "point";
+  const form = count === 1 ? unitKey : unitKey + "s";
+
+  const englishUnit =
+    count === 1 ? unit : unit + "s";
+
+  const englishVisible = count === 1
+    ? `The excluded ${unit} remains visible on the chart.`
+    : `Excluded ${unit}s remain visible on the chart.`;
+
   note.innerHTML =
-    `<strong>Excluded from limit calculations:</strong> ` +
-    `${count} ${unit}${count === 1 ? "" : "s"}. ` +
-    `${
-      count === 1
-        ? `The excluded ${unit} remains visible on the chart.`
-        : `Excluded ${unit}s remain visible on the chart.`
-    }`;
+    `<strong>` +
+    summaryUiText(
+      "summary.exclusions.heading",
+      "Excluded from limit calculations:"
+    ) +
+    `</strong> ` +
+    `${count} ` +
+    summaryUiText(
+      "summary.exclusions." + form,
+      englishUnit
+    ) +
+    `. ` +
+    summaryUiText(
+      "summary.exclusions." + form + "Visible",
+      englishVisible
+    );
+
 
   summaryDiv.appendChild(
     note
@@ -772,6 +793,367 @@ function applySpcColourTheme(themeName) {
   Object.assign(SPC_STYLE, theme);
 }
 
+
+/*
+ * Translate chart dataset labels for display only.
+ *
+ * IMPORTANT:
+ * Do not modify dataset.label. Other SPC functions use
+ * the original names for identifying chart elements.
+ */
+function chartDisplayLabel(originalLabel) {
+  const raw = String(originalLabel ?? "");
+
+  // Some MR labels contain an analysis period number.
+  const periodMatch =
+    /^(MR average|MR UCL) \(Period (\d+)\)$/.exec(raw);
+
+  if (periodMatch) {
+    const key = periodMatch[1] === "MR average"
+      ? "visual.mrAveragePeriod"
+      : "visual.mrUclPeriod";
+
+    return chartPanelText(key, raw, {
+      period: periodMatch[2]
+    });
+  }
+
+  
+  const keys = {
+    "Value": "visual.value",
+    "Centre line": "visual.centreLine",
+    "Mean": "visual.mean",
+    "Median": "visual.median",
+    "UCL": "visual.ucl",
+    "LCL": "visual.lcl",
+    "UCL (3σ)": "visual.ucl3sigma",
+    "LCL (3σ)": "visual.lcl3sigma",
+
+    "Target": "visual.target",
+    "X̄": "visual.xbar",
+    "Count": "visual.count",
+    "Cumulative %": "visual.cumulative",
+    "Moving range": "visual.movingRange",
+    "MR average": "visual.mrAverage",
+    "MR UCL": "visual.mrUcl",
+    "Not used: adjacent to excluded point":
+      "visual.omittedExcluded",
+    "Not used: unusually large MR screened":
+      "visual.omittedScreened"
+  };
+
+  const key = keys[raw];
+
+  // Preserve unknown labels, including user-supplied text.
+  return key ? chartPanelText(key, raw) : raw;
+}
+
+
+/*
+ * Translate ordinary Chart.js tooltip dataset names.
+ *
+ * Preserve Chart.js's original tooltip formatting,
+ * values and behaviour. Only translate recognised
+ * dataset-label prefixes.
+ *
+ * Charts with their own specialised tooltip callbacks
+ * (such as MR exclusions and Pareto) keep those callbacks.
+ */
+if (
+  typeof Chart !== "undefined" &&
+  typeof Chart.defaults?.plugins?.tooltip?.callbacks?.label === "function"
+) {
+  const originalTooltipLabel =
+    Chart.defaults.plugins.tooltip.callbacks.label;
+
+  Chart.defaults.plugins.tooltip.callbacks.label =
+    function (context) {
+
+      // Get the original tooltip text from Chart.js.
+      const originalText =
+        originalTooltipLabel.call(this, context);
+
+      const internalLabel = context.dataset?.label;
+
+      if (
+        typeof originalText !== "string" ||
+        typeof internalLabel !== "string"
+      ) {
+        return originalText;
+      }
+
+      // Only replace the ordinary "Dataset: value" prefix.
+      // Preserve custom tooltip strings and numeric formatting.
+      if (!originalText.startsWith(internalLabel + ":")) {
+        return originalText;
+      }
+
+      const displayLabel =
+        chartDisplayLabel(internalLabel);
+
+      return displayLabel +
+        originalText.slice(internalLabel.length);
+    };
+}
+
+
+function spcTooltipSignalLines(context) {
+  if (!context || context.datasetIndex !== 0) return [];
+
+  if (
+    typeof shouldFlagSpecialCauseOnChart === "function" &&
+    !shouldFlagSpecialCauseOnChart()
+  ) return [];
+
+  const chart = context.chart;
+  const index = context.dataIndex;
+
+  if (!chart || !Number.isInteger(index)) return [];
+
+  const tr = (key, fallback) =>
+    chartPanelText(key, fallback);
+
+  const above = tr("summary.xmr.detail.above", "Above");
+  const below = tr("summary.xmr.detail.below", "Below");
+  const shift = tr("summary.attr.shiftName", "Shift");
+  const trend = tr("summary.attr.trendName", "Trend");
+
+  const rawValue = chart.data.datasets[0]?.data?.[index];
+  const rawCentre = chart.data.datasets[1]?.data?.[index];
+
+  const value =
+    typeof rawValue === "number" ? rawValue : rawValue?.y;
+
+  const centre =
+    typeof rawCentre === "number" ? rawCentre : rawCentre?.y;
+
+  const side =
+    Number.isFinite(value) && Number.isFinite(centre)
+      ? (value > centre ? above : value < centre ? below : "")
+      : "";
+
+  const withSide = (label, direction) =>
+    direction ? `${label} — ${direction}` : label;
+
+  const lines = [];
+
+  // Run charts use median-based ranges with global point indices.
+  if (chart.$spcTooltipRun) {
+    const run = chart.$spcTooltipRun;
+
+    for (const r of run.shifts || []) {
+      if (index >= r.start && index <= r.end) {
+        const direction =
+          r.side === "above" || r.side === 1
+            ? above
+            : r.side === "below" || r.side === -1
+              ? below
+              : side;
+
+        lines.push(withSide(shift, direction));
+      }
+    }
+
+    for (const r of run.trends || []) {
+      if (index >= r.start && index <= r.end) {
+        const direction =
+          r.direction === "up" ||
+          r.direction === "increasing"
+            ? tr("summary.xmr.detail.increasing", "Increasing")
+            : r.direction === "down" ||
+              r.direction === "decreasing"
+              ? tr("summary.xmr.detail.decreasing", "Decreasing")
+              : "";
+
+        lines.push(withSide(trend, direction));
+      }
+    }
+
+  } else {
+    // Other SPC charts use period-local detection results.
+    const period = (chart.$spcTooltipPeriods || []).find(
+      p => index >= p.startIndex && index <= p.endIndex
+    );
+
+    if (!period || period.suppress) return [];
+
+    const analysis = period.analysis;
+    const local = index - period.startIndex;
+    const flags = analysis?.flags;
+
+    if (!flags?.special?.[local]) return [];
+
+    const matches = analysis.ruleMatches || {};
+
+    // Outside control limits
+    if (flags.beyond?.[local]) {
+      const hit = (
+        matches.beyond ||
+        analysis.outOfControl ||
+        []
+      ).find(h => h.i === local);
+
+      const direction =
+        hit?.type === "aboveUCL" ? above
+          : hit?.type === "belowLCL" ? below
+          : side;
+
+      lines.push(withSide(
+        tr("summary.xmr.detail.beyond", "Outside control limits"),
+        direction
+      ));
+    }
+
+    // Sustained shift
+    if (flags.shift?.[local]) {
+      const r = (matches.shifts || []).find(
+        r => local >= r.start && local <= r.end
+      );
+
+      const direction =
+        r?.side > 0 ? above : r?.side < 0 ? below : side;
+
+      lines.push(withSide(shift, direction));
+    }
+
+    // Increasing or decreasing trend
+    if (flags.trend?.[local]) {
+      const ranges = (matches.trends || []).filter(
+        r => local >= r.start && local <= r.end
+      );
+
+      if (!ranges.length) {
+        lines.push(trend);
+      }
+
+      for (const r of ranges) {
+        const direction =
+          r.direction === "up" ||
+          r.direction === "increasing"
+            ? tr("summary.xmr.detail.increasing", "Increasing")
+            : r.direction === "down" ||
+              r.direction === "decreasing"
+              ? tr("summary.xmr.detail.decreasing", "Decreasing")
+              : "";
+
+        lines.push(withSide(trend, direction));
+      }
+    }
+
+    // Optional zone rules
+    if (flags.zone23?.[local]) {
+      lines.push(withSide(
+        tr("summary.xmr.detail.zone23", "2 of 3 beyond 2σ"),
+        side
+      ));
+    }
+
+    if (flags.zone45?.[local]) {
+      lines.push(withSide(
+        tr("summary.xmr.detail.zone45", "4 of 5 beyond 1σ"),
+        side
+      ));
+    }
+  }
+
+  // Avoid repeated labels when rules overlap.
+  const distinct = [...new Set(lines)];
+
+  return distinct.length
+    ? [
+        `${tr("summary.attr.signals", "Signals")}:`,
+        ...distinct
+      ]
+    : [];
+}
+
+
+    // Add observation or subgroup numbers to SPC tooltips.
+    // Detailed special-cause explanations will follow in Batch D2.
+    if (typeof Chart !== "undefined" && Chart.defaults?.plugins?.tooltip?.callbacks) {
+      const tooltipCallbacks = Chart.defaults.plugins.tooltip.callbacks;
+      const previousAfterLabel = tooltipCallbacks.afterLabel;
+
+      tooltipCallbacks.afterLabel = function(context) {
+        const oldResult = typeof previousAfterLabel === "function"
+          ? previousAfterLabel.call(this, context)
+          : [];
+
+        const lines = Array.isArray(oldResult)
+          ? oldResult.slice()
+          : (oldResult ? [oldResult] : []);
+
+        const chart = context?.chart;
+        const index = context?.dataIndex;
+
+        if (!Number.isInteger(index) || index < 0) return lines;
+
+        const chartType = getSelectedChartType_NoSideEffects();
+
+        // Pareto categories are not chronological observations.
+        if (chartType === "pareto") return lines;
+
+        const capitalise = value =>
+          value.charAt(0).toLocaleUpperCase() + value.slice(1);
+
+        const pointWord = capitalise(
+          chartPanelText("summary.point", "point")
+        );
+
+        const subgroupWord = capitalise(
+          chartPanelText("auto.axis.subgroup", "Subgroup")
+        );
+
+        if (chart === currentChart) {
+          // Dataset 0 contains the observations, not the control lines.
+          if (context.datasetIndex !== 0) return lines;
+
+          lines.push(
+            chartType === "xbars"
+              ? `${subgroupWord} ${index + 1}`
+              : `${pointWord} ${index + 1}`
+          );
+
+        } else if (chart === mrChart) {
+
+          if (chartType === "xbars") {
+            // Secondary S chart: one measurement per subgroup.
+            if (context.datasetIndex === 0) {
+              const offset =
+            Number.isInteger(chart.$spcPointOffset)
+              ? chart.$spcPointOffset
+              : 0;
+
+          lines.push(
+            `${subgroupWord} ${offset + index + 1}`
+          );
+            }
+
+          } else if (chartType === "xmr") {
+            // MR corresponds to the change ending at this point.
+            const label = String(context.dataset?.label || "");
+
+            if (
+              label === "Moving range" ||
+              label.startsWith("Not used: ")
+            ) {
+              const offset = Number.isInteger(chart.$spcPointOffset)
+                ? chart.$spcPointOffset
+                : 0;
+
+              lines.push(`${pointWord} ${offset + index + 1}`);
+            }
+          }
+        }
+
+    // Add rule explanations after the observation number.
+    lines.push(...spcTooltipSignalLines(context));
+
+        return lines;
+      };
+    }
+
+
 // -----------------------------
 // Shared legend styling
 // Shows line datasets as line samples in the legend instead of filled boxes
@@ -801,11 +1183,17 @@ const SPC_LEGEND = {
               label.datasetIndex
             ] || {};
 
+          
           return {
             ...label,
 
+            // Change the legend's displayed text only.
+            // Keep the original dataset label and index.
+            text: chartDisplayLabel(label.text),
+
             pointStyle:
               "line",
+
 
             strokeStyle:
               dataset.borderColor ||
@@ -1219,11 +1607,16 @@ if (enableRareRunTrendCheckbox) {
   enableRareRunTrendCheckbox.addEventListener("change", () => {
     if (!enableRareRunTrendCheckbox.checked) return;
 
+    
     const ok = window.confirm(
-      "T and G charts are naturally irregular.\n\n" +
-      "Run and trend rules may create false signals on this chart type and are off by default.\n\n" +
-      "Only enable these rules if you understand this trade-off."
+      chartPanelText(
+        "rules.rareConfirmImmediate",
+        "T and G charts are naturally irregular.\n\n" +
+        "Run and trend rules may create false signals on this chart type and are off by default.\n\n" +
+        "Only enable these rules if you understand this trade-off."
+      )
     );
+
 
     if (!ok) {
       enableRareRunTrendCheckbox.checked = false;
@@ -1830,7 +2223,12 @@ function resetAnnotationsAndSplitsForNewData() {
 
 function loadProjectObject(projectObj) {
   if (!projectObj || typeof projectObj !== "object") {
-    alert("That file could not be read as an SPC project.");
+    
+alert(chartPanelText(
+  "project.invalidObject",
+  "That file could not be read as an SPC project."
+));
+
     return;
   }
 
@@ -1838,7 +2236,12 @@ function loadProjectObject(projectObj) {
   const settings = projectObj?.settings;
 
   if (!Array.isArray(rows) || rows.length === 0) {
-    alert("This project file does not contain any saved data.");
+    
+alert(chartPanelText(
+  "project.noSavedData",
+  "This project file does not contain any saved data."
+));
+
     return;
   }
 
@@ -1846,7 +2249,12 @@ function loadProjectObject(projectObj) {
 
   const ok = loadRows(rows);
   if (!ok) {
-    alert("The project data could not be loaded.");
+    
+alert(chartPanelText(
+  "project.loadFailed",
+  "The project data could not be loaded."
+));
+
     return;
   }
 
@@ -1949,22 +2357,31 @@ function importSettingsOrProjectFromFile(file) {
         } else {
           pendingImportedSettings = parsed;
 
-          alert(
-            "Settings loaded. Now upload your CSV or Excel data and the tool will apply these settings automatically."
-          );
+          
+alert(chartPanelText(
+  "project.settingsQueued",
+  "Settings loaded. Now upload your CSV or Excel data and the tool will apply these settings automatically."
+));
+
         }
 
         return;
       }
 
-      alert(
-        "That file doesn’t look like a supported SPC project or settings file."
-      );
+      
+alert(chartPanelText(
+  "project.unsupported",
+  "That file doesn’t look like a supported SPC project or settings file."
+));
+
 
     } catch (e) {
-      alert(
-        "Could not read that JSON file. Please check it is a valid export from this tool."
-      );
+      
+alert(chartPanelText(
+  "project.invalidJson",
+  "Could not read that JSON file. Please check it is a valid export from this tool."
+));
+
     }
   };
 
@@ -2098,7 +2515,7 @@ function resetStateAfterDataLoad() {
 function prepareForNewImportedChart(rows) {
   // Validate the new data before destroying the current chart.
   if (!rows || rows.length === 0) {
-    showError("No rows found in the data.");
+    showError(chartPanelText("data.noRows", "No rows found in the data."));
     return false;
   }
 
@@ -2109,7 +2526,7 @@ function prepareForNewImportedChart(rows) {
       : [];
 
   if (columns.length === 0) {
-    showError("Could not detect any columns in the data.");
+    showError(chartPanelText("data.noColumns", "Could not detect any columns in the data."));
     return false;
   }
 
@@ -2119,11 +2536,16 @@ function prepareForNewImportedChart(rows) {
     !!dataModelDirty;
 
   if (hasExistingWork) {
-    const ok = window.confirm(
-      "Load these data as a new chart?\n\n" +
-      "This will clear the current data and chart settings. " +
-      "Save the current chart first if you want to reopen it later."
-    );
+    
+const ok = window.confirm(
+  chartPanelText(
+    "data.confirmReplace",
+    "Load these data as a new chart?\n\n" +
+    "This will clear the current data and chart settings. " +
+    "Save the current chart first if you want to reopen it later."
+  )
+);
+
 
     if (!ok) {
       // Allow the same file to be selected again later.
@@ -2314,6 +2736,16 @@ function guessColumns(rows) {
 
 
 
+
+
+function chartPanelText(key, englishFallback, values = {}) {
+  const translated = window.SimpleSPCi18n?.translate?.(key, values);
+
+  return (typeof translated === "string" && translated !== key)
+    ? translated
+    : englishFallback;
+}
+
 function updateMrToggleVisibility() {
   if (!showMRCheckbox || !mrPanel) return;
 
@@ -2323,30 +2755,65 @@ function updateMrToggleVisibility() {
   const displayModeLabel = document.getElementById("mrDisplayModeLabel");
   const displaySubhint = document.getElementById("mrDisplaySubhint");
 
-  const showSecondaryToggle = (chartType === "xmr" || chartType === "xbars");
+  const showSecondaryToggle =
+    (chartType === "xmr" || chartType === "xbars");
+
   const showMR = !!showMRCheckbox.checked;
 
-  // Show the checkbox row for XmR and X̄–S
   if (mrToggleRow) {
-    mrToggleRow.style.display = showSecondaryToggle ? "block" : "none";
+    mrToggleRow.style.display =
+      showSecondaryToggle ? "block" : "none";
   }
 
-  // Relabel based on chart type
   if (chartType === "xmr") {
-    if (toggleLabel) toggleLabel.textContent = "Show MR";
-    if (displayModeLabel) displayModeLabel.textContent = "MR display";
-    if (displaySubhint) displaySubhint.textContent = "(includes splits)";
-    if (mrDisplayOptions) mrDisplayOptions.style.display = showMR ? "flex" : "none";
+    if (toggleLabel) {
+      toggleLabel.textContent =
+        chartPanelText("chart.secondary.showMR", "Show MR");
+    }
+
+    if (displayModeLabel) {
+      displayModeLabel.textContent =
+        chartPanelText("chart.secondary.mrDisplay", "MR display");
+    }
+
+    if (displaySubhint) {
+      displaySubhint.textContent =
+        chartPanelText("chart.secondary.includesSplits", "(includes splits)");
+    }
+
+    if (mrDisplayOptions) {
+      mrDisplayOptions.style.display = showMR ? "flex" : "none";
+    }
+
   } else if (chartType === "xbars") {
-    if (toggleLabel) toggleLabel.textContent = "Show S chart";
-    if (displayModeLabel) displayModeLabel.textContent = "S chart display";
-    if (displaySubhint) displaySubhint.textContent = "(includes splits)";
-    if (mrDisplayOptions) mrDisplayOptions.style.display = showMR ? "flex" : "none";
+    if (toggleLabel) {
+      toggleLabel.textContent =
+        chartPanelText("chart.secondary.showS", "Show S chart");
+    }
+
+    if (displayModeLabel) {
+      displayModeLabel.textContent =
+        chartPanelText("chart.secondary.sDisplay", "S chart display");
+    }
+
+    if (displaySubhint) {
+      displaySubhint.textContent =
+        chartPanelText("chart.secondary.includesSplits", "(includes splits)");
+    }
+
+    if (mrDisplayOptions) {
+      mrDisplayOptions.style.display = showMR ? "flex" : "none";
+    }
+
   } else {
-    if (mrDisplayOptions) mrDisplayOptions.style.display = "none";
+    if (mrDisplayOptions) {
+      mrDisplayOptions.style.display = "none";
+    }
+
     hideMrPanelNow();
   }
 }
+
 
 function isProbablyHeaderRow(row) {
   // Heuristic: headers tend to be non-numeric strings; data tends to be numeric/date-ish.
@@ -2407,14 +2874,45 @@ function detectHeadersFromGrid() {
   return isProbablyHeaderRow(rows[0]);
 }
 
+
+function showDataEditorHeaderMessage(kind) {
+  if (!dataEditorHeaderStatus) return;
+
+  const messages = {
+    applyHeadings: [
+      "editor.headerApplyHeadings",
+      "Apply will treat the <strong>first row of the grid</strong> as <strong>headings</strong>. <br><small>Tip: If you loaded a CSV normally, your headings are already the column titles — so usually leave this OFF.</small>"
+    ],
+    applyData: [
+      "editor.headerApplyData",
+      "Apply will treat the <strong>first row of the grid</strong> as <strong>data</strong>. <br><small>Tip: If you loaded a CSV normally, your headings are already the column titles — so usually leave this OFF.</small>"
+    ],
+    detectHeadings: [
+      "editor.detectHeadings",
+      "Auto-detect: first row looks like <strong>headings</strong>."
+    ],
+    detectData: [
+      "editor.detectData",
+      "Auto-detect: first row looks like <strong>data</strong>."
+    ]
+  };
+
+  const entry = messages[kind];
+  if (!entry) return;
+
+  dataEditorHeaderStatus.dataset.editorMessageKind = kind;
+  dataEditorHeaderStatus.innerHTML =
+    chartPanelText(entry[0], entry[1]);
+}
+
 function renderHeaderStatus() {
   if (!dataEditorHeaderStatus || !dataEditorHasHeaders) return;
 
-  const mode = dataEditorHasHeaders.checked ? "headings" : "data";
-
-  dataEditorHeaderStatus.innerHTML =
-    `Apply will treat the <strong>first row of the grid</strong> as <strong>${mode}</strong>. ` +
-    `<br><small>Tip: If you loaded a CSV normally, your headings are already the column titles — so usually leave this OFF.</small>`;
+  showDataEditorHeaderMessage(
+    dataEditorHasHeaders.checked
+      ? "applyHeadings"
+      : "applyData"
+  );
 }
 
 
@@ -2468,10 +2966,21 @@ document.querySelectorAll("input[name='mrDisplayMode']").forEach(r => {
 const targetToggleBtn = document.getElementById("targetToggleBtn");
 let targetEnabled = true;
 
+
 function updateTargetToggleBtn() {
   if (!targetToggleBtn) return;
-  targetToggleBtn.textContent = targetEnabled ? "Hide target line" : "Show target line";
+
+  targetToggleBtn.textContent = targetEnabled
+    ? chartPanelText("baseline.hideTarget", "Hide target line")
+    : chartPanelText("baseline.showTarget", "Show target line");
 }
+
+// Update the button text when the language changes.
+// This does not alter the current target or chart.
+document.addEventListener(
+  "simplespc:languagechange",
+  updateTargetToggleBtn
+);
 
 function getChartTitleSettings() {
   const size = Number(chartTitleFontSizeInput?.value);
@@ -2542,7 +3051,7 @@ if (currentChart.options?.plugins?.title) {
   if (currentChart.options?.scales?.y) {
     if (currentChart.options.scales.y.title) {
       currentChart.options.scales.y.title.display = !!yLabel;
-      currentChart.options.scales.y.title.text = yLabel;
+      currentChart.options.scales.y.title.text = wrapYAxisTitle(yLabel);
       if (axisSettings?.y?.font) {
         currentChart.options.scales.y.title.font = cleanFontOptions(axisSettings.y.font);
       }
@@ -2753,7 +3262,7 @@ document.querySelectorAll("input[name='axisType']").forEach(r => {
 
 function loadRows(rows) {
   if (!rows || rows.length === 0) {
-    showError("No rows found in the data.");
+    showError(chartPanelText("data.noRows", "No rows found in the data."));
     return false;
   }
 
@@ -2764,7 +3273,7 @@ function loadRows(rows) {
   const columns = firstRow ? Object.keys(firstRow) : [];
 
   if (!columns || columns.length === 0) {
-    showError("Could not detect any columns in the data.");
+    showError(chartPanelText("data.noColumns", "Could not detect any columns in the data."));
     return false;
   }
 
@@ -3095,6 +3604,95 @@ if (enableRareRunTrendCheckbox) {
 const recalcPrompt = document.getElementById("recalcPrompt");
 const firstRunGuide = document.getElementById("firstRunGuide");
 
+
+function refreshResultsChromeLanguage() {
+
+  // Show / hide controls button
+  if (toggleSidebarButton) {
+    const collapsed =
+      document.body.classList.contains("sidebar-collapsed");
+
+    toggleSidebarButton.textContent = collapsed
+      ? chartPanelText("results.showControls", "Show controls")
+      : chartPanelText("results.hideControls", "Hide controls");
+  }
+
+  // Generate button tooltip when recalculation is required
+  if (generateButton) {
+    const needsRecalc =
+      generateButton.classList.contains("needs-recalc");
+
+    generateButton.title = needsRecalc
+      ? chartPanelText(
+          "results.needsRecalc",
+          "Changes saved — click Generate / Recalculate"
+        )
+      : "";
+  }
+
+  // The secondary panel is shared by XmR and X-bar/S charts.
+  const chartType = getSelectedChartType_NoSideEffects();
+
+  if (mrPanel) {
+    const heading = mrPanel.querySelector("strong");
+
+    if (heading) {
+      heading.textContent = chartType === "xbars"
+        ? chartPanelText("results.sHeading", "S chart:")
+        : chartPanelText(
+            "results.mrHeading",
+            "Moving Range chart:"
+          );
+    }
+  }
+
+  // Update the existing XmR secondary chart title in place.
+  // Leave the X-bar/S chart's separately generated title alone.
+  if (
+    chartType === "xmr" &&
+    mrChart &&
+    mrChart.options?.plugins?.title
+  ) {
+    mrChart.options.plugins.title.text =
+      chartPanelText(
+        "results.mrCanvasTitle",
+        "Moving Range (MR)"
+      );
+
+    mrChart.update("none");
+  }
+}
+
+// Update these elements when the language changes.
+document.addEventListener(
+  "simplespc:languagechange",
+  refreshResultsChromeLanguage
+);
+
+
+// Refresh the chart drawings so their display-only
+// legend labels use the newly selected language.
+//
+// This does not rebuild datasets, rerun SPC calculations,
+// change exclusions, or modify saved project settings.
+document.addEventListener(
+  "simplespc:languagechange",
+  () => {
+    if (currentChart) {
+      currentChart.update("none");
+    }
+
+    if (mrChart) {
+      mrChart.update("none");
+    }
+  }
+);
+
+
+// Apply the remembered language on initial load.
+refreshResultsChromeLanguage();
+
+
 // Treat the Quick start panel as useful empty-state guidance,
 // rather than something shown only once per browser.
 function updateFirstRunGuideVisibility() {
@@ -3128,7 +3726,14 @@ updateFirstRunGuideVisibility();
 function setGenerateNeedsRecalc(needs) {
   if (!generateButton) return;
   generateButton.classList.toggle("needs-recalc", !!needs);
-  generateButton.title = needs ? "Changes saved — click Generate / Recalculate" : "";
+  
+generateButton.title = needs
+  ? chartPanelText(
+      "results.needsRecalc",
+      "Changes saved — click Generate / Recalculate"
+    )
+  : "";
+
 }
 
 function markDataModelDirty() {
@@ -3211,12 +3816,14 @@ if (clearAnnotationsBtn) {
 }
 
 // ---- Toggle sidebar button ----
+
 if (toggleSidebarButton) {
   toggleSidebarButton.addEventListener("click", () => {
-    const collapsed = document.body.classList.toggle("sidebar-collapsed");
-    toggleSidebarButton.textContent = collapsed ? "Show controls" : "Hide controls";
+    document.body.classList.toggle("sidebar-collapsed");
+    refreshResultsChromeLanguage();
   });
 }
+
 
 // ---- CSV / Excel upload & column selection ----
 fileInput.addEventListener("change", async () => {
@@ -3239,7 +3846,7 @@ fileInput.addEventListener("change", async () => {
     }
 
     if (!isCsv) {
-      showError("Please upload a CSV or Excel file (.csv, .xlsx, .xls).");
+      showError(chartPanelText("data.fileType", "Please upload a CSV or Excel file (.csv, .xlsx, .xls)."));
       return;
     }
 
@@ -3247,7 +3854,14 @@ fileInput.addEventListener("change", async () => {
     const parsed = parseTabularTextWithHeaderDetection(text);
 
     if (!parsed.ok) {
-      showError("Error parsing CSV: " + parsed.message);
+      
+// When parsed.message is available:
+showError(chartPanelText(
+  "data.csvError",
+  "Error parsing CSV: " + parsed.message,
+  { message: parsed.message }
+));
+
       return;
     }
 
@@ -3263,7 +3877,14 @@ fileInput.addEventListener("change", async () => {
 
         if (results.errors && results.errors.length > 0) {
           console.error(results.errors);
-          showError("Error parsing CSV: " + results.errors[0].message);
+          
+// Inside the Papa.parse error branch:
+showError(chartPanelText(
+  "data.csvError",
+  "Error parsing CSV: " + results.errors[0].message,
+  { message: results.errors[0].message }
+));
+
           return;
         }
 
@@ -3285,14 +3906,19 @@ return;
   if (!prepareForNewImportedChart(parsed.rows)) return;
   if (!loadRows(parsed.rows)) return;
 } else {
-      const ok = confirm(
-        "It looks like your CSV does not include column headings.\n\n" +
-        "Click OK to treat the first row as DATA (I will create Column1, Column2...).\n" +
-        "Click Cancel if the first row IS a header row (then add headings and upload again)."
-      );
+      
+const ok = confirm(
+  chartPanelText(
+    "data.csvNoHeaders",
+    "It looks like your CSV does not include column headings.\n\n" +
+    "Click OK to treat the first row as DATA (I will create Column1, Column2...).\n" +
+    "Click Cancel if the first row IS a header row (then add headings and upload again)."
+  )
+);
+
 
       if (!ok) {
-        showError("Please add a header row (e.g. Date,Value) and upload again.");
+        showError(chartPanelText("data.csvAddHeaders", "Please add a header row (e.g. Date,Value) and upload again."));
         return;
       }
 
@@ -3314,11 +3940,19 @@ return;
 showNewDataChartPrompt();
   } catch (err) {
     console.error(err);
-    showError(
-      isExcel
-        ? "Unexpected error reading the Excel file."
-        : "Unexpected error reading the CSV file."
-    );
+    
+showError(
+  isExcel
+    ? chartPanelText(
+        "data.excelReadError",
+        "Unexpected error reading the Excel file."
+      )
+    : chartPanelText(
+        "data.csvReadError",
+        "Unexpected error reading the CSV file."
+      )
+);
+
   }
 });
 
@@ -3566,9 +4200,10 @@ function drawSecondarySPCChart({
   title,
   xLabel,
   yLabel,
-  suggestedMin,
+   suggestedMin,
   suggestedMax,
-  splitAfterIndices = []
+  splitAfterIndices = [],
+  showBaselineOverlay = true
 }) {
   if (!canvas) return null;
 
@@ -3669,8 +4304,12 @@ function drawSecondarySPCChart({
               title
             ),
 
-          legend:
+           legend:
             SPC_LEGEND,
+
+          baselineOverlay: {
+            enabled: showBaselineOverlay
+          },
 
           annotation: {
             annotations:
@@ -3967,10 +4606,12 @@ function drawXbarSCombinedChart({
         "strong"
       );
 
+    
     if (strong) {
       strong.textContent =
-        "S chart:";
+        chartPanelText("results.sHeading", "S chart:");
     }
+
   }
 
   if (!mrCanvas) return;
@@ -3979,42 +4620,53 @@ function drawXbarSCombinedChart({
   // The secondary S chart needs its own default labels,
   // but must not overwrite the shared Labels-tab fields.
   // Preserve any labels deliberately entered by the user.
+  
   const sLabels = {
     title: chartTitleManuallyEdited
       ? mainLabels.title
-      : "S chart",
+      : translateAutomaticChartLabel("S chart"),
 
     xLabel: xAxisLabelManuallyEdited
       ? mainLabels.xLabel
-      : "Subgroup",
+      : translateAutomaticChartLabel("Subgroup"),
 
     yLabel: yAxisLabelManuallyEdited
       ? mainLabels.yLabel
-      : "S"
+      : translateAutomaticChartLabel("S")
   };
 
+
+
+    // Display the latest analysis period or the full S chart.
+  const sCurrentOnly = getMrDisplayMode() !== "all";
+
+  const sFirstIndex =
+    sCurrentOnly && splitAfterIndices.length
+      ? splitAfterIndices[splitAfterIndices.length - 1] + 1
+      : 0;
 
   mrChart =
     drawSecondarySPCChart({
       canvas:
         mrCanvas,
 
-      labels,
+      labels:
+        labels.slice(sFirstIndex),
 
       values:
-        sVals,
+        sVals.slice(sFirstIndex),
 
       pointColours:
-        pointColoursS,
+        pointColoursS.slice(sFirstIndex),
 
       cl:
-        clS,
+        clS.slice(sFirstIndex),
 
       ucl:
-        uclSArr,
+        uclSArr.slice(sFirstIndex),
 
       lcl:
-        lclSArr,
+        lclSArr.slice(sFirstIndex),
 
       title:
         sLabels.title,
@@ -4028,11 +4680,21 @@ function drawXbarSCombinedChart({
       suggestedMin:
         0,
 
-      suggestedMax:
+            suggestedMax:
         undefined,
 
-      splitAfterIndices
+      // Only shade the baseline when the original
+      // baseline observations are visible.
+      showBaselineOverlay: sFirstIndex === 0,
+
+      splitAfterIndices:
+        sCurrentOnly ? [] : splitAfterIndices
     });
+
+  // Remember where the displayed period begins.
+  if (mrChart) {
+    mrChart.$spcPointOffset = sFirstIndex;
+  }
 }
 
 
@@ -4069,7 +4731,7 @@ dataModelDirty = false;
 
   // --- Reset optional third-column UI ---
   if (thirdColumnRow) thirdColumnRow.style.display = "none";
-  if (thirdLabelEl) thirdLabelEl.textContent = "Denominator / opportunities";
+  if (thirdLabelEl) thirdLabelEl.textContent = chartPanelText("chart.columns.thirdDefault", "Denominator / opportunities");
   if (thirdHintEl) thirdHintEl.textContent = "";
   if (uRateMultiplierSelect) {
   uRateMultiplierSelect.value = "1";
@@ -4233,10 +4895,13 @@ document.body.classList.remove("modal-open");
   // Re-render chip suggestions (safe even if helper never opened)
   if (typeof renderHelperState === "function") renderHelperState();
 
+  
   // --- Ensure sidebar is visible (not collapsed) like first load ---
   document.body.classList.remove("sidebar-collapsed");
-  const toggleBtn = document.getElementById("toggleSidebarButton");
-  if (toggleBtn) toggleBtn.textContent = " Hide controls";
+
+  // Restore the button label in the currently selected language.
+  refreshResultsChromeLanguage();
+
 
   const firstTab = document.querySelector(".tab-btn");
 if (firstTab) firstTab.click();
@@ -4291,7 +4956,10 @@ function resetChartKeepData() {
 
   // Put the existing dataset back.
   if (!loadRows(savedRows)) {
-    showError("The existing data could not be restored after resetting the chart.");
+    showError(chartPanelText(
+  "project.restoreFailed",
+  "The existing data could not be restored after resetting the chart."
+));
     return;
   }
 
@@ -4364,10 +5032,17 @@ function validateBeforeGenerate() {
   const dateCol = dateSelect?.value;
   const valueCol = valueSelect?.value;
 
-  if (!dateCol || !valueCol) {
-    showError("Please choose both an X-axis column and a value column.");
-    return false;
-  }
+  
+if (!dateCol || !valueCol) {
+  showError(
+    chartPanelText(
+      "validation.selectColumns",
+      "Please choose both an X-axis column and a value column."
+    )
+  );
+  return false;
+}
+
 
   if (chartType === "pareto") {
     const paretoCheck =
@@ -4492,10 +5167,15 @@ function confirmEnableRareRunTrendOnce(chartType) {
 
   if (alreadyConfirmed) return true;
 
-  const msg =
+  
+  const msg = chartPanelText(
+    "rules.rareConfirmOnce",
     `Advanced option: Run & trend rules on ${chartType.toUpperCase()} charts\n\n` +
-    `These patterns often happen by chance on T/G charts and can increase false alerts.\n\n` +
-    `Enable anyway?`;
+    "These patterns often happen by chance on T/G charts and can increase false alerts.\n\n" +
+    "Enable anyway?",
+    { chart: chartType.toUpperCase() }
+  );
+
 
   const ok = confirm(msg);
 
@@ -5351,6 +6031,62 @@ function getSelectedOrSuggestedValueColumn(chartType) {
   return "";
 }
 
+
+function localiseChartAvailability(availability) {
+  const keys = {
+    xmr: "chart.availability.xmr",
+    c: "chart.availability.c",
+    p: "chart.availability.p",
+    pprime: "chart.availability.pprime",
+    u: "chart.availability.u",
+    uprime: "chart.availability.uprime",
+    xbars: "chart.availability.xbars",
+    t: "chart.availability.t",
+    g: "chart.availability.g"
+  };
+
+  const hasData =
+    Array.isArray(rawRows) && rawRows.length > 0;
+
+  for (const [chartType, state] of Object.entries(availability)) {
+    if (state.enabled || !state.reason) continue;
+
+    // No dataset: every disabled chart uses the
+    // same translated explanation.
+    if (!hasData) {
+      state.reason = chartPanelText(
+        "chart.availability.noData",
+        state.reason
+      );
+      continue;
+    }
+
+    const key = keys[chartType];
+    if (!key) continue;
+
+    // XmR messages include the selected column name.
+    const values = {};
+
+    if (chartType === "xmr") {
+      values.column =
+        getSelectedOrSuggestedValueColumn("xmr") ||
+        chartPanelText(
+          "chart.availability.selectedColumn",
+          "the selected value column"
+        );
+    }
+
+    state.reason = chartPanelText(
+      key,
+      state.reason,
+      values
+    );
+  }
+
+  return availability;
+}
+
+
 function getChartAvailability() {
   const out = {};
   const noDataReason = "Load data to assess which chart types are available.";
@@ -5364,10 +6100,12 @@ function getChartAvailability() {
       if (key === "run") continue;
       out[key] = { enabled: false, reason: noDataReason };
     }
-    return out;
+    
+    return localiseChartAvailability(out);
   }
 
   const numericNonDateCols = allColumns.filter(c => {
+
     const p = getProfile(c);
     return p?.isNumeric && !p?.looksLikeDate;
   });
@@ -5469,10 +6207,13 @@ function getChartAvailability() {
     };
   }
 
-  return out;
+  
+  return localiseChartAvailability(out);
 }
 
+
 function applyChartTypeAvailability() {
+
   const availability = getChartAvailability();
   let selectedInput = document.querySelector("input[name='chartType']:checked");
   let selectedType = selectedInput?.value || "run";
@@ -5518,6 +6259,25 @@ function refreshChartTypeAvailability() {
   }
   return availability;
 }
+
+
+function refreshChartAvailabilityTextOnly() {
+  const availability = getChartAvailability();
+
+  // Refresh tooltips without enabling/disabling controls
+  // or changing the currently selected chart type.
+  for (const [chartType, state] of Object.entries(availability)) {
+    const input = getChartTypeRadioInput(chartType);
+    const label = getChartTypeRadioLabel(chartType);
+    const reason = state.reason || "";
+
+    if (input) input.title = reason;
+    if (label) label.title = reason;
+  }
+
+  syncChartTypeAvailabilityMessage();
+}
+
 
 function isSelectedChartTypeAvailable() {
   const availability = getChartAvailability();
@@ -5641,6 +6401,82 @@ function findTrendRanges(values, length) {
   return ranges;
 }
 
+
+function refreshRuleTooltipsOnly(
+  chartType = getSelectedChartType_NoSideEffects()
+) {
+  const policy = getRulePolicy(chartType);
+  const isRare = isRareChartType(chartType);
+
+  const t = chartPanelText;
+
+  // Advanced trend option
+  if (enableAdvancedTrendCheckbox) {
+    enableAdvancedTrendCheckbox.title =
+      policy.trend === "optional"
+        ? ""
+        : t(
+            "rules.disabledTrend",
+            "Trend rule is not offered for this chart type."
+          );
+  }
+
+  // Trend length field
+  const trendInput = document.getElementById("trendRulePoints");
+
+  if (trendInput) {
+    if (policy.trend === "optional") {
+      trendInput.title = enableAdvancedTrendCheckbox?.checked
+        ? ""
+        : t(
+            "rules.enableTrendFirst",
+            "Tick 'Enable trend rule' to use this setting."
+          );
+
+    } else if (policy.trend === "warn") {
+      trendInput.title = enableRareRunTrendCheckbox?.checked
+        ? ""
+        : t(
+            "rules.enableRareFirst",
+            "Enable run & trend rules for this chart type to use this setting."
+          );
+
+    } else {
+      trendInput.title = t(
+        "rules.disabledTrend",
+        "Trend rule is not offered for this chart type."
+      );
+    }
+  }
+
+  // Rare-event option
+  if (enableRareRunTrendCheckbox) {
+    enableRareRunTrendCheckbox.title = isRare
+      ? ""
+      : t(
+          "rules.rareOnly",
+          "Only used for T and G charts."
+        );
+  }
+
+  // Zone rules
+  const zoneBlocked = t(
+    "rules.zoneBlocked",
+    "Zone rules are not available for this chart type because they may create misleading alerts."
+  );
+
+  if (ruleTwoOfThreeOuterThirdCheckbox) {
+    ruleTwoOfThreeOuterThirdCheckbox.title =
+      policy.zone23 === "blocked" ? zoneBlocked : "";
+  }
+
+  if (ruleFourOfFiveOneSigmaCheckbox) {
+    ruleFourOfFiveOneSigmaCheckbox.title =
+      policy.zone45 === "blocked" ? zoneBlocked : "";
+  }
+}
+
+
 function updateRuleUIForChartType(chartType) {
   const policy = getRulePolicy(chartType);
   const isRare = isRareChartType(chartType);
@@ -5751,11 +6587,17 @@ if (mrScreeningRow) {
   chartType === "c" ||
   isPFamilyChartType(chartType) ||
   isUFamilyChartType(chartType);
+    
     conservativeRulesMessage.style.display = showConservativeMessage ? "block" : "none";
   }
+
+  // Translate tooltips after the existing rule availability
+  // logic has finished. Do not change any rule settings.
+  refreshRuleTooltipsOnly(chartType);
 }
 
 function updateColumnCheckWarning(chartType) {
+
   if (!columnCheckWarning) return;
 
   const warnings = {
@@ -5839,7 +6681,22 @@ function updateColumnCheckWarning(chartType) {
     `
   };
 
-  const message = warnings[chartType];
+
+  const englishMessage = warnings[chartType];
+
+  const translationKey =
+    chartType === "t"
+      ? (
+          tChartInputMode === "gaps"
+            ? "chart.columnWarning.tGaps"
+            : "chart.columnWarning.tDates"
+        )
+      : `chart.columnWarning.${chartType}`;
+
+  const message = englishMessage
+    ? chartPanelText(translationKey, englishMessage)
+    : null;
+
 
   if (!message) {
     columnCheckWarning.style.display = "none";
@@ -5850,6 +6707,111 @@ function updateColumnCheckWarning(chartType) {
   columnCheckWarning.innerHTML = message;
   columnCheckWarning.style.display = "block";
 }
+
+
+function refreshDynamicChartPanelLanguage(
+  chartType = getSelectedChartType_NoSideEffects()
+) {
+  if (!xLabelEl || !yLabelEl || !thirdLabelEl || !thirdHintEl) {
+    return;
+  }
+
+  const t = chartPanelText;
+  const isTGaps =
+    (typeof tChartInputMode !== "undefined" &&
+     tChartInputMode === "gaps");
+
+  const labels = {
+    run: {},
+
+    xmr: {
+      y: t("chart.columns.xmrY", "Measure (used for XmR limits)")
+    },
+
+    c: {
+      y: t("chart.columns.cY", "Count (c) per time period")
+    },
+
+    p: {
+      y: t("chart.columns.pY", "Numerator: defectives (d)"),
+      third: t("chart.columns.pThird", "Denominator: total (n)"),
+      hint: t("chart.columns.pHint", "P chart plots a proportion: d out of n.")
+    },
+
+    pprime: {
+      y: t("chart.columns.pY", "Numerator: defectives (d)"),
+      third: t("chart.columns.pThird", "Denominator: total (n)"),
+      hint: t(
+        "chart.columns.pprimeHint",
+        "P′ chart plots a proportion: d out of n, with Laney-adjusted control limits."
+      )
+    },
+
+    u: {
+      y: t("chart.columns.uY", "Numerator: defects (c)"),
+      third: t("chart.columns.uThird", "Denominator: opportunities (n)"),
+      hint: t(
+        "chart.columns.uHint",
+        "U chart plots defects per opportunity: c per n."
+      )
+    },
+
+    uprime: {
+      y: t("chart.columns.uY", "Numerator: defects (c)"),
+      third: t("chart.columns.uThird", "Denominator: opportunities (n)"),
+      hint: t(
+        "chart.columns.uprimeHint",
+        "U′ chart plots defects per opportunity, with Laney-adjusted control limits."
+      )
+    },
+
+    xbars: {
+      y: t("chart.columns.xbarsY", "Measurement value"),
+      third: t(
+        "chart.columns.xbarsThird",
+        "Subgroup ID (e.g. day / week / sample)"
+      ),
+      hint: t(
+        "chart.columns.xbarsHint",
+        "X̄–S needs multiple measurements per subgroup. The horizontal axis uses subgroup order automatically."
+      )
+    },
+
+    t: {
+      y: isTGaps
+        ? t("chart.columns.tGapsY", "Time between events (e.g. days)")
+        : t("chart.columns.tDatesY", "Value column not used (T chart uses dates)"),
+      hint: isTGaps
+        ? t("chart.columns.tGapsHint", "T chart plots time between rare events (using your numeric gaps).")
+        : t("chart.columns.tDatesHint", "T chart plots time between rare events (calculated from event dates).")
+    },
+
+    g: {
+      y: t("chart.columns.gY", "Opportunities between events"),
+      hint: t(
+        "chart.columns.gHint",
+        "G chart plots opportunities between rare events."
+      )
+    },
+
+    pareto: {
+      x: t("chart.columns.paretoX", "Category column"),
+      y: t("chart.columns.paretoY", "Frequency / count column")
+    }
+  };
+
+  const selected = labels[chartType] || {};
+
+  xLabelEl.textContent =
+    selected.x || t("chart.columns.xDefault", "Date / X-axis column");
+
+  yLabelEl.textContent =
+    selected.y || t("chart.columns.yDefault", "Value / Y-axis column");
+
+  thirdLabelEl.textContent = selected.third || "";
+  thirdHintEl.textContent = selected.hint || "";
+}
+
 
 function updateUIForChartType(chartType) {
   if (!xLabelEl || !yLabelEl || !thirdColumnRow) return;
@@ -5964,9 +6926,15 @@ if (cfg.xLabel) {
     thirdLabelEl.textContent = cfg.thirdLabel;
   }
 
+  
   if (cfg.thirdHint) {
     thirdHintEl.textContent = cfg.thirdHint;
   }
+
+  // Translate labels after the existing chart-specific
+  // English labels have been applied.
+  refreshDynamicChartPanelLanguage(chartType);
+
 
   // ------------------------------------------------------------
   // Levels 1–3 glue:
@@ -6079,6 +7047,24 @@ if (typeof updateMrToggleVisibility === "function") {
   updateMrToggleVisibility();
 }
 }
+
+
+
+
+document.addEventListener("simplespc:languagechange", () => {
+  // Refresh translated interface messages only.
+  // Do not recalculate charts or change user selections.
+  updateMrToggleVisibility();
+  refreshDynamicChartPanelLanguage();
+   updateColumnCheckWarning(getSelectedChartType_NoSideEffects());
+  refreshChartAvailabilityTextOnly();
+  updateDateFormatWarning();
+  updateDateControlsState();
+
+  // Refresh Rules panel tooltips without changing
+  // enabled states, checkboxes or statistical settings.
+  refreshRuleTooltipsOnly();
+});
 
 
 
@@ -8719,15 +9705,46 @@ function drawXbarSChart(
       effectiveSplits
   });
 
+ 
+  // Share X-bar and S chart analyses with the tooltips.
+  // The S chart may display only the latest period.
+
+  if (currentChart) {
+    currentChart.$spcTooltipPeriods =
+      periodAnalyses.map(p => ({
+        startIndex: p.startIndex,
+        endIndex: p.endIndex,
+        analysis: p.xbar
+      }));
+  }
+
+  if (mrChart) {
+    const offset =
+      Number.isInteger(mrChart.$spcPointOffset)
+        ? mrChart.$spcPointOffset
+        : 0;
+
+    mrChart.$spcTooltipPeriods =
+      periodAnalyses
+        .filter(p => p.endIndex >= offset)
+        .map(p => ({
+          startIndex: p.startIndex - offset,
+          endIndex: p.endIndex - offset,
+          analysis: p.s
+        }));
+  }
+
+
+
+
   attachSubgroupLimitExclusionContext(
     currentChart,
     subgroupLabels
   );
-
-  if (mrChart) {
+    if (mrChart) {
     attachSubgroupLimitExclusionContext(
       mrChart,
-      subgroupLabels
+      mrChart.data?.labels || subgroupLabels
     );
   }
 
@@ -9022,6 +10039,14 @@ function drawTChart(points, baselineCount, labels) {
     showLCL: false
   });
 
+if (currentChart) {
+    currentChart.$spcTooltipPeriods = [{
+      startIndex: 0,
+      endIndex: n - 1,
+      analysis: analysisForColour
+    }];
+  }
+
     // Build per-period analyses (XmR-style summary, respects splits/baseline)
   const segmentAnalyses = [];
 
@@ -9185,6 +10210,14 @@ function drawGChart(values, baselineCount, labels) {
     showUCL: true,
     showLCL: true
   });
+
+if (currentChart) {
+    currentChart.$spcTooltipPeriods = [{
+      startIndex: 0,
+      endIndex: n - 1,
+      analysis: analysisForColour
+    }];
+  }
 
     // Build per-period analyses (XmR-style summary, respects splits/baseline)
   const segmentAnalyses = [];
@@ -9482,15 +10515,36 @@ function withoutAxisBounds(settings) {
   return copy;
 }
 
-function buildAxisConfig(axisLabel, settings, extra = {}) {
+// Wrap long Y-axis titles without changing the saved label.
+function wrapYAxisTitle(text, maxChars = 30) {
+  const label = String(text ?? "").trim().replace(/\s+/g, " ");
+  if (label.length <= maxChars) return label;
+
+  const lines = [];
+  let line = "";
+
+  for (const word of label.split(" ")) {
+    if (line && (line.length + 1 + word.length > maxChars)) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = line ? `${line} ${word}` : word;
+    }
+  }
+
+  if (line) lines.push(line);
+
+  return lines.length > 1 ? lines : label;
+}
+
+function buildAxisConfig(axisLabel, settings, extra = {}, axis = "y") {
   const cfg = {
     grid: { display: false },
     title: {
       display: !!axisLabel,
-      text: axisLabel,
+      text: axis === "y" ? wrapYAxisTitle(axisLabel) : axisLabel,
       font: cleanFontOptions(settings?.font)
-    },
-    ticks: {
+    },    ticks: {
       font: cleanFontOptions(settings?.font),
       callback: buildTickFormatter(settings?.format)
     },
@@ -9525,10 +10579,9 @@ function buildCategoryXAxisConfig(axisLabel, settings, labels, extra = {}) {
   const cfg = buildAxisConfig(axisLabel, settings, {
     type: "category",
     ...extra
-  });
+  }, "x");
 
-  cfg.ticks = {
-    ...(cfg.ticks || {}),
+  cfg.ticks = {    ...(cfg.ticks || {}),
     callback: function(value, index) {
       if (Array.isArray(labels) && index >= 0 && index < labels.length) {
         return labels[index];
@@ -9561,25 +10614,203 @@ function validateAxisSettings() {
 	
 
 // Get title / axis labels with fallbacks
+
+/*
+ * Keep the original automatic labels so the chart can
+ * change language without recalculation.
+ *
+ * User-entered and imported labels remain separate.
+ */
+let lastAutoChartDefaults = null;
+
+function translateAutomaticChartLabel(englishText) {
+  const text = String(englishText ?? "");
+
+  const keys = {
+    "Run Chart": "auto.title.run",
+    "X Chart": "auto.title.xmr",
+    "C chart": "auto.title.c",
+    "P chart": "auto.title.p",
+    "P′ chart": "auto.title.pprime",
+    "U chart": "auto.title.u",
+    "U′ chart": "auto.title.uprime",
+    "T chart": "auto.title.t",
+    "T chart (gaps)": "auto.title.tGaps",
+    "G chart": "auto.title.g",
+    "Pareto chart": "auto.title.pareto",
+    "X̄ chart": "auto.title.xbar",
+    "S chart": "auto.title.s",
+
+    "Date": "auto.axis.date",
+    "Value": "auto.axis.value",
+    "Category": "auto.axis.category",
+    "Count": "auto.axis.count",
+    "Subgroup": "auto.axis.subgroup",
+    "Proportion / %": "auto.axis.proportion",
+    "Rate per opportunity": "auto.axis.rate",
+    "Opportunities between events": "auto.axis.opportunities",
+    "Time between events": "auto.axis.time",
+    "Time between events (days)": "auto.axis.timeDays",
+    "Cumulative %": "auto.axis.cumulative",
+    "S": "auto.axis.s"
+  };
+
+  // U charts may use a selected rate multiplier.
+  const rateMatch =
+    /^Rate per ([\d,.\s]+) opportunities$/.exec(text);
+
+  if (rateMatch) {
+    return chartPanelText(
+      "auto.axis.rateN",
+      text,
+      { n: rateMatch[1] }
+    );
+  }
+
+  const key = keys[text];
+
+  // Preserve anything not recognised as an application default.
+  return key ? chartPanelText(key, text) : text;
+}
+
+
+// Get title / axis labels while protecting custom text.
 function getChartLabels(defaultTitle, defaultX, defaultY) {
+
+  lastAutoChartDefaults = {
+    title: defaultTitle || "",
+    x: defaultX || "",
+    y: defaultY || "",
+    chartType: getSelectedChartType_NoSideEffects()
+  };
+
   if (chartTitleInput && !chartTitleManuallyEdited) {
-    chartTitleInput.value = defaultTitle || "";
+    chartTitleInput.value =
+      translateAutomaticChartLabel(defaultTitle);
   }
 
   if (xAxisLabelInput && !xAxisLabelManuallyEdited) {
-    xAxisLabelInput.value = defaultX || "";
+    xAxisLabelInput.value =
+      translateAutomaticChartLabel(defaultX);
   }
 
   if (yAxisLabelInput && !yAxisLabelManuallyEdited) {
-    yAxisLabelInput.value = defaultY || "";
+    yAxisLabelInput.value =
+      translateAutomaticChartLabel(defaultY);
   }
 
-  const title = chartTitleInput ? chartTitleInput.value.trim() : (defaultTitle || "");
-  const xLabel = xAxisLabelInput ? xAxisLabelInput.value.trim() : (defaultX || "");
-  const yLabel = yAxisLabelInput ? yAxisLabelInput.value.trim() : (defaultY || "");
+  const title = chartTitleInput
+    ? chartTitleInput.value.trim()
+    : translateAutomaticChartLabel(defaultTitle);
+
+  const xLabel = xAxisLabelInput
+    ? xAxisLabelInput.value.trim()
+    : translateAutomaticChartLabel(defaultX);
+
+  const yLabel = yAxisLabelInput
+    ? yAxisLabelInput.value.trim()
+    : translateAutomaticChartLabel(defaultY);
 
   return { title, xLabel, yLabel };
 }
+
+
+function refreshAutomaticChartLabelsLanguage() {
+  if (!currentChart || !lastAutoChartDefaults) return;
+
+  const defaults = lastAutoChartDefaults;
+
+  // MAIN CHART TITLE
+  if (!chartTitleManuallyEdited) {
+    const title =
+      translateAutomaticChartLabel(defaults.title);
+
+    if (chartTitleInput) {
+      chartTitleInput.value = title;
+    }
+
+    if (currentChart.options?.plugins?.title) {
+      currentChart.options.plugins.title.text = title;
+    }
+  }
+
+  // MAIN X-AXIS LABEL
+  if (!xAxisLabelManuallyEdited) {
+    const label =
+      translateAutomaticChartLabel(defaults.x);
+
+    if (xAxisLabelInput) {
+      xAxisLabelInput.value = label;
+    }
+
+    if (currentChart.options?.scales?.x?.title) {
+      currentChart.options.scales.x.title.text = label;
+    }
+  }
+
+  // MAIN Y-AXIS LABEL
+  if (!yAxisLabelManuallyEdited) {
+    const label =
+      translateAutomaticChartLabel(defaults.y);
+
+    if (yAxisLabelInput) {
+      yAxisLabelInput.value = label;
+    }
+
+    if (currentChart.options?.scales?.y?.title) {
+      currentChart.options.scales.y.title.text = wrapYAxisTitle(label);
+    }
+  }
+
+  // PARETO SECONDARY PERCENTAGE AXIS
+  if (
+    defaults.chartType === "pareto" &&
+    currentChart.options?.scales?.y1?.title
+  ) {
+    currentChart.options.scales.y1.title.text =
+      translateAutomaticChartLabel("Cumulative %");
+  }
+
+  // X-BAR / S SECONDARY CHART
+  if (defaults.chartType === "xbars" && mrChart) {
+
+    if (
+      !chartTitleManuallyEdited &&
+      mrChart.options?.plugins?.title
+    ) {
+      mrChart.options.plugins.title.text =
+        translateAutomaticChartLabel("S chart");
+    }
+
+    if (
+      !xAxisLabelManuallyEdited &&
+      mrChart.options?.scales?.x?.title
+    ) {
+      mrChart.options.scales.x.title.text =
+        translateAutomaticChartLabel("Subgroup");
+    }
+
+    if (
+      !yAxisLabelManuallyEdited &&
+      mrChart.options?.scales?.y?.title
+    ) {
+      mrChart.options.scales.y.title.text =
+        translateAutomaticChartLabel("S");
+    }
+
+    mrChart.update("none");
+  }
+
+
+  // Redraw presentation only.
+  // Do not rerun SPC calculations.
+  currentChart.update("none");
+}
+
+document.addEventListener(
+  "simplespc:languagechange",
+  refreshAutomaticChartLabelsLanguage
+);
 
 
 function populateAnnotationDateOptions(labels) {
@@ -9634,12 +10865,21 @@ function editAnnotationAtIndex(idx) {
   if (!Number.isInteger(idx) || idx < 0 || idx >= annotations.length) return false;
 
   const current = annotations[idx];
-  const nextText = prompt(`Edit annotation for ${current.date}:`, current.label);
+  
+const nextText = prompt(
+  chartPanelText(
+    "dialog.editAnnotationFor",
+    `Edit annotation for ${current.date}:`,
+    { label: current.date }
+  ),
+  current.label
+);
+
   if (nextText === null) return false;
 
   const trimmed = String(nextText).trim();
   if (!trimmed) {
-    alert("Annotation text cannot be blank.");
+    alert(chartPanelText("dialog.annotationBlank", "Annotation text cannot be blank."));
     return false;
   }
 
@@ -9691,18 +10931,34 @@ function chooseAnnotationAtDate(xVal, mode) {
     .map((a, i) => `${i + 1}. ${a.label}`)
     .join("\n");
 
-  const answer = prompt(
-    `${mode === "edit" ? "Edit which annotation?" : "Delete which annotation?"}\n\n` +
-    `Annotations at ${xVal}:\n\n${numbered}\n\n` +
+  
+  const question = mode === "edit"
+    ? chartPanelText("dialog.editWhich", "Edit which annotation?")
+    : chartPanelText("dialog.deleteWhich", "Delete which annotation?");
+
+  const heading = chartPanelText(
+    "dialog.annotationsAt",
+    `Annotations at ${xVal}:`,
+    { label: xVal }
+  );
+
+  const chooseNumber = chartPanelText(
+    "dialog.chooseNumber",
     `Type a number from 1 to ${existing.length}:`,
+    { count: existing.length }
+  );
+
+  const answer = prompt(
+    `${question}\n\n${heading}\n\n${numbered}\n\n${chooseNumber}`,
     "1"
   );
+
 
   if (answer === null) return null;
 
   const n = Number(answer);
   if (!Number.isInteger(n) || n < 1 || n > existing.length) {
-    alert("Please enter a valid number.");
+    alert(chartPanelText("dialog.invalidNumber", "Please enter a valid number."));
     return null;
   }
 
@@ -9725,31 +10981,14 @@ function buildAnnotationConfig(labels) {
     .filter(a => a.xIndex >= 0)
     .sort((a, b) => a.xIndex - b.xIndex);
 
-  const laneLastEnd = [];
-
+    // All annotations now share one vertical starting position.
+  // Manually dragged offsets are retained.
   items.forEach((a) => {
     const wrapped = wrapAnnotationText(a.label, 24);
-    const longest = wrapped.reduce((m, l) => Math.max(m, l.length), 0);
 
-    const span = Math.max(1, Math.ceil(longest / 7));
-
-    let lane = 0;
-    while (laneLastEnd[lane] !== undefined && a.xIndex <= laneLastEnd[lane]) {
-      lane++;
-    }
-    laneLastEnd[lane] = a.xIndex + span;
-
-    const level = Math.floor(lane / 2);
-    const above = lane % 2 === 0;
-
-    // Small offsets only, unless the user has dragged the label
-	const defaultYAdjust = above
-	  ? -(4 + level * 10)
-	  : (4 + level * 10);
-
-	const yAdjust = Number.isFinite(a.yAdjust)
-	  ? a.yAdjust
-	  : defaultYAdjust;
+    const yAdjust = Number.isFinite(a.yAdjust)
+      ? a.yAdjust
+      : 0;
 
     cfg["annot" + a._idx] = {
       type: "line",
@@ -9773,7 +11012,7 @@ function buildAnnotationConfig(labels) {
         },
 
         // Keep labels near the ends of the annotation line
-        position: above ? "end" : "start",
+        position: "center",
 
         yAdjust: yAdjust,
         textAlign: "left"
@@ -9789,10 +11028,52 @@ const draggableAnnotationLabelsPlugin = {
 
   afterInit(chart) {
        const canvas = chart.canvas;
-    if (!canvas) return;
+        if (!canvas) return;
+
+    // Remove this chart's drag listeners when it is destroyed.
+    const dragEvents = new AbortController();
+    chart.$annotationDragEvents = dragEvents;
 
     let drag = null;
 
+// Find the actual rendered position of an annotation label.
+function getRenderedAnnotationLabelBounds(index) {
+  const id = "annot" + index;
+
+  let plugin;
+
+  try {
+    plugin = Chart.registry?.getPlugin?.("annotation");
+  } catch (_) {
+    return null;
+  }
+
+  const elements = plugin?.getAnnotations?.(chart);
+
+  if (!Array.isArray(elements)) return null;
+
+  const element = elements.find(el =>
+    el?.$context?.id === id ||
+    el?.options?.id === id ||
+    el?.id === id
+  );
+
+  const label = element?.label;
+
+  if (
+    !label ||
+    !Number.isFinite(label.y) ||
+    !Number.isFinite(label.height) ||
+    label.height <= 0
+  ) {
+    return null;
+  }
+
+  return {
+    top: label.y,
+    bottom: label.y + label.height
+  };
+}
     
     function getHitAnnotation(event) {
       // Pareto charts do not support draggable user annotations.
@@ -9835,70 +11116,124 @@ const draggableAnnotationLabelsPlugin = {
 
       event.preventDefault();
 
-      drag = {
-        index: hitIndex,
-        startY: event.clientY,
-        startAdjust: Number.isFinite(annotations[hitIndex].yAdjust)
-          ? annotations[hitIndex].yAdjust
-          : 0
-      };
+      const label = buildAnnotationConfig(chart.data.labels)[
+  "annot" + hitIndex
+]?.label;
 
-      canvas.setPointerCapture(event.pointerId);
-      canvas.style.cursor = "ns-resize";
-    });
 
-    canvas.addEventListener("pointermove", (event) => {
-      if (!Array.isArray(annotations)) return;
+drag = {
+  index: hitIndex,
+  startY: event.clientY,
+  startAdjust: Number(label?.yAdjust) || 0
+};
 
-      if (drag) {
-        const deltaY = event.clientY - drag.startY;
-
-        const chartTopLimit = chart.chartArea.top +10;
-const chartBottomLimit = chart.chartArea.bottom -10;
-
-const proposedAdjust = drag.startAdjust + deltaY;
-
-const annotationConfig = buildAnnotationConfig(chart.data.labels);
-const thisConfig = annotationConfig["annot" + drag.index];
-const position = thisConfig?.label?.position || "end";
-
-let proposedY = position === "start"
-  ? chart.chartArea.bottom + proposedAdjust
-  : chart.chartArea.top + proposedAdjust;
-
-if (proposedY < chartTopLimit) {
-  proposedY = chartTopLimit;
+// Capture the pointer while dragging.
+try {
+  canvas.setPointerCapture(event.pointerId);
+} catch (_) {
+  // Some browsers may not support pointer capture.
 }
 
-if (proposedY > chartBottomLimit) {
-  proposedY = chartBottomLimit;
+canvas.style.cursor = "ns-resize";
+
+}, { signal: dragEvents.signal });
+
+// Mouse movement must have its own event listener.
+canvas.addEventListener("pointermove", (event) => {
+  if (drag) {
+
+  const area = chart.chartArea;
+  const rect = canvas.getBoundingClientRect();
+
+  if (!area || rect.height <= 0) return;
+
+  const label = buildAnnotationConfig(chart.data.labels)[
+    "annot" + drag.index
+  ]?.label;
+
+  if (!label) return;
+
+  // Measure the vertical space required by this label.
+  const lineCount = Array.isArray(label.content)
+    ? Math.max(1, label.content.length)
+    : 1;
+
+  const fontSize = Number(label.font?.size) || 10;
+
+  const lineHeight =
+    Number(Chart.helpers?.toFont?.(label.font)?.lineHeight) ||
+    fontSize * 1.2;
+
+  const padding = label.padding;
+
+  const padTop = typeof padding === "number"
+    ? padding
+    : (Number(padding?.top) || 0);
+
+  const padBottom = typeof padding === "number"
+    ? padding
+    : (Number(padding?.bottom) || 0);
+
+  const border = Number(label.borderWidth) || 0;
+
+  const halfHeight =
+    (lineCount * lineHeight +
+      padTop + padBottom + 2 * border) / 2;
+
+  // Every annotation is anchored at the chart centre.
+  // Keep its complete box within the plotting area.
+  const plotHeight = area.bottom - area.top;
+  const margin = 3;
+
+  const maxAdjust = Math.max(
+    0,
+    plotHeight / 2 - halfHeight - margin
+  );
+
+  // Convert pointer movement to chart pixels.
+  const scaleY = chart.height / rect.height;
+
+  const deltaY =
+    (event.clientY - drag.startY) * scaleY;
+
+  const proposedAdjust =
+    drag.startAdjust + deltaY;
+
+  annotations[drag.index].yAdjust = Math.max(
+    -maxAdjust,
+    Math.min(maxAdjust, proposedAdjust)
+  );
+
+  redraw();
+
+  canvas.style.cursor = "ns-resize";
+  return;
 }
 
-annotations[drag.index].yAdjust = position === "start"
-  ? proposedY - chart.chartArea.bottom
-  : proposedY - chart.chartArea.top;
 
-        redraw();
-        canvas.style.cursor = "ns-resize";
-        return;
-      }
+            canvas.style.cursor = getHitAnnotation(event) !== null ? "ns-resize" : "";
+    }, { signal: dragEvents.signal });
 
-      canvas.style.cursor = getHitAnnotation(event) !== null ? "ns-resize" : "";
-    });
-
-    canvas.addEventListener("pointerup", () => {
+        canvas.addEventListener("pointerup", () => {
       drag = null;
       canvas.style.cursor = "";
-    });
+    }, { signal: dragEvents.signal });
 
     canvas.addEventListener("pointercancel", () => {
       drag = null;
       canvas.style.cursor = "";
-    });
+    }, { signal: dragEvents.signal });
 
     canvas.addEventListener("pointerleave", () => {
       if (!drag) canvas.style.cursor = "";
-    });
+    }, { signal: dragEvents.signal });
+  },
+
+  // Chart.js calls this when a chart is destroyed.
+  // Prevent old chart instances from handling future drags.
+  afterDestroy(chart) {
+    chart.$annotationDragEvents?.abort();
+    delete chart.$annotationDragEvents;
   }
 };
 
@@ -9939,10 +11274,39 @@ function updateDataEditorWorkbookUi() {
   }
 
   if (statusText) {
-    statusText.innerHTML =
-      `Workbook loaded. You can switch worksheet here, trim rows/columns in the grid, and then click <strong>Apply data</strong>.`;
+    
+statusText.innerHTML = chartPanelText(
+  "editor.workbookStatus",
+  "Workbook loaded. You can switch worksheet here, trim rows/columns in the grid, and then click <strong>Apply data</strong>."
+);
+
   }
 }
+
+
+document.addEventListener("simplespc:languagechange", () => {
+  // Refresh the last displayed header message without
+  // re-running header detection or changing its checkbox.
+  const kind =
+    dataEditorHeaderStatus?.dataset.editorMessageKind;
+
+  if (kind) {
+    showDataEditorHeaderMessage(kind);
+  }
+
+  // Refresh the Excel workbook guidance without rebuilding
+  // the worksheet dropdown or changing the selected sheet.
+  const statusText =
+    document.getElementById("dataEditorWorkbookStatusText");
+
+  if (statusText && dataEditorSourceMode === "excel") {
+    statusText.innerHTML = chartPanelText(
+      "editor.workbookStatus",
+      "Workbook loaded. You can switch worksheet here, trim rows/columns in the grid, and then click <strong>Apply data</strong>."
+    );
+  }
+});
+
 
 function worksheetToEditorGrid(worksheet) {
   if (!worksheet) {
@@ -10213,7 +11577,7 @@ if (dataEditorApplyButton) {
 
     try {
       if (!dataEditorGrid) {
-        showError("Spreadsheet editor not initialised. Try reopening the editor.");
+        showError(chartPanelText("editor.notInitialised", "Spreadsheet editor not initialised. Try reopening the editor."));
         return;
       }
 
@@ -10225,7 +11589,7 @@ if (dataEditorApplyButton) {
       );
 
       if (nonBlank.length === 0) {
-        showError("Please enter at least one data row.");
+        showError(chartPanelText("editor.enterRow", "Please enter at least one data row."));
         return;
       }
 
@@ -10235,9 +11599,17 @@ if (dataEditorApplyButton) {
 // Safety: warn if checkbox disagrees with auto-detect
 const autoGuess = detectHeadersFromGrid();
 if (useHeaders !== autoGuess) {
-  const msg = useHeaders
-    ? "You have 'First row contains headers' ticked, but the first row looks like DATA.\n\nApply anyway?"
-    : "You have 'First row contains headers' unticked, but the first row looks like HEADERS.\n\nApply anyway?";
+  
+const msg = useHeaders
+  ? chartPanelText(
+      "editor.headerMismatchChecked",
+      "You have 'First row contains headers' ticked, but the first row looks like DATA.\n\nApply anyway?"
+    )
+  : chartPanelText(
+      "editor.headerMismatchUnchecked",
+      "You have 'First row contains headers' unticked, but the first row looks like HEADERS.\n\nApply anyway?"
+    );
+
 
   if (!confirm(msg)) {
     // Keep modal open; let them correct the checkbox
@@ -10274,7 +11646,7 @@ if (useHeaders !== autoGuess) {
 
       const rows = sheetToObjects(headers, body);
 if (!rows || rows.length === 0) {
-  showError("Paste at least one row of data.");
+  showError(chartPanelText("editor.pasteRow", "Paste at least one row of data."));
   return;
 }
 
@@ -10327,7 +11699,9 @@ loadedOk = true;
 
     } catch (e) {
       console.error(e);
-      if (!loadedOk) showError("Unexpected error reading spreadsheet data.");
+      if (!loadedOk) {
+  showError(chartPanelText("editor.readError", "Unexpected error reading spreadsheet data."));
+}
       else clearError();
     }
   });
@@ -10621,6 +11995,76 @@ function findShiftWindow(values, cl, shiftLength) {
   return null;
 }
 
+
+// Identify every sustained run on one side of the centre line.
+// Include all points in each qualifying run.
+function findShiftRanges(values, cl, shiftLength) {
+  const ranges = [];
+  let runStart = 0;
+  let previousSide = 0;
+
+  for (let i = 0; i <= values.length; i++) {
+    const value = values[i];
+    const centre = Array.isArray(cl) ? cl[i] : cl;
+
+    const side =
+      i < values.length &&
+      Number.isFinite(value) &&
+      Number.isFinite(centre)
+        ? (value > centre ? 1 : value < centre ? -1 : 0)
+        : 0;
+
+    if (side === previousSide) continue;
+
+    if (previousSide !== 0 && i - runStart >= shiftLength) {
+      ranges.push({
+        start: runStart,
+        end: i - 1,
+        side: previousSide
+      });
+    }
+
+    runStart = i;
+    previousSide = side;
+  }
+
+  return ranges;
+}
+
+// Find all complete increasing and decreasing trends.
+// Include every point in each qualifying trend.
+function findAllTrendRangesForSignals(values, trendLength) {
+  const ranges = [];
+  let start = 0;
+  let direction = 0;
+
+  for (let i = 1; i <= values.length; i++) {
+    const previous = values[i - 1];
+    const current = values[i];
+
+    const step =
+      i < values.length &&
+      Number.isFinite(previous) &&
+      Number.isFinite(current)
+        ? (current > previous ? 1 : current < previous ? -1 : 0)
+        : 0;
+
+    if (step !== 0 && step === direction) continue;
+
+    if (direction !== 0 && i - start >= trendLength) {
+      ranges.push({
+        start,
+        end: i - 1,
+        direction: direction > 0 ? "up" : "down"
+      });
+    }
+
+    direction = step;
+    start = step === 0 ? i : i - 1;
+  }
+
+  return ranges;
+}
 
 function findTrendWindow(values, trendLength) {
   let inc = 1;
@@ -10926,97 +12370,63 @@ function analyzeAttributeChart({
     }
   }
 
-  // 2) Shift / run
-  let shiftWindow =
-    null;
+    // 2) Shift / run: identify every qualifying shift
+  let shiftRanges = [];
 
-  if (
-    rs.allowRunShift &&
-    hasFiniteCentreLine
-  ) {
-    shiftWindow =
-      findShiftWindow(
-        analysisValues,
-        clArr,
-        rs.shiftLength
-      );
+  if (rs.allowRunShift && hasFiniteCentreLine) {
+    shiftRanges = findShiftRanges(
+      analysisValues,
+      clArr,
+      rs.shiftLength
+    );
 
-    if (shiftWindow) {
-      const sideText =
-        shiftWindow.side > 0
-          ? "above"
-          : "below";
+    shiftRanges.forEach(range => {
+      const sideText = range.side > 0 ? "above" : "below";
 
       const aLab =
-        labels
-          ?.[shiftWindow.start] ??
-        `point ${
-          shiftWindow.start +
-          1
-        }`;
+        labels?.[range.start] ?? `point ${range.start + 1}`;
 
       const bLab =
-        labels
-          ?.[shiftWindow.end] ??
-        `point ${
-          shiftWindow.end +
-          1
-        }`;
+        labels?.[range.end] ?? `point ${range.end + 1}`;
 
       signals.push(
         `Shift: ${rs.shiftLength}+ points in a row ${sideText} the centre line (from ${aLab} to ${bLab})`
       );
-    }
+    });
   }
 
-  // 3) Trend
-  let trendWindow =
-    null;
+    // 3) Trend: identify all qualifying stretches, not only the first.
+  const trendRanges = rs.allowTrend
+    ? findAllTrendRangesForSignals(analysisValues, rs.trendLength)
+    : [];
 
-  if (rs.allowTrend) {
-    trendWindow =
-      findTrendWindow(
-        analysisValues,
-        rs.trendLength
-      );
+  trendRanges.forEach(range => {
+    const direction =
+      range.direction === "up" ? "increasing" : "decreasing";
 
-    if (trendWindow) {
-      const dirText =
-        trendWindow.direction ===
-        "up"
-          ? "increasing"
-          : "decreasing";
+    const first =
+      labels?.[range.start] ?? `point ${range.start + 1}`;
 
-      const aLab =
-        labels
-          ?.[trendWindow.start] ??
-        `point ${
-          trendWindow.start +
-          1
-        }`;
+    const last =
+      labels?.[range.end] ?? `point ${range.end + 1}`;
 
-      const bLab =
-        labels
-          ?.[trendWindow.end] ??
-        `point ${
-          trendWindow.end +
-          1
-        }`;
-
-      signals.push(
-        `Trend: ${rs.trendLength}+ points steadily ${dirText} (from ${aLab} to ${bLab})`
-      );
-    }
-  }
+    signals.push(
+      `Trend: ${rs.trendLength}+ points steadily ${direction} (from ${first} to ${last})`
+    );
+  });
 
   // 4) Zone rules
   let zone23Flags =
     new Array(n)
       .fill(false);
 
-  let zone45Flags =
+    let zone45Flags =
     new Array(n)
       .fill(false);
+
+  // Keep the exact windows that produced the chart's zone-rule flags.
+  let zone23Hits = [];
+  let zone45Hits = [];
 
   if (
     (
@@ -11077,9 +12487,11 @@ function analyzeAttributeChart({
           twoDown
         );
 
-      zone23Flags =
+            zone23Flags =
         res23.flags ||
         zone23Flags;
+
+      zone23Hits = Array.isArray(res23.hits) ? res23.hits : [];
 
       if (
         res23.hits &&
@@ -11118,9 +12530,11 @@ function analyzeAttributeChart({
           oneDown
         );
 
-      zone45Flags =
+            zone45Flags =
         res45.flags ||
         zone45Flags;
+
+      zone45Hits = Array.isArray(res45.hits) ? res45.hits : [];
 
       if (
         res45.hits &&
@@ -11168,39 +12582,21 @@ function analyzeAttributeChart({
     }
   );
 
-  const shiftFlags =
-    new Array(n)
-      .fill(false);
+    const shiftFlags = new Array(n).fill(false);
 
-  if (shiftWindow) {
-    for (
-      let i =
-        shiftWindow.start;
-      i <=
-        shiftWindow.end;
-      i++
-    ) {
-      shiftFlags[i] =
-        true;
+  shiftRanges.forEach(range => {
+    for (let i = range.start; i <= range.end; i++) {
+      shiftFlags[i] = true;
     }
-  }
+  });
 
-  const trendFlags =
-    new Array(n)
-      .fill(false);
+    const trendFlags = new Array(n).fill(false);
 
-  if (trendWindow) {
-    for (
-      let i =
-        trendWindow.start;
-      i <=
-        trendWindow.end;
-      i++
-    ) {
-      trendFlags[i] =
-        true;
+  trendRanges.forEach(range => {
+    for (let i = range.start; i <= range.end; i++) {
+      trendFlags[i] = true;
     }
-  }
+  });
 
   const specialFlags =
     new Array(n)
@@ -11225,8 +12621,18 @@ function analyzeAttributeChart({
     isStable:
       signals.length === 0,
 
-    signals,
+        signals,
     outOfControl,
+
+    // Structured matches use local, zero-based indices within this period.
+    // These are the SAME results used to colour the chart points.
+    ruleMatches: {
+      beyond: outOfControl,
+      shifts: shiftRanges,
+      trends: trendRanges,
+      zone23: zone23Hits,
+      zone45: zone45Hits
+    },
 
     shiftLength:
       rs.shiftLength,
@@ -11281,7 +12687,489 @@ function analyzeRareChart({ chartType, labels, values, cl, ucl, lcl }) {
   return analyzeAttributeChart({ chartType, labels, values, cl, ucl, lcl });
 }
 
+
+/*
+ * Statistical summary translation — introductory text only.
+ *
+ * Each generated span stores a translation key.
+ * Its text can then change without regenerating the
+ * summary, reanalysing the data or replacing numbers.
+ */
+function summaryUiText(key, englishFallback) {
+  return (
+    `<span data-summary-i18n="${key}">` +
+    chartPanelText(key, englishFallback) +
+    `</span>`
+  );
+}
+
+
+// Build a translated summary heading.
+function summaryHeading(chartType, englishChartName) {
+  const specialName =
+    chartType === "run" || chartType === "xmr";
+
+  const chartKey = specialName
+    ? "summary.chart." + chartType
+    : "explainer.chart." + chartType;
+
+  return (
+    `<h3>` +
+    summaryUiText("summary.heading", "Summary") +
+    ` (` +
+    summaryUiText(chartKey, englishChartName) +
+    `)</h3>`
+  );
+}
+
+
+// Build the introductory observation and period counts.
+//
+// basis:
+// "baseline" = reference period and splits
+// "splits"   = splits only, when more than one period
+function summaryOpening(
+  totalPoints,
+  periodCount,
+  options = {}
+) {
+  const countType =
+    options.countType === "subgroups"
+      ? "subgroups"
+      : "points";
+
+  const basis = options.basis || "baseline";
+
+  let html = "<p>";
+
+  if (Number.isFinite(totalPoints)) {
+    const labelKey = countType === "subgroups"
+      ? "summary.totalSubgroups"
+      : "summary.totalPoints";
+
+    const fallback = countType === "subgroups"
+      ? "Total number of subgroups:"
+      : "Total number of points:";
+
+    html += summaryUiText(labelKey, fallback);
+    html += ` <strong>${totalPoints}</strong>. `;
+  }
+
+  html += summaryUiText(
+    "summary.divided",
+    "The chart is divided into"
+  );
+
+  html += ` <strong>${periodCount}</strong> `;
+
+  html += periodCount === 1
+    ? summaryUiText("summary.period", "period")
+    : summaryUiText("summary.periods", "periods");
+
+  if (basis === "baseline") {
+    html += " " + summaryUiText(
+      "summary.basedBaseline",
+      "(based on the baseline and any splits)."
+    );
+
+  } else if (periodCount > 1) {
+    html += " " + summaryUiText(
+      "summary.basedSplits",
+      "(based on your splits)."
+    );
+
+  } else {
+    html += ".";
+  }
+
+  html += "</p>";
+
+  return html;
+}
+
+
+/*
+ * Bilingual period headings.
+ * The period number and optional coverage stay unchanged.
+ */
+function summaryPeriodHeading(index, total, options = {}) {
+  let heading = "";
+
+  if (total === 1 && !options.alwaysNumbered) {
+    heading = summaryUiText(
+      "summary.singlePeriod",
+      "Single period"
+    );
+  } else {
+    heading =
+      summaryUiText("summary.periodLabel", "Period") +
+      " " + (index + 1);
+
+    if (options.initial && index === 0 && total > 1) {
+      heading += " " + summaryUiText(
+        "summary.initialSegment",
+        "(initial segment / baseline)"
+      );
+    }
+
+    if (options.alwaysNumbered) {
+      heading += " " +
+        summaryUiText("summary.of", "of") +
+        " " + total;
+    }
+  }
+
+  if (options.coverage) {
+    heading += ": " + options.coverage;
+  }
+
+  return `<h4>${heading}</h4>`;
+}
+
+
+/*
+ * Coverage row.
+ * rangeMarkup holds the existing point/date description,
+ * preserving its bold formatting and original values.
+ */
+function summaryCoverageRow(rangeMarkup, pointCount) {
+  const unit = pointCount === 1
+    ? summaryUiText("summary.point", "point")
+    : summaryUiText("summary.points", "points");
+
+  const rangePart = rangeMarkup
+    ? " " + rangeMarkup + " –"
+    : "";
+
+  return (
+    "<li>" +
+    summaryUiText("summary.coverage", "Coverage:") +
+    rangePart +
+    " " + pointCount + " " + unit +
+    ".</li>"
+  );
+}
+
+
+// Refresh existing summary text when language changes.
+//
+// This updates only marked spans. All numerical values,
+// user labels, analyses and surrounding HTML are preserved.
+
+function refreshSummaryLanguage() {
+  // Update both the detailed summary and the capability badge.
+  // Only translated text spans are changed.
+  [summaryDiv, capabilityDiv].forEach(root => {
+    if (!root) return;
+
+    root.querySelectorAll("[data-summary-i18n]")
+      .forEach(element => {
+        const key =
+          element.getAttribute("data-summary-i18n");
+
+        if (key) {
+          element.textContent = chartPanelText(
+            key,
+            element.textContent
+          );
+        }
+      });
+  });
+}
+
+
+document.addEventListener(
+  "simplespc:languagechange",
+  refreshSummaryLanguage
+);
+
+
+
+/*
+ * Translate attribute-chart signal descriptions for display.
+ *
+ * Preserve a.signals and the detection engine's original
+ * English messages. Point numbers, dates and thresholds
+ * are kept as supplied by the analysis.
+ */
+function attributeSignalDisplayHtml(signal) {
+  const text = String(signal ?? "");
+
+  const fixedMessages = {
+    "One or more points above the upper limit":
+      "summary.attr.signalAbove",
+    "One or more points below the lower limit":
+      "summary.attr.signalBelow"
+  };
+
+  if (fixedMessages[text]) {
+    return summaryUiText(fixedMessages[text], text);
+  }
+
+  // Shift: threshold, side and original date/point range.
+  const shift =
+    /^Shift: (\d+)\+ points in a row (above|below) the centre line \(from (.+?) to (.+)\)$/
+      .exec(text);
+
+  if (shift) {
+    const above = shift[2] === "above";
+
+    return (
+      summaryUiText("summary.attr.shiftName", "Shift") +
+      `: ${shift[1]}+ ` +
+      (
+        above
+          ? summaryUiText(
+              "summary.attr.shiftAbove",
+              "points in a row above the centre line (from"
+            )
+          : summaryUiText(
+              "summary.attr.shiftBelow",
+              "points in a row below the centre line (from"
+            )
+      ) +
+      ` ${escapeHtml(shift[3])} ` +
+      summaryUiText("summary.to", "to") +
+      ` ${escapeHtml(shift[4])})`
+    );
+  }
+
+  // Trend: threshold, direction and original range.
+  const trend =
+    /^Trend: (\d+)\+ points steadily (increasing|decreasing) \(from (.+?) to (.+)\)$/
+      .exec(text);
+
+  if (trend) {
+    const increasing = trend[2] === "increasing";
+
+    return (
+      summaryUiText("summary.attr.trendName", "Trend") +
+      `: ${trend[1]}+ ` +
+      (
+        increasing
+          ? summaryUiText(
+              "summary.attr.trendIncreasing",
+              "points steadily increasing (from"
+            )
+          : summaryUiText(
+              "summary.attr.trendDecreasing",
+              "points steadily decreasing (from"
+            )
+      ) +
+      ` ${escapeHtml(trend[3])} ` +
+      summaryUiText("summary.to", "to") +
+      ` ${escapeHtml(trend[4])})`
+    );
+  }
+
+  // Optional zone rules.
+  const zones = [
+    {
+      pattern:
+        /^Zone: 2 of 3 points in the outer third \(from (.+?) to (.+)\)$/,
+      key: "summary.attr.zone23",
+      fallback: "Zone: 2 of 3 points in the outer third (from"
+    },
+    {
+      pattern:
+        /^Zone: 4 of 5 points beyond 1-sigma \(from (.+?) to (.+)\)$/,
+      key: "summary.attr.zone45",
+      fallback: "Zone: 4 of 5 points beyond 1-sigma (from"
+    }
+  ];
+
+  for (const zone of zones) {
+    const match = zone.pattern.exec(text);
+
+    if (match) {
+      return (
+        summaryUiText(zone.key, zone.fallback) +
+        ` ${escapeHtml(match[1])} ` +
+        summaryUiText("summary.to", "to") +
+        ` ${escapeHtml(match[2])})`
+      );
+    }
+  }
+
+  // Unknown messages remain unchanged rather than being
+  // incorrectly translated.
+  return escapeHtml(text);
+}
+
+
+
+function renderLaneySummaryText(chartType, st, fmt) {
+  const isP = chartType === "p" || chartType === "pprime";
+  const isU = chartType === "u" || chartType === "uprime";
+  if (!isP && !isU) return "";
+
+  const family = isP ? "p" : "u";
+  const t = summaryUiText;
+
+  // English fallback wording from the existing summary.
+  const english = {
+    p: {
+      suggest: "P′ may be a better fit for these data.",
+      over: "The proportions vary more from point to point than a standard P chart expects for these sample sizes. This can make a standard P chart produce limits that are too narrow and create extra alerts. A P′ chart adjusts the limits for this extra variation while keeping the same proportions and centre line.",
+      under: "The proportions vary less from point to point than a standard P chart expects. This can make standard P-chart limits too wide and make genuine changes harder to detect. A P′ chart adjusts the limits to better match the variation actually seen in the data.",
+      normalTitle: "A standard P chart looks appropriate for these data.",
+      normal: "The amount of variation is within the range expected for proportion data of these sample sizes, so there is no clear reason to use a P′ chart instead.",
+      primeOver: "These data vary more than a standard P chart expects, so the P′ chart uses wider control limits.",
+      primeUnder: "These data vary less than a standard P chart expects, so the P′ chart uses narrower control limits.",
+      primeNormal: "The amount of variation is very close to what a standard P chart expects, so the adjustment is small."
+    },
+    u: {
+      suggest: "U′ may be a better fit for these data.",
+      over: "The rates vary more from point to point than a standard U chart expects for the amount of opportunity. This can make a standard U chart produce limits that are too narrow and create extra alerts. A U′ chart adjusts the limits for this extra variation while keeping the same rates and centre line.",
+      under: "The rates vary less from point to point than a standard U chart expects. This can make standard U-chart limits too wide and make genuine changes harder to detect. A U′ chart adjusts the limits to better match the variation actually seen in the data.",
+      normalTitle: "A standard U chart looks appropriate for these data.",
+      normal: "The amount of variation is within the range expected for defect-rate data, so there is no clear reason to use a U′ chart instead.",
+      primeOver: "These data vary more than a standard U chart expects, so the U′ chart uses wider control limits.",
+      primeUnder: "These data vary less than a standard U chart expects, so the U′ chart uses narrower control limits.",
+      primeNormal: "The amount of variation is very close to what a standard U chart expects, so the adjustment is small."
+    }
+  }[family];
+
+  // Standard P and U: retain the existing diagnostic status.
+  if (chartType === "p" || chartType === "u") {
+    const d = st?.dispersionDiagnostic;
+    if (!d?.ok) return "";
+
+    const status = d.status === "overdispersed"
+      ? "over"
+      : d.status === "underdispersed"
+        ? "under"
+        : "normal";
+
+    const headingPart =
+      status === "normal" ? "normalTitle" : "suggest";
+
+    let html =
+      `<li><strong>` +
+      t(
+        `summary.laney.${family}.${headingPart}`,
+        english[headingPart]
+      ) +
+      `</strong> ` +
+      t(
+        `summary.laney.${family}.${status}`,
+        english[status]
+      );
+
+    // Preserve the existing diagnostic formatting.
+    const ratioText = Number(d.ratio).toFixed(1);
+    const lowerText = Number(d.lowerLimit).toFixed(1);
+    const upperText = Number(d.upperLimit).toFixed(1);
+
+    html +=
+      `<div style="margin-top:0.45rem; font-size:0.92em;">` +
+      `<strong>` +
+      t("summary.laney.technicalCheck", "Technical check") +
+      `:</strong> ` +
+      t("summary.laney.observedVariation", "observed variation") +
+      ` = ${ratioText}% ` +
+      t("summary.laney.ofExpected", "of expected") +
+      `; `;
+
+    if (status === "over") {
+      html +=
+        t(
+          "summary.laney.diagnosticUpper",
+          "diagnostic upper limit"
+        ) +
+        ` = ${upperText}%.`;
+
+    } else if (status === "under") {
+      html +=
+        t(
+          "summary.laney.diagnosticLower",
+          "diagnostic lower limit"
+        ) +
+        ` = ${lowerText}%.`;
+
+    } else {
+      html +=
+        t("summary.laney.expectedRange", "expected range") +
+        ` = ${lowerText}%–${upperText}%.`;
+    }
+
+    html += `</div>`;
+
+    // Preserve the existing P -> P′ and U -> U′ actions.
+    if (status !== "normal") {
+      const action = isP
+        ? "switchPToPPrime()"
+        : "switchUToUPrime()";
+
+      const buttonKey = isP
+        ? "summary.laney.switchP"
+        : "summary.laney.switchU";
+
+      const fallback = isP
+        ? "Use P′ chart instead"
+        : "Use U′ chart instead";
+
+      html +=
+        `<div style="margin-top:0.55rem;">` +
+        `<button type="button" onclick="${action}">` +
+        t(buttonKey, fallback) +
+        `</button></div>`;
+    }
+
+    return html + `</li>`;
+  }
+
+  // Laney P′ and U′: explain the existing Sigma Z adjustment.
+  if (!Number.isFinite(st?.sigmaZ)) return "";
+
+  const status = st.sigmaZ > 1
+    ? "over"
+    : st.sigmaZ < 1
+      ? "under"
+      : "normal";
+
+  const fallbackKey =
+    "prime" +
+    status[0].toUpperCase() +
+    status.slice(1);
+
+  return (
+    `<li><strong>` +
+    t(
+      "summary.laney.whyDifferent",
+      "Why are these limits different?"
+    ) +
+    `</strong> ` +
+    t(
+      `summary.laney.${family}.prime.${status}`,
+      english[fallbackKey]
+    ) +
+    ` ` +
+    t(
+      "summary.laney.adjustmentBenefit",
+      "This helps the control limits better reflect the amount of variation actually seen in the data."
+    ) +
+    `<div style="margin-top:0.45rem; font-size:0.92em;">` +
+    `<strong>` +
+    t("summary.laney.technicalDetail", "Technical detail") +
+    `:</strong> Sigma Z = ${fmt(st.sigmaZ)}.` +
+    `</div></li>`
+  );
+}
+
+
 function renderAttributeMultiSummary(segmentAnalyses, totalPoints) {
+
+  // Share the existing chart-analysis periods with tooltips.
+  if (currentChart) {
+    currentChart.$spcTooltipPeriods =
+      (segmentAnalyses || []).map(a => ({
+        startIndex: a.startIndex,
+        endIndex: a.endIndex,
+        analysis: a
+      }));
+  }
+
   if (!summaryDiv) return;
 
   const nameMap = {
@@ -11322,36 +13210,56 @@ function renderAttributeMultiSummary(segmentAnalyses, totalPoints) {
         ? "ū"
         : "CL";
 
-  let html =
-    `<h3>Summary (${chartName})</h3>`;
+  
+  let html = summaryHeading(
+    chartType,
+    chartName
+  );
 
-  html +=
-    `<p>Total number of points: <strong>${totalPoints}</strong>. `;
+  html += summaryOpening(
+    totalPoints,
+    segmentAnalyses.length
+  );
 
-  html +=
-    `The chart is divided into <strong>${segmentAnalyses.length}</strong> ` +
-    `period${segmentAnalyses.length !== 1 ? "s" : ""} `;
 
-  html +=
-    `(based on the baseline and any splits).</p>`;
-
+  
   if (isUFamilyChartType(chartType)) {
-    const multiplier =
-      getURateMultiplier();
+    const multiplier = getURateMultiplier();
+
+    html += "<p>";
+
+    html += summaryUiText(
+      "summary.rateIntro",
+      "Rates are displayed per"
+    );
 
     html +=
-      `<p>Rates are displayed per <strong>${formatURateMultiplier(multiplier)}</strong> ` +
-      `${multiplier === 1 ? "opportunity" : "opportunities"}.</p>`;
+      ` <strong>${formatURateMultiplier(multiplier)}</strong> `;
+
+    html += multiplier === 1
+      ? summaryUiText(
+          "summary.opportunity",
+          "opportunity"
+        )
+      : summaryUiText(
+          "summary.opportunities",
+          "opportunities"
+        );
+
+    html += ".</p>";
   }
+
 
   segmentAnalyses.forEach((a, idx) => {
     html +=
       `<div class="pdf-avoid-break">`;
 
-    html +=
-      segmentAnalyses.length > 1
-        ? `<h4>Period ${idx + 1}</h4>`
-        : `<h4>Single period</h4>`;
+    
+    html += summaryPeriodHeading(
+      idx,
+      segmentAnalyses.length
+    );
+
 
     html += `<ul>`;
 
@@ -11367,15 +13275,22 @@ function renderAttributeMultiSummary(segmentAnalyses, totalPoints) {
         a.startIndex +
         1;
 
-      html +=
-        `<li><strong>Coverage:</strong> ` +
-        `<strong>points ${a.startIndex + 1}–${a.endIndex + 1}</strong> ` +
-        `(${a.labelStart} to ${a.labelEnd}) – ${n} points.</li>`;
+      
+      const rangeMarkup =
+        `<strong>` +
+        summaryUiText("summary.points", "points") +
+        ` ${a.startIndex + 1}–${a.endIndex + 1}` +
+        `</strong> ` +
+        `(${a.labelStart} ` +
+        summaryUiText("summary.to", "to") +
+        ` ${a.labelEnd})`;
+
+      html += summaryCoverageRow(rangeMarkup, n);
 
     } else if (a.nPoints != null) {
-      html +=
-        `<li><strong>Coverage:</strong> ${a.nPoints} points.</li>`;
+      html += summaryCoverageRow("", a.nPoints);
     }
+
 
         // Baseline
     if (
@@ -11422,15 +13337,57 @@ function renderAttributeMultiSummary(segmentAnalyses, totalPoints) {
           excludedInBaseline
         );
 
+      
+      const baselineDescription =
+        a.baselineCountUsed === 1
+          ? summaryUiText(
+              "summary.attr.firstOne",
+              "the first point (1) defines the baseline window;"
+            )
+          : (
+              summaryUiText(
+                "summary.attr.firstBefore",
+                "the first"
+              ) +
+              ` <strong>${a.baselineCountUsed}</strong> ` +
+              summaryUiText(
+                "summary.attr.firstAfter",
+                "points define the baseline window;"
+              )
+            );
+
       html +=
-        `<li><strong>Baseline for this period:</strong> ` +
-        `first ${a.baselineCountUsed} points define the baseline window; ` +
-        `${usedInBaseline} used to calculate centre line and limits` +
-        `${
-          excludedInBaseline
-            ? `, ${excludedInBaseline} excluded`
-            : ""
-        }.</li>`;
+        `<li><strong>` +
+        summaryUiText(
+          "summary.attr.baselineTitle",
+          "Baseline for this period"
+        ) +
+        `:</strong> ` +
+        baselineDescription +
+        ` <strong>${usedInBaseline}</strong> ` +
+        summaryUiText(
+          "summary.attr.used",
+          "used to calculate centre line and limits"
+        );
+
+      if (excludedInBaseline > 0) {
+        html +=
+          `, <strong>${excludedInBaseline}</strong> ` +
+          (
+            excludedInBaseline === 1
+              ? summaryUiText(
+                  "summary.attr.excludedOne",
+                  "excluded"
+                )
+              : summaryUiText(
+                  "summary.attr.excludedMany",
+                  "excluded"
+                )
+          );
+      }
+
+      html += `.</li>`;
+
     }
 
     // Stats
@@ -11443,12 +13400,19 @@ function renderAttributeMultiSummary(segmentAnalyses, totalPoints) {
       Number.isFinite(st.cl)
     ) {
       if (a.chartType === "c") {
+        
         html +=
-          `<li><strong>Centre line (${sym(a.chartType)}):</strong> ` +
-          `${fmt(st.cl)}; ` +
-          `<strong>control limits:</strong> ` +
-          `LCL = ${fmt(st.lcl)}, ` +
-          `UCL = ${fmt(st.ucl)}.</li>`;
+          `<li><strong>` +
+          summaryUiText("summary.centreLine", "Centre line") +
+          ` (${sym(a.chartType)}):</strong> ` +
+          `${fmt(st.cl)}; <strong>` +
+          summaryUiText("summary.controlLimits", "control limits") +
+          `:</strong> ` +
+          summaryUiText("summary.lowerLimit", "LCL") +
+          ` = ${fmt(st.lcl)}, ` +
+          summaryUiText("summary.upperLimit", "UCL") +
+          ` = ${fmt(st.ucl)}.</li>`;
+
 
       } else if (
   a.chartType === "p" ||
@@ -11456,17 +13420,31 @@ function renderAttributeMultiSummary(segmentAnalyses, totalPoints) {
   a.chartType === "u" ||
   a.chartType === "uprime"
 ) {
+        
         html +=
-          `<li><strong>Centre line (${sym(a.chartType)}):</strong> ${fmt(st.cl)}; ` +
-          `<strong>control limits:</strong> ` +
-          `LCL = ${fmt(st.lclAvg)} ` +
-          `(range ${fmt(st.lclMin)}–${fmt(st.lclMax)}), ` +
-          `UCL = ${fmt(st.uclAvg)} ` +
-          `(range ${fmt(st.uclMin)}–${fmt(st.uclMax)}).</li>`;
+          `<li><strong>` +
+          summaryUiText("summary.centreLine", "Centre line") +
+          ` (${sym(a.chartType)}):</strong> ${fmt(st.cl)}; ` +
+          `<strong>` +
+          summaryUiText("summary.controlLimits", "control limits") +
+          `:</strong> ` +
+          summaryUiText("summary.lowerLimit", "LCL") +
+          ` = ${fmt(st.lclAvg)} (` +
+          summaryUiText("summary.range", "range") +
+          ` ${fmt(st.lclMin)}–${fmt(st.lclMax)}), ` +
+          summaryUiText("summary.upperLimit", "UCL") +
+          ` = ${fmt(st.uclAvg)} (` +
+          summaryUiText("summary.range", "range") +
+          ` ${fmt(st.uclMin)}–${fmt(st.uclMax)}).</li>`;
+
 
       } else {
+        
         html +=
-          `<li><strong>Centre line:</strong> ${fmt(st.cl)}</li>`;
+          `<li><strong>` +
+          summaryUiText("summary.centreLine", "Centre line") +
+          `:</strong> ${fmt(st.cl)}</li>`;
+
       }
 
     } else {
@@ -11484,204 +13462,25 @@ function renderAttributeMultiSummary(segmentAnalyses, totalPoints) {
             : null;
 
       if (fallbackCL != null) {
+        
         html +=
-          `<li><strong>Centre line:</strong> ${fmt(fallbackCL)}</li>`;
+          `<li><strong>` +
+          summaryUiText("summary.centreLine", "Centre line") +
+          `:</strong> ${fmt(fallbackCL)}</li>`;
+
       }
     }
 
-  if (
-  a.chartType === "u" &&
-  st?.dispersionDiagnostic?.ok
-) {
-  const d =
-    st.dispersionDiagnostic;
+  
+    // Laney diagnostic and adjustment explanations.
+    // Calculations and status decisions remain unchanged.
+    html += renderLaneySummaryText(
+      a.chartType,
+      st,
+      fmt
+    );
 
-  const ratioText =
-    Number(d.ratio).toFixed(1);
 
-  const lowerText =
-    Number(d.lowerLimit).toFixed(1);
-
-  const upperText =
-    Number(d.upperLimit).toFixed(1);
-
-  if (d.status === "overdispersed") {
-    html +=
-      `<li>` +
-      `<strong>U′ may be a better fit for these data.</strong> ` +
-      `The rates vary more from point to point than a standard U chart expects for the amount of opportunity. ` +
-      `This can make a standard U chart produce limits that are too narrow and create extra alerts. ` +
-      `A U′ chart adjusts the limits for this extra variation while keeping the same rates and centre line.` +
-      `<div style="margin-top:0.45rem; font-size:0.92em;">` +
-      `<strong>Technical check:</strong> observed variation = ${ratioText}% of expected; ` +
-      `diagnostic upper limit = ${upperText}%.` +
-      `</div>` +
-      `<div style="margin-top:0.55rem;">` +
-      `<button type="button" onclick="switchUToUPrime()">` +
-      `Use U′ chart instead` +
-      `</button>` +
-      `</div>` +
-      `</li>`;
-
-  } else if (
-    d.status === "underdispersed"
-  ) {
-    html +=
-      `<li>` +
-      `<strong>U′ may be a better fit for these data.</strong> ` +
-      `The rates vary less from point to point than a standard U chart expects. ` +
-      `This can make standard U-chart limits too wide and make genuine changes harder to detect. ` +
-      `A U′ chart adjusts the limits to better match the variation actually seen in the data.` +
-      `<div style="margin-top:0.45rem; font-size:0.92em;">` +
-      `<strong>Technical check:</strong> observed variation = ${ratioText}% of expected; ` +
-      `diagnostic lower limit = ${lowerText}%.` +
-      `</div>` +
-      `<div style="margin-top:0.55rem;">` +
-      `<button type="button" onclick="switchUToUPrime()">` +
-      `Use U′ chart instead` +
-      `</button>` +
-      `</div>` +
-      `</li>`;
-
-  } else {
-    html +=
-      `<li>` +
-      `<strong>A standard U chart looks appropriate for these data.</strong> ` +
-      `The amount of variation is within the range expected for defect-rate data, ` +
-      `so there is no clear reason to use a U′ chart instead.` +
-      `<div style="margin-top:0.45rem; font-size:0.92em;">` +
-      `<strong>Technical check:</strong> observed variation = ${ratioText}% of expected; ` +
-      `expected range = ${lowerText}%–${upperText}%.` +
-      `</div>` +
-      `</li>`;
-  }
-}
-
-if (
-  a.chartType === "uprime" &&
-  Number.isFinite(st?.sigmaZ)
-) {
-  let adjustmentText = "";
-
-  if (st.sigmaZ > 1) {
-    adjustmentText =
-      "These data vary more than a standard U chart expects, so the U′ chart uses wider control limits.";
-  } else if (st.sigmaZ < 1) {
-    adjustmentText =
-      "These data vary less than a standard U chart expects, so the U′ chart uses narrower control limits.";
-  } else {
-    adjustmentText =
-      "The amount of variation is very close to what a standard U chart expects, so the adjustment is small.";
-  }
-
-  html +=
-    `<li>` +
-    `<strong>Why are these limits different?</strong> ` +
-    `${adjustmentText} ` +
-    `This helps the control limits better reflect the amount of variation actually seen in the data.` +
-    `<div style="margin-top:0.45rem; font-size:0.92em;">` +
-    `<strong>Technical detail:</strong> Sigma Z = ${fmt(st.sigmaZ)}.` +
-    `</div>` +
-    `</li>`;
-}
-
-    // P vs P′ dispersion diagnostic
-    if (
-      a.chartType === "p" &&
-      st?.dispersionDiagnostic?.ok
-    ) {
-      const d =
-        st.dispersionDiagnostic;
-
-      const ratioText =
-        Number(d.ratio).toFixed(1);
-
-      const lowerText =
-        Number(d.lowerLimit).toFixed(1);
-
-      const upperText =
-        Number(d.upperLimit).toFixed(1);
-
-      if (d.status === "overdispersed") {
-        html +=
-  `<li>` +
-  `<strong>P′ may be a better fit for these data.</strong> ` +
-  `The proportions vary more from point to point than a standard P chart expects for these sample sizes. ` +
-  `This can make a standard P chart produce limits that are too narrow and create extra alerts. ` +
-  `A P′ chart adjusts the limits for this extra variation while keeping the same proportions and centre line.` +
-  `<div style="margin-top:0.45rem; font-size:0.92em;">` +
-  `<strong>Technical check:</strong> observed variation = ${ratioText}% of expected; ` +
-  `diagnostic upper limit = ${upperText}%.` +
-  `</div>` +
-  `<div style="margin-top:0.55rem;">` +
-  `<button type="button" onclick="switchPToPPrime()">` +
-  `Use P′ chart instead` +
-  `</button>` +
-  `</div>` +
-  `</li>`;
-
-      } else if (
-        d.status === "underdispersed"
-      ) {
-        html +=
-  `<li>` +
-  `<strong>P′ may be a better fit for these data.</strong> ` +
-  `The proportions vary less from point to point than a standard P chart expects. ` +
-  `This can make standard P-chart limits too wide and make genuine changes harder to detect. ` +
-  `A P′ chart adjusts the limits to better match the variation actually seen in the data.` +
-  `<div style="margin-top:0.45rem; font-size:0.92em;">` +
-  `<strong>Technical check:</strong> observed variation = ${ratioText}% of expected; ` +
-  `diagnostic lower limit = ${lowerText}%.` +
-  `</div>` +
-  `<div style="margin-top:0.55rem;">` +
-  `<button type="button" onclick="switchPToPPrime()">` +
-  `Use P′ chart instead` +
-  `</button>` +
-  `</div>` +
-  `</li>`;
-
-      } else {
-        html +=
-  `<li>` +
-  `<strong>A standard P chart looks appropriate for these data.</strong> ` +
-  `The amount of variation is within the range expected for proportion data of these sample sizes, ` +
-  `so there is no clear reason to use a P′ chart instead.` +
-  `<div style="margin-top:0.45rem; font-size:0.92em;">` +
-  `<strong>Technical check:</strong> observed variation = ${ratioText}% of expected; ` +
-  `expected range = ${lowerText}%–${upperText}%.` +
-  `</div>` +
-  `</li>`;
-      }
-    }
-
-    // Laney P′ adjustment
-    if (
-      a.chartType === "pprime" &&
-      Number.isFinite(st?.sigmaZ)
-    ) {
-      let adjustmentText = "";
-
-      if (st.sigmaZ > 1) {
-  adjustmentText =
-    "These data vary more than a standard P chart expects, so the P′ chart uses wider control limits.";
-} else if (st.sigmaZ < 1) {
-  adjustmentText =
-    "These data vary less than a standard P chart expects, so the P′ chart uses narrower control limits.";
-} else {
-  adjustmentText =
-    "The amount of variation is very close to what a standard P chart expects, so the adjustment is small.";
-}
-
-      html +=
-        `<li>` +
-`<strong>Why are these limits different?</strong> ` +
-`${adjustmentText} ` +
-`This helps the control limits better reflect the amount of variation actually seen in the data.` +
-`<div style="margin-top:0.45rem; font-size:0.92em;">` +
-`<strong>Technical detail:</strong> Sigma Z = ${fmt(st.sigmaZ)}.` +
-`</div>` +
-`</li>`;
-    }
 
     // Signals
     if (
@@ -11689,24 +13488,54 @@ if (
       Array.isArray(a.signals) &&
       a.signals.length
     ) {
-      html +=
-        `<li><strong>Signals:</strong> ${a.signals.join("; ")}.</li>`;
+      
+html +=
+  `<li><strong>` +
+  summaryUiText(
+    "summary.attr.signals",
+    "Signals"
+  ) +
+  
+`:</strong> ${a.signals.map(attributeSignalDisplayHtml).join("; ")}.</li>`;
+
+
     }
 
-    // Interpretation
+   
+    // Interpretation — translate the text only.
+    // Preserve the existing a.isStable decision.
     const interpretation =
       a.isStable
-        ? "Based on the selected rules, no clear special-cause signals were detected in this period. This suggests the pattern is consistent with routine (common-cause) variation."
-        : "Based on the selected rules, special-cause signals were detected in this period (a pattern unlikely to be routine variation alone).";
+        ? summaryUiText(
+            "summary.attr.stable",
+            "Based on the selected rules, no clear special-cause signals were detected in this period. This suggests the pattern is consistent with routine (common-cause) variation."
+          )
+        : summaryUiText(
+            "summary.attr.unstable",
+            "Based on the selected rules, special-cause signals were detected in this period (a pattern unlikely to be routine variation alone)."
+          );
 
-    const caution =
-      "These rules are prompts, not absolute answers. Interpret alongside local context (changes in process, staffing, demand, definitions/coding) and consider basic SPC assumptions (e.g. reasonably consistent measurement and opportunity over time).";
+    const caution = summaryUiText(
+      "summary.attr.caution",
+      "These rules are prompts, not absolute answers. Interpret alongside local context (changes in process, staffing, demand, definitions/coding) and consider basic SPC assumptions (e.g. reasonably consistent measurement and opportunity over time)."
+    );
 
     html +=
-      `<li><strong>Interpretation:</strong> ${interpretation}</li>`;
+      `<li><strong>` +
+      summaryUiText(
+        "summary.xbars.interpretation",
+        "Interpretation"
+      ) +
+      `:</strong> ${interpretation}</li>`;
 
     html +=
-      `<li><strong>Note:</strong> ${caution}</li>`;
+      `<li><strong>` +
+      summaryUiText(
+        "summary.note",
+        "Note:"
+      ) +
+      `</strong> ${caution}</li>`;
+
 
     html += `</ul>`;
     html += `</div>`;
@@ -11734,12 +13563,12 @@ function renderAttributeSummary(a) {
     ? "No clear signal of change (routine ups and downs)."
     : "A signal of change is present (worth investigating).";
 
-  let html = `<h3>${chartName} summary</h3>`;
+    let html = summaryHeading(a.chartType, chartName);
   html += `<ul>`;
   html += `<li><strong>What this suggests:</strong> ${stableLine}</li>`;
 
   if (!a.isStable && Array.isArray(a.signals) && a.signals.length) {
-    html += `<li><strong>What I can see:</strong> ${a.signals.join("; ")}.</li>`;
+    html += `<li><strong>What I can see:</strong> ${a.signals.map(attributeSignalDisplayHtml).join("; ")}.</li>`;
   }
 
   if (a.firstOutOfControl) {
@@ -11795,75 +13624,224 @@ function renderRareChartSummary(aOrSegments, totalPointsMaybe) {
       ? (typeof formatNumber === "function" ? formatNumber(v, 3) : Number(v).toFixed(3))
       : "—";
 
-  // XmR-style header
-  let html = `<h3>Summary (${chartName})</h3>`;
+  
+  // Summary introduction
+  let html = summaryHeading(
+    chartType,
+    chartName
+  );
 
-  if (Number.isFinite(totalPoints)) {
-    html += `<p>Total number of points: <strong>${totalPoints}</strong>. `;
-    html += `The chart is divided into <strong>${segments.length}</strong> period${segments.length !== 1 ? "s" : ""} `;
-    html += `(based on the baseline and any splits).</p>`;
-  } else {
-    html += `<p>The chart is divided into <strong>${segments.length}</strong> period${segments.length !== 1 ? "s" : ""} `;
-    html += `(based on the baseline and any splits).</p>`;
-  }
+  html += summaryOpening(
+    totalPoints,
+    segments.length
+  );
 
-  // Rare-event note (keep it plain-English + accurate)
-  html += `<p><strong>Note:</strong> Rare-event charts are often skewed, so the control limits may not look symmetrical like an XmR chart.</p>`;
+  // Statistical caution about rare-event distributions.
+  html += "<p><strong>";
+
+  html += summaryUiText(
+    "summary.note",
+    "Note:"
+  );
+
+  html += "</strong> ";
+
+  html += summaryUiText(
+    "summary.rareNote",
+    "Rare-event charts are often skewed, so the control limits may not look symmetrical like an XmR chart."
+  );
+
+  html += "</p>";
+
 
   segments.forEach((a, idx) => {
     html += `<div class="pdf-avoid-break">`;
-    html += segments.length > 1 ? `<h4>Period ${idx + 1}</h4>` : `<h4>Single period</h4>`;
+   
+    html += summaryPeriodHeading(idx, segments.length);
+
     html += `<ul>`;
 
     // Coverage
     if (a.startIndex != null && a.endIndex != null && a.labelStart && a.labelEnd) {
       const n = (a.endIndex - a.startIndex + 1);
-      html += `<li><strong>Coverage:</strong> <strong>points ${a.startIndex + 1}–${a.endIndex + 1}</strong> (${escapeHtml(a.labelStart)} to ${escapeHtml(a.labelEnd)}) – ${n} points.</li>`;
+     
+      const rangeMarkup =
+        `<strong>` +
+        summaryUiText("summary.points", "points") +
+        ` ${a.startIndex + 1}–${a.endIndex + 1}` +
+        `</strong> (` +
+        escapeHtml(a.labelStart) + " " +
+        summaryUiText("summary.to", "to") + " " +
+        escapeHtml(a.labelEnd) + ")";
+
+      html += summaryCoverageRow(rangeMarkup, n);
+
     } else if (a.nPoints != null) {
-      html += `<li><strong>Coverage:</strong> ${a.nPoints} points.</li>`;
+      html += summaryCoverageRow("", a.nPoints);
     }
 
-    // Baseline
+
+    
+    // Baseline — presentation only.
     if (a.baselineCountUsed != null) {
-      html += `<li><strong>Baseline for this period:</strong> first ${a.baselineCountUsed} points used to calculate centre line and limits.</li>`;
+      html +=
+        `<li><strong>` +
+        summaryUiText(
+          "summary.rare.baseline",
+          "Initial points in this period used to calculate the centre line and limits"
+        ) +
+        `:</strong> <strong>${a.baselineCountUsed}</strong>.</li>`;
     }
 
+
+    
     // Stats: centre line + limits
     if (a.stats && Number.isFinite(a.stats.cl)) {
       if (chartType === "t") {
-        html += `<li><strong>Centre line (average gap):</strong> ${fmt(a.stats.cl)}; <strong>upper limit:</strong> UCL = ${fmt(a.stats.ucl)}.</li>`;
+        html +=
+          `<li><strong>` +
+          summaryUiText(
+            "summary.centreGap",
+            "Centre line (average gap)"
+          ) +
+          `:</strong> ${fmt(a.stats.cl)}; <strong>` +
+          summaryUiText(
+            "summary.upperLimitLabel",
+            "upper limit"
+          ) +
+          `:</strong> ` +
+          summaryUiText("summary.upperLimit", "UCL") +
+          ` = ${fmt(a.stats.ucl)}.</li>`;
       } else {
-        html += `<li><strong>Centre line (average opportunities):</strong> ${fmt(a.stats.cl)}; <strong>control limits:</strong> LCL = ${fmt(a.stats.lcl)}, UCL = ${fmt(a.stats.ucl)}.</li>`;
+        html +=
+          `<li><strong>` +
+          summaryUiText(
+            "summary.centreOpportunities",
+            "Centre line (average opportunities)"
+          ) +
+          `:</strong> ${fmt(a.stats.cl)}; <strong>` +
+          summaryUiText(
+            "summary.controlLimits",
+            "control limits"
+          ) +
+          `:</strong> ` +
+          summaryUiText("summary.lowerLimit", "LCL") +
+          ` = ${fmt(a.stats.lcl)}, ` +
+          summaryUiText("summary.upperLimit", "UCL") +
+          ` = ${fmt(a.stats.ucl)}.</li>`;
       }
     } else {
-      // Fallback if stats missing
-      html += `<li><strong>Centre line and limits:</strong> (not available).</li>`;
+      html +=
+        `<li><strong>` +
+        summaryUiText(
+          "summary.centreAndLimits",
+          "Centre line and limits"
+        ) +
+        `:</strong> ` +
+        summaryUiText(
+          "summary.notAvailable",
+          "(not available)"
+        ) +
+        `.</li>`;
     }
 
-    // Signals
+
+    
+    // Signals — reuse the tested attribute-chart display translator.
+    // Never modify the original a.signals array.
     if (!a.isStable && Array.isArray(a.signals) && a.signals.length) {
-      html += `<li><strong>Signals:</strong> ${a.signals.join("; ")}.</li>`;
+      html +=
+        `<li><strong>` +
+        summaryUiText(
+          "summary.attr.signals",
+          "Signals"
+        ) +
+        `:</strong> ` +
+        a.signals.map(attributeSignalDisplayHtml).join("; ") +
+        `.</li>`;
     }
 
-    // Interpretation (XmR-style)
-    const interpretation = a.isStable
-      ? "No clear special-cause signals were detected in this period. The pattern is consistent with routine/common variation."
-      : "Special-cause signals were detected in this period (pattern inconsistent with routine variation).";
 
-    html += `<li><strong>Interpretation:</strong> ${interpretation}</li>`;
+    
+    // Interpretation — preserve the existing a.isStable decision.
+    const interpretation = a.isStable
+      ? summaryUiText(
+          "summary.rare.stable",
+          "No clear special-cause signals were detected in this period. The pattern is consistent with routine/common variation."
+        )
+      : summaryUiText(
+          "summary.rare.unstable",
+          "Special-cause signals were detected in this period (pattern inconsistent with routine variation)."
+        );
+
+    html +=
+      `<li><strong>` +
+      summaryUiText(
+        "summary.xbars.interpretation",
+        "Interpretation"
+      ) +
+      `:</strong> ${interpretation}</li>`;
+
 
     // “Better” guidance (rare charts often need this)
-    html += `<li><strong>Interpreting “better”:</strong> If the event is something you want to avoid, longer gaps (or more opportunities between events) are usually better. If it’s something you want more often, shorter gaps may be better.</li>`;
+    
+    html +=
+      `<li><strong>` +
+      summaryUiText(
+        "summary.rare.betterHeading",
+        "Interpreting “better”"
+      ) +
+      `:</strong> ` +
+      summaryUiText(
+        "summary.rare.better",
+        "If the event is something you want to avoid, longer gaps (or more opportunities between events) are usually better. If it is something you want more often, shorter gaps may be better."
+      ) +
+      `</li>`;
+
 
     // “What next” guidance (brief, not bossy)
-    html += a.isStable
-      ? `<li><strong>What to do next:</strong> If performance isn’t good enough, focus on improving the system rather than reacting to individual points.</li>`
-      : `<li><strong>What to do next:</strong> Look for a real-world explanation (process, staffing, demand, detection/definition changes). If it was planned, consider a new baseline after things settle.</li>`;
+    
+    const nextSteps = a.isStable
+      ? summaryUiText(
+          "summary.rare.nextStable",
+          "If performance isn't good enough, focus on improving the system rather than reacting to individual points."
+        )
+      : summaryUiText(
+          "summary.rare.nextUnstable",
+          "Look for a real-world explanation (process, staffing, demand, detection/definition changes). If it was planned, consider a new baseline after things settle."
+        );
+
+    html +=
+      `<li><strong>` +
+      summaryUiText(
+        "summary.rare.nextHeading",
+        "What to do next"
+      ) +
+      `:</strong> ${nextSteps}</li>`;
+
 
     // Data reminder
-    html += (chartType === "t")
-      ? `<li><strong>Data reminder:</strong> This chart uses the time between events (e.g., days between incidents).</li>`
-      : `<li><strong>Data reminder:</strong> This chart uses opportunities between events (values should be 1 or more).</li>`;
+    
+    html +=
+      `<li><strong>` +
+      summaryUiText(
+        "summary.rare.dataHeading",
+        "Data reminder"
+      ) +
+      `:</strong> ` +
+      (
+        chartType === "t"
+          ? summaryUiText(
+              "summary.rare.dataT",
+              "This chart uses the time between events (e.g., days between incidents)."
+            )
+          : summaryUiText(
+              "summary.rare.dataG",
+              "This chart uses opportunities between events (values should be 1 or more)."
+            )
+      ) +
+      `</li>`;
+
 
     html += `</ul>`;
     html += `</div>`;
@@ -11904,7 +13882,11 @@ function updateRunSummary(points, medianIgnored, ruleHitsIgnored, baselineCountU
   const axisType = getAxisType(); // "date" or "sequence"
 
   // Always show point indices
-  const base = `points ${start + 1}–${end + 1}`;
+  
+const base =
+  summaryUiText("summary.points", "points") +
+  ` ${start + 1}–${end + 1}`;
+
 
   // Only add date range if DATE axis is selected
   if (axisType !== "date") return base;
@@ -11914,7 +13896,9 @@ function updateRunSummary(points, medianIgnored, ruleHitsIgnored, baselineCountU
   const hasDates = a !== undefined && b !== undefined && a !== null && b !== null;
 
   return hasDates
-    ? `${base} (${formatDateOnlyLabel(a)} to ${formatDateOnlyLabel(b)})`
+    
+? `${base} (${formatDateOnlyLabel(a)} ${summaryUiText("summary.to", "to")} ${formatDateOnlyLabel(b)})`
+
     : base;
 }
 
@@ -11972,11 +13956,18 @@ function updateRunSummary(points, medianIgnored, ruleHitsIgnored, baselineCountU
     return ranges;
   }
 
-  let html = `<h3>Summary (Run chart)</h3>`;
-  html += `<p>Total number of points: <strong>${n}</strong>. `;
-  html += `The chart is divided into <strong>${segments.length}</strong> period${segments.length !== 1 ? "s" : ""}`;
-  html += segments.length > 1 ? ` (based on your splits).` : `.`;
-  html += `</p>`;
+  
+  let html = summaryHeading(
+    "run",
+    "Run chart"
+  );
+
+  html += summaryOpening(
+    n,
+    segments.length,
+    { basis: "splits" }
+  );
+
 
   segments.forEach((seg, idx) => {
     const segPoints = points.slice(seg.start, seg.end + 1);
@@ -12001,62 +13992,216 @@ function updateRunSummary(points, medianIgnored, ruleHitsIgnored, baselineCountU
     const astro = findAstronomicalPoints(values, median, baselineValues, 3.5);
     const astroIdx = astro?.indices || [];
 
+    
     const signals = [];
-    if (runRanges.length) signals.push(`a sustained shift (≥ ${shiftLength} points on one side of the median)`);
-    if (trendRanges.length) signals.push(`a sustained trend (≥ ${trendLength} points increasing or decreasing)`);
-    if (astroIdx.length) signals.push(`an unusual outlier ("astronomical" point)`);
 
-    const periodLabel =
-      segments.length === 1
-        ? "Single period"
-        : idx === 0
-          ? "Period 1"
-          : `Period ${idx + 1}`;
+    if (runRanges.length) {
+      signals.push(
+        summaryUiText(
+          "summary.run.shiftBefore",
+          "a sustained shift (≥"
+        ) +
+        ` ${shiftLength} ` +
+        summaryUiText(
+          "summary.run.shiftAfter",
+          "points on one side of the median)"
+        )
+      );
+    }
 
-    html += `<h4>${periodLabel}</h4>`;
-    html += `<ul>`;
-    html += `<li>Coverage: <strong>${rangeText(seg.start, seg.end)}</strong> – ${segLen} point${segLen !== 1 ? "s" : ""}.</li>`;
+    if (trendRanges.length) {
+      signals.push(
+        summaryUiText(
+          "summary.run.trendBefore",
+          "a sustained trend (≥"
+        ) +
+        ` ${trendLength} ` +
+        summaryUiText(
+          "summary.run.trendAfter",
+          "points increasing or decreasing)"
+        )
+      );
+    }
 
-    html += (baselineCountUsed < segLen)
-      ? `<li>Baseline for this period: first <strong>${baselineCountUsed}</strong> point${baselineCountUsed !== 1 ? "s" : ""} used to calculate the median.</li>`
-      : `<li>Baseline for this period: all points in this period used to calculate the median.</li>`;
+    if (astroIdx.length) {
+      signals.push(
+        summaryUiText(
+          "summary.run.outlier",
+          'an unusual outlier ("astronomical" point)'
+        )
+      );
+    }
 
-    html += `<li>Median (this period): <strong>${Number.isFinite(median) ? median.toFixed(3) : "—"}</strong>.</li>`;
 
-    if (!signals.length) {
-      html += `<li><strong>Interpretation:</strong> No clear special-cause signals detected in this period (no sustained shift, trend, or unusual outlier). This pattern is consistent with common variation, but always interpret in context.</li>`;
+    
+    html += summaryPeriodHeading(
+      idx,
+      segments.length
+    );
+
+    html += "<ul>";
+
+    html += summaryCoverageRow(
+      `<strong>${rangeText(seg.start, seg.end)}</strong>`,
+      segLen
+    );
+
+
+    
+    if (baselineCountUsed < segLen) {
+      html +=
+        `<li>` +
+        summaryUiText(
+          "summary.run.baselineFirst",
+          "Baseline for this period: first"
+        ) +
+        ` <strong>${baselineCountUsed}</strong> ` +
+        summaryUiText(
+          "summary.run.baselinePoints",
+          "points used to calculate the median."
+        ) +
+        `</li>`;
     } else {
-      html += `<li><strong>Interpretation:</strong> This period shows special-cause signals: ${signals.join("; ")}.</li>`;
+      html +=
+        `<li>` +
+        summaryUiText(
+          "summary.run.baselineAll",
+          "Baseline for this period: all points in this period used to calculate the median."
+        ) +
+        `</li>`;
+    }
 
-      // “Where to look” (simple + practical)
+
+    
+html +=
+  `<li>` +
+  summaryUiText(
+    "summary.medianPeriod",
+    "Median (this period)"
+  ) +
+  `: <strong>${Number.isFinite(median) ? median.toFixed(3) : "—"}</strong>.</li>`;
+
+
+    
+    if (!signals.length) {
+
+      html +=
+        `<li><strong>` +
+        summaryUiText(
+          "summary.xbars.interpretation",
+          "Interpretation"
+        ) +
+        `:</strong> ` +
+        summaryUiText(
+          "summary.run.noSignals",
+          "No clear special-cause signals detected in this period (no sustained shift, trend, or unusual outlier). This pattern is consistent with common variation, but always interpret in context."
+        ) +
+        `</li>`;
+
+    } else {
+
+      html +=
+        `<li><strong>` +
+        summaryUiText(
+          "summary.xbars.interpretation",
+          "Interpretation"
+        ) +
+        `:</strong> ` +
+        summaryUiText(
+          "summary.run.hasSignals",
+          "This period shows special-cause signals:"
+        ) +
+        ` ${signals.join("; ")}.</li>`;
+
+      // Identify where the first detected signals occur.
+      // Preserve the existing point-index calculations.
       const where = [];
 
       if (runRanges.length) {
         const r = runRanges[0];
-        where.push(`shift around points ${seg.start + r.start + 1}–${seg.start + r.end + 1}`);
+
+        where.push(
+          summaryUiText(
+            "summary.run.whereShift",
+            "shift around points"
+          ) +
+          ` ${seg.start + r.start + 1}–` +
+          `${seg.start + r.end + 1}`
+        );
       }
 
       if (trendRanges.length) {
         const t = trendRanges[0];
-        where.push(`trend around points ${seg.start + t.start + 1}–${seg.start + t.end + 1} (${t.dir})`);
+
+        const directionKey =
+          t.dir === "increasing"
+            ? "summary.run.increasing"
+            : "summary.run.decreasing";
+
+        const translatedDirection =
+          summaryUiText(directionKey, t.dir);
+
+        where.push(
+          summaryUiText(
+            "summary.run.whereTrend",
+            "trend around points"
+          ) +
+          ` ${seg.start + t.start + 1}–` +
+          `${seg.start + t.end + 1} ` +
+          `(${translatedDirection})`
+        );
       }
 
       if (astroIdx.length) {
-        const pts = astroIdx.slice(0, 5).map(i => seg.start + i + 1);
-        where.push(`outlier at point${pts.length !== 1 ? "s" : ""} ${pts.join(", ")}`);
+        const pts = astroIdx
+          .slice(0, 5)
+          .map(i => seg.start + i + 1);
+
+        const key = pts.length === 1
+          ? "summary.run.whereOutlierOne"
+          : "summary.run.whereOutlierMany";
+
+        const fallback = pts.length === 1
+          ? "outlier at point"
+          : "outlier at points";
+
+        where.push(
+          summaryUiText(key, fallback) +
+          ` ${pts.join(", ")}`
+        );
       }
 
       if (where.length) {
-        html += `<li><strong>Where to look:</strong> ${where.join("; ")}.</li>`;
+        html +=
+          `<li><strong>` +
+          summaryUiText(
+            "summary.run.where",
+            "Where to look:"
+          ) +
+          `</strong> ${where.join("; ")}.</li>`;
       }
     }
+
 
     html += `</ul>`;
   });
 
+  
   if (segments.length > 1) {
-    html += `<p><em>Note:</em> Each period is summarised separately because splits suggest the process may have changed over time.</p>`;
+    html +=
+      `<p><em>` +
+      summaryUiText(
+        "summary.note",
+        "Note:"
+      ) +
+      `</em> ` +
+      summaryUiText(
+        "summary.run.splitNote",
+        "Each period is summarised separately because splits suggest the process may have changed over time."
+      ) +
+      `</p>`;
   }
+
 
   summaryDiv.innerHTML = html;
 }
@@ -12088,6 +14233,213 @@ function rangeFinite(arr) {
 }
 
 
+/*
+ * Convert XmR signal descriptions to translated display text.
+ *
+ * The underlying signals array remains unchanged so that
+ * lastXmRAnalysis and the SPC helper retain their existing data.
+ */
+function xmRDisplaySignal(message) {
+  const keys = {
+    "one or more points are outside the control limits":
+      "summary.xmr.signalBeyond",
+
+    "a sustained shift (many points on the same side of the mean)":
+      "summary.xmr.signalShift",
+
+    "a sustained trend (steady increase or decrease)":
+      "summary.xmr.signalTrend",
+
+    "an unusual outlier (an ‘astronomical’ point)":
+      "summary.xmr.signalOutlier"
+  };
+
+  const key = keys[message];
+
+  return key
+    ? summaryUiText(key, message)
+    : message;
+}
+
+// XmR detail report: use the same period-level matches and flags as the chart.
+// This function only formats results; it does not perform new SPC tests.
+function buildXmRSignalDetailsHtml(analysis, startIndex, astro, periodLabels = []) {
+  const matches = analysis?.ruleMatches;
+  if (!matches) return "";
+
+  const policy = analysis.rulePolicy || {};
+  const flags = analysis.flags || {};
+  const tr = (key, fallback) =>
+    summaryUiText("summary.xmr.detail." + key, fallback);
+
+    const pointNo = i => startIndex + i + 1;
+
+  // Use the original X-axis label, while retaining point numbers.
+  const labelAt = i => {
+    const raw = periodLabels[i];
+    if (raw == null) return "";
+
+    const value =
+      (raw instanceof Date ||
+       /^\d{4}-\d{2}-\d{2}[T ]/.test(String(raw)))
+        ? formatDateOnlyLabel(raw)
+        : String(raw).trim();
+
+    return value ? escapeHtml(value) : "";
+  };
+
+  // Show dates or labels first, with point numbers for reference.
+  const rangeText = r => {
+    const points =
+      `${summaryUiText("summary.points", "points")} ` +
+      `${pointNo(r.start)}–${pointNo(r.end)}`;
+
+    const from = labelAt(r.start);
+    const to = labelAt(r.end);
+
+    return from && to
+      ? `${from} ${summaryUiText("summary.to", "to")} ${to} (${points})`
+      : points;
+  };
+
+  // Individual observations, including control-limit breaches.
+  const pointList = indices => {
+    const unique = [...new Set(indices.filter(Number.isInteger))]
+      .sort((a, b) => a - b);
+
+    return unique.length
+      ? unique.map(i => {
+          const point =
+            `${summaryUiText("summary.point", "point")} ${pointNo(i)}`;
+
+          const label = labelAt(i);
+
+          return label ? `${label} (${point})` : point;
+        }).join(", ")
+      : "—";
+  };
+
+  // Neighbouring/overlapping zone-rule windows are one readable stretch.
+  // Preserve side, so an above-mean match cannot merge with a below-mean match.
+  function groupZoneWindows(hits) {
+    const groups = [];
+    for (const side of ["above", "below"]) {
+      const sorted = (hits || [])
+        .filter(h => h.side === side &&
+          Number.isInteger(h.start) && Number.isInteger(h.end))
+        .slice().sort((a, b) => a.start - b.start);
+      for (const h of sorted) {
+        const last = groups[groups.length - 1];
+        if (last && last.side === side && h.start <= last.end + 1) {
+          last.end = Math.max(last.end, h.end);
+          last.windowCount++;
+        } else {
+          groups.push({ start: h.start, end: h.end, side, windowCount: 1 });
+        }
+      }
+    }
+    return groups;
+  }
+
+  const beyond = matches.beyond || [];
+  const shifts = matches.shifts || [];
+  const trends = matches.trends || [];
+  const zone23 = matches.zone23 || [];
+  const zone45 = matches.zone45 || [];
+  const distinct = (flags.special || []).filter(Boolean).length;
+  const up = tr("above", "Above");
+  const down = tr("below", "Below");
+  const increasing = tr("increasing", "Increasing");
+  const decreasing = tr("decreasing", "Decreasing");
+  const beyondAbove = beyond.filter(h => h.type === "aboveUCL").map(h => h.i);
+  const beyondBelow = beyond.filter(h => h.type === "belowLCL").map(h => h.i);
+
+  let html = `<li><details class="xmr-signal-details"><summary>` +
+    summaryUiText("summary.xmr.where", "Where to look") +
+    `</summary><ul>`;
+
+  // Only mention overlapping rules when multiple rule types fired.
+  const categoriesFound = [
+    beyond.length > 0,
+    shifts.length > 0,
+    policy.allowTrend && trends.length > 0,
+    policy.allowZone23 && zone23.length > 0,
+    policy.allowZone45 && zone45.length > 0
+  ].filter(Boolean).length;
+
+  html += `<li><strong>${tr("distinct", "Distinct flagged observations")}: ` +
+    `${distinct}</strong>` +
+    (categoriesFound > 1
+      ? `. ${tr("overlap", "A point can meet more than one rule.")}`
+      : "") + `</li>`;
+
+  // Only show control-limit breaches when there are some.
+  if (beyond.length > 0) {
+    const sides = [];
+
+    if (beyondAbove.length) {
+      sides.push(`<li>${up}: ${pointList(beyondAbove)}</li>`);
+    }
+
+    if (beyondBelow.length) {
+      sides.push(`<li>${down}: ${pointList(beyondBelow)}</li>`);
+    }
+
+    html += `<li><strong>${tr("beyond", "Outside control limits")} ` +
+      `(${beyond.length})</strong><ul>${sides.join("")}</ul></li>`;
+  }
+
+   // Show shifts only when detected.
+  if (shifts.length > 0) {
+    const shiftItems = shifts.map(r =>
+      `<li>${r.side > 0 ? up : down}: ${rangeText(r)}</li>`
+    ).join("");
+
+    html += `<li><strong>` +
+      summaryUiText("summary.attr.shiftName", "Shift") +
+      ` (${shifts.length})</strong><ul>${shiftItems}</ul></li>`;
+  }
+
+  // Show trends only when enabled and detected.
+  if (policy.allowTrend && trends.length > 0) {
+    const trendItems = trends.map(r =>
+      `<li>${r.direction === "up" ? increasing : decreasing}: ${rangeText(r)}</li>`
+    ).join("");
+
+    html += `<li><strong>` +
+      summaryUiText("summary.attr.trendName", "Trend") +
+      ` (${trends.length})</strong><ul>${trendItems}</ul></li>`;
+  }
+
+   function zoneSection(hits, enabled, key, heading) {
+    if (!enabled || !hits.length) return "";
+    const groups = groupZoneWindows(hits);
+    const groupsHtml = groups.map(g =>
+      `<li>${g.side === "above" ? up : down}: ${rangeText(g)}</li>`
+    ).join("");
+    return `<li><strong>${tr(key, heading)}: ${hits.length} ` +
+      tr("windows", "qualifying windows") +
+      ` (${groups.length} ${tr("stretches", "grouped stretches")})</strong>` +
+      (groupsHtml ? `<ul>${groupsHtml}</ul>` : "") + `</li>`;
+  }
+
+  html += zoneSection(zone23, policy.allowZone23, "zone23", "2 of 3 beyond 2σ");
+  html += zoneSection(zone45, policy.allowZone45, "zone45", "4 of 5 beyond 1σ");
+
+    // Report astronomical outliers here only when they are NOT already
+  // listed above as points beyond the control limits.
+  const beyondIndices = new Set(beyond.map(hit => hit.i));
+  const additionalOutliers = (astro?.indices || [])
+    .filter(i => Number.isInteger(i) && !beyondIndices.has(i));
+
+  if (additionalOutliers.length) {
+    html += `<li><strong>${tr("outliers", "Additional unusual observations")}</strong>: ` +
+      pointList(additionalOutliers) + `</li>`;
+  }
+
+  html += `</ul></details></li>`;
+  return html;
+}
 
 // Multi-period XmR summary (handles baseline + splits) — lay-user interpretation + astronomical points
 function updateXmRMultiSummary(segments, totalPoints) {
@@ -12114,10 +14466,17 @@ function updateXmRMultiSummary(segments, totalPoints) {
 
   const { shiftLength, trendLength } = rs;
 
-  let html = `<h3>Summary (XmR chart)</h3>`;
-  html += `<p>Total number of points: <strong>${totalPoints}</strong>. `;
-  html += `The chart is divided into <strong>${segments.length}</strong> period${segments.length > 1 ? "s" : ""} `;
-  html += `(based on the baseline and any splits).</p>`;
+  
+  let html = summaryHeading(
+    "xmr",
+    "XmR chart"
+  );
+
+  html += summaryOpening(
+    totalPoints,
+    segments.length
+  );
+
 
   // For capability badge (last period only)
   let lastPeriodSignals = [];
@@ -12168,36 +14527,21 @@ function updateXmRMultiSummary(segments, totalPoints) {
 const hasEnoughPointsForInterpretation =
   limitEstimatePointCount >= MIN_XMR_LIMIT_POINTS;
 
-    // --- Special-cause detection (simple, lay-focused labels) ---
-    // 1) Points beyond limits
-    const beyondIdx = [];
-    points.forEach((p, i) => {
-      if (p.beyondLimits) beyondIdx.push(i);
-    });
+    // Read the detection results already used to colour the XmR chart.
+    // Do not recalculate beyond-limit, shift or trend rules here.
+    const chartRules = seg.analysis?.ruleMatches;
 
-    // 2) Sustained shift (run on one side of mean)
-    let runRanges = [];
-    if (typeof findLongRunRanges === "function") {
-      runRanges = findLongRunRanges(values, mean, shiftLength) || [];
-    } else {
-      // fallback: your existing boolean flags
-      const runFlags = detectLongRuns(values, mean, shiftLength);
-      let any = runFlags.some(Boolean);
-      if (any) runRanges = [{ start: 0, end: 0 }]; // placeholder (we won't list ranges in fallback)
-    }
+    const beyondIdx = chartRules
+      ? chartRules.beyond.map(hit => hit.i)
+      : points.flatMap((p, i) => p.beyondLimits ? [i] : []);
 
-    // 3) Trend
-    let trendRanges = [];
+    const runRanges = chartRules
+      ? chartRules.shifts
+      : findLongRunRanges(values, mean, shiftLength);
 
-if (rs.allowTrend) {
-  if (typeof findTrendRanges === "function") {
-    trendRanges = findTrendRanges(values, trendLength) || [];
-  } else {
-    const hasTrend = detectTrend(values, trendLength);
-    if (hasTrend) trendRanges = [{ start: 0, end: 0 }];
-  }
-}
-
+    const trendRanges = rs.allowTrend
+      ? (chartRules ? chartRules.trends : findTrendRanges(values, trendLength))
+      : [];
     // 4) Astronomical point (robust outlier)
     // Use baseline of this *period* to set the reference for outlier detection where possible.
     let astro = { indices: [], flags: [] };
@@ -12229,12 +14573,20 @@ if (hasEnoughPointsForInterpretation) {
     );
   }
 
-  if (astro.indices && astro.indices.length > 0) {
+    if (astro.indices && astro.indices.length > 0) {
     signals.push(
       "an unusual outlier (an ‘astronomical’ point)"
     );
   }
+
+  // Zone matches are also signals; do not report a zone-only chart as stable.
+  (seg.analysis?.signals || [])
+    .filter(text => text.startsWith("Zone: "))
+    .forEach(text => signals.push(text));
 }
+
+const hasSignals = signals.length > 0 ||
+  !!seg.analysis?.flags?.special?.some(Boolean);
 
     // Capability (only if target exists and sigma > 0)
     let capability = null;
@@ -12264,27 +14616,48 @@ if (
         }
       });
       const prop = hits / n;
-      targetCoverageText = `${(prop * 100).toFixed(1)}% of points in this period meet the target (${hits}/${n}).`;
+      
+targetCoverageText =
+  `${(prop * 100).toFixed(1)}% ` +
+  summaryUiText(
+    "summary.xmr.targetCoverage",
+    "of points in this period meet the target"
+  ) +
+  ` (${hits}/${n}).`;
+
     }
 
-    const periodLabel =
-      segments.length === 1
-        ? "Single period"
-        : idx === 0
-          ? "Period 1 (initial segment / baseline)"
-          : `Period ${idx + 1}`;
+       
+    const base =
+      summaryUiText("summary.points", "points") +
+      ` ${startIndex + 1}–${endIndex + 1}`;
 
-    const base = `points ${startIndex + 1}–${endIndex + 1}`;
-const rangeText =
-  (getAxisType() === "date" && labelStart !== undefined && labelEnd !== undefined)
-    ? `${base} (${formatDateOnlyLabel(labelStart)} to ${formatDateOnlyLabel(labelEnd)})`
-    : base;
+    const rangeText =
+      (getAxisType() === "date" &&
+       labelStart !== undefined &&
+       labelEnd !== undefined)
+        ? (
+            `${base} (${formatDateOnlyLabel(labelStart)} ` +
+            summaryUiText("summary.to", "to") +
+            ` ${formatDateOnlyLabel(labelEnd)})`
+          )
+        : base;
 
+    html += `<div class="pdf-avoid-break">`;
 
-    html += `<div class="pdf-avoid-break">`;    
-    html += `<h4>${periodLabel}</h4>`;
-    html += `<ul>`;
-    html += `<li>Coverage: <strong>${rangeText}</strong> – ${n} point${n !== 1 ? "s" : ""}.</li>`;
+    html += summaryPeriodHeading(
+      idx,
+      segments.length,
+      { initial: true }
+    );
+
+    html += "<ul>";
+
+    html += summaryCoverageRow(
+      `<strong>${rangeText}</strong>`,
+      n
+    );
+
 
         const baselineWindowCount =
       Number.isFinite(
@@ -12307,146 +14680,357 @@ const rangeText =
             )
           );
 
-    if (
-      baselineWindowCount < n ||
+    
+if (
+  baselineWindowCount < n ||
+  (manualExcludedPointCount || 0) > 0
+) {
+  const windowUnit = baselineWindowCount === 1
+    ? summaryUiText(
+        "summary.xmr.baselineWindowOne",
+        "point defines the baseline window;"
+      )
+    : summaryUiText(
+        "summary.xmr.baselineWindowMany",
+        "points define the baseline window;"
+      );
+
+  html +=
+    `<li>` +
+    summaryUiText(
+      "summary.xmr.baselineWindowStart",
+      "Baseline for this period: first"
+    ) +
+    ` <strong>${baselineWindowCount}</strong> ` +
+    windowUnit +
+    ` <strong>${baselineUsedCount}</strong> ` +
+    summaryUiText(
+      "summary.xmr.baselineUsed",
+      "used to calculate mean and limits"
+    );
+
+  if (manualExcludedPointCount) {
+    html +=
+      `, ${manualExcludedPointCount} ` +
       (
-        manualExcludedPointCount ||
-        0
-      ) > 0
+        manualExcludedPointCount === 1
+          ? summaryUiText(
+              "summary.xmr.excludedOne",
+              "excluded"
+            )
+          : summaryUiText(
+              "summary.xmr.excludedMany",
+              "excluded"
+            )
+      );
+  }
+
+  html += `.</li>`;
+
+} else {
+  html +=
+    `<li>` +
+    summaryUiText(
+      "summary.xmr.baselineAll",
+      "Baseline for this period: all points in this period used to calculate mean and limits."
+    ) +
+    `</li>`;
+}
+
+
+    
+html +=
+  `<li>` +
+  summaryUiText("summary.mean", "Mean") +
+  `: <strong>${mean.toFixed(3)}</strong>; ` +
+  summaryUiText("summary.controlLimits", "control limits") +
+  `: <strong>` +
+  summaryUiText("summary.lowerLimit", "LCL") +
+  ` = ${lcl.toFixed(3)}</strong>, <strong>` +
+  summaryUiText("summary.upperLimit", "UCL") +
+  ` = ${ucl.toFixed(3)}</strong>.</li>`;
+
+    
+html +=
+  `<li>` +
+  summaryUiText(
+    "summary.estimatedSigma",
+    "Estimated σ (from MR)"
+  ) +
+  `: <strong>${sigma.toFixed(3)}</strong> (` +
+  summaryUiText("summary.averageMr", "average MR") +
+  ` = ${avgMR.toFixed(3)}).</li>`;
+
+    
+if (manualAdjacentMRExclusions > 0) {
+  html +=
+    `<li><strong>` +
+    summaryUiText(
+      "summary.xmr.exclusionHeading",
+      "Excluded point adjustment"
+    ) +
+    `:</strong> ${manualAdjacentMRExclusions} ` +
+    (
+      manualAdjacentMRExclusions === 1
+        ? summaryUiText(
+            "summary.xmr.adjacentOne",
+            "adjacent moving range was not used in the variation estimate because it involves an excluded point."
+          )
+        : summaryUiText(
+            "summary.xmr.adjacentMany",
+            "adjacent moving ranges were not used in the variation estimate because they involve an excluded point."
+          )
+    ) +
+    ` ` +
+    summaryUiText(
+      "summary.xmr.noArtificialMR",
+      "SimpleSPC does not create an artificial moving range across an excluded point."
+    ) +
+    `</li>`;
+}
+
+
+
+  // Explain XmR moving-range screening only when relevant.
+  // Translate the explanation without changing the calculation.
+  if (mrScreeningEnabled && excludedMRCount > 0) {
+
+    html +=
+      `<li><strong>` +
+      summaryUiText(
+        "summary.xmr.limitCalculation",
+        "XmR limit calculation"
+      ) +
+      `:</strong> ${excludedMRCount} ` +
+      (
+        excludedMRCount === 1
+          ? summaryUiText(
+              "summary.xmr.screenedOne",
+              "unusually large point-to-point change was not used when estimating routine variation. All data points remain shown on the chart."
+            )
+          : summaryUiText(
+              "summary.xmr.screenedMany",
+              "unusually large point-to-point changes were not used when estimating routine variation. All data points remain shown on the chart."
+            )
+      ) +
+      `</li>`;
+
+    if (
+      Number.isFinite(initialAvgMR) &&
+      Number.isFinite(mrScreeningThreshold)
     ) {
       html +=
-        `<li>Baseline for this period: first <strong>${baselineWindowCount}</strong> point${baselineWindowCount !== 1 ? "s" : ""} define the baseline window; ` +
-        `<strong>${baselineUsedCount}</strong> used to calculate mean and limits` +
-        `${
-          manualExcludedPointCount
-            ? `, ${manualExcludedPointCount} excluded`
-            : ""
-        }.</li>`;
-
-    } else {
-      html +=
-        `<li>Baseline for this period: all points in this period used to calculate mean and limits.</li>`;
+        `<li class="hint">` +
+        summaryUiText(
+          "summary.xmr.nelsonUsed",
+          "Nelson moving-range screening was used:"
+        ) +
+        ` ` +
+        summaryUiText(
+          "summary.xmr.initialMR",
+          "initial average MR"
+        ) +
+        ` = ${initialAvgMR.toFixed(3)}; ` +
+        summaryUiText(
+          "summary.xmr.threshold",
+          "screening threshold"
+        ) +
+        ` = ${mrScreeningThreshold.toFixed(3)}; ` +
+        summaryUiText(
+          "summary.xmr.revisedMR",
+          "revised average MR"
+        ) +
+        ` = ${avgMR.toFixed(3)}.</li>`;
     }
 
-    html += `<li>Mean: <strong>${mean.toFixed(3)}</strong>; control limits: <strong>LCL = ${lcl.toFixed(3)}</strong>, <strong>UCL = ${ucl.toFixed(3)}</strong>.</li>`;
-    html += `<li>Estimated σ (from MR): <strong>${sigma.toFixed(3)}</strong> (average MR = ${avgMR.toFixed(3)}).</li>`;
-    if (
-  manualAdjacentMRExclusions >
-  0
-) {
-  html +=
-    `<li><strong>Excluded point adjustment:</strong> ` +
-    `${manualAdjacentMRExclusions} adjacent moving range${
-      manualAdjacentMRExclusions === 1
-        ? " was"
-        : "s were"
-    } not used in the variation estimate because ${
-      manualAdjacentMRExclusions === 1
-        ? "it involves"
-        : "they involve"
-    } an excluded point. ` +
-    `SimpleSPC does not create an artificial moving range across an excluded point.</li>`;
-}
+  } else if (mrScreeningEnabled === false) {
 
-// Explain XmR moving-range screening only when it is relevant.
-// Keep the main wording simple, with the technical method second.
-if (mrScreeningEnabled && excludedMRCount > 0) {
-  const changeWord =
-    excludedMRCount === 1
-      ? "change was"
-      : "changes were";
-
-  html += `
-    <li>
-      <strong>XmR limit calculation:</strong>
-      ${excludedMRCount} unusually large point-to-point
-      ${changeWord} not used when estimating routine variation.
-      All data points remain shown on the chart.
-    </li>
-  `;
-
-  if (
-    Number.isFinite(initialAvgMR) &&
-    Number.isFinite(mrScreeningThreshold)
-  ) {
-    html += `
-      <li class="hint">
-        Nelson moving-range screening was used:
-        initial average MR = ${initialAvgMR.toFixed(3)};
-        screening threshold = ${mrScreeningThreshold.toFixed(3)};
-        revised average MR = ${avgMR.toFixed(3)}.
-      </li>
-    `;
+    html +=
+      `<li><strong>` +
+      summaryUiText(
+        "summary.xmr.limitCalculation",
+        "XmR limit calculation"
+      ) +
+      `:</strong> ` +
+      summaryUiText(
+        "summary.xmr.screeningOff",
+        "Moving-range screening is turned off, so all baseline point-to-point changes were used to estimate routine variation."
+      ) +
+      `</li>`;
   }
-} else if (mrScreeningEnabled === false) {
-  html += `
-    <li>
-      <strong>XmR limit calculation:</strong>
-      Moving-range screening is turned off, so all baseline
-      point-to-point changes were used to estimate routine variation.
-    </li>
-  `;
-}
 
+
+// Provisional limits — insufficient observations for interpretation.
 if (!hasEnoughPointsForInterpretation) {
-  html += `
-    <li>
-      <strong>Provisional limits:</strong>
-      only <strong>${limitEstimatePointCount}</strong>
-      point${limitEstimatePointCount !== 1 ? "s were" : " was"}
-      used to estimate the limits for this period.
-      SimpleSPC needs at least <strong>${MIN_XMR_LIMIT_POINTS}</strong>
-      points before interpreting special-cause signals or capability.
-      The displayed limits are shown for context only.
-    </li>
-  `;
+  html +=
+    `<li><strong>` +
+    summaryUiText(
+      "summary.xmr.provisionalHeading",
+      "Provisional limits"
+    ) +
+    `:</strong> ` +
+    summaryUiText("summary.xmr.provisionalOnly", "only") +
+    ` <strong>${limitEstimatePointCount}</strong> ` +
+    (
+      limitEstimatePointCount === 1
+        ? summaryUiText(
+            "summary.xmr.provisionalOne",
+            "point was used to estimate the limits for this period."
+          )
+        : summaryUiText(
+            "summary.xmr.provisionalMany",
+            "points were used to estimate the limits for this period."
+          )
+    ) +
+    ` ` +
+    summaryUiText(
+      "summary.xmr.minimumIntro",
+      "SimpleSPC needs at least"
+    ) +
+    ` <strong>${MIN_XMR_LIMIT_POINTS}</strong> ` +
+    summaryUiText(
+      "summary.xmr.minimumEnd",
+      "points before interpreting special-cause signals or capability."
+    ) +
+    ` ` +
+    summaryUiText(
+      "summary.xmr.provisionalContext",
+      "The displayed limits are shown for context only."
+    ) +
+    `</li>`;
 }
 
+// Target and observed target attainment.
 if (target !== null) {
-      html += `<li>Target: <strong>${target}</strong> (${direction === "above" ? "at or above is better" : "at or below is better"}). `;
-      html += targetCoverageText ? (targetCoverageText + `</li>`) : `Target coverage not calculated for this period.</li>`;
-    }
+  const directionText = direction === "above"
+    ? summaryUiText(
+        "summary.xmr.aboveBetter",
+        "at or above is better"
+      )
+    : summaryUiText(
+        "summary.xmr.belowBetter",
+        "at or below is better"
+      );
 
-    // Simple, clearly labelled interpretation
-    if (!hasEnoughPointsForInterpretation) {
-  html += `
-    <li>
-      <strong>Interpretation:</strong>
-      Not yet assessed — more data are needed before this period
-      can be interpreted as showing routine or special-cause variation.
-    </li>
-  `;
-} else if (signals.length === 0) {
-  html += `<li><strong>Interpretation:</strong> No clear special-cause signals were detected in this period. The pattern is consistent with natural/common variation (still interpret in clinical context).</li>`;
+  html +=
+    `<li>` +
+    summaryUiText("summary.xmr.target", "Target") +
+    `: <strong>${target}</strong> (${directionText}). `;
+
+  html += targetCoverageText
+    ? targetCoverageText + `</li>`
+    : summaryUiText(
+        "summary.xmr.coverageUnavailable",
+        "Target coverage not calculated for this period."
+      ) + `</li>`;
+}
+
+// Interpretation: preserve the existing three-way decision.
+if (!hasEnoughPointsForInterpretation) {
+
+  html +=
+    `<li><strong>` +
+    summaryUiText(
+      "summary.xbars.interpretation",
+      "Interpretation"
+    ) +
+    `:</strong> ` +
+    summaryUiText(
+      "summary.xmr.notAssessed",
+      "Not yet assessed — more data are needed before this period can be interpreted as showing routine or special-cause variation."
+    ) +
+    `</li>`;
+
+} else if (!hasSignals) {
+
+  html +=
+    `<li><strong>` +
+    summaryUiText(
+      "summary.xbars.interpretation",
+      "Interpretation"
+    ) +
+    `:</strong> ` +
+    summaryUiText(
+      "summary.xmr.noSignals",
+      "No clear special-cause signals were detected in this period. The pattern is consistent with natural/common variation (still interpret in clinical context)."
+    ) +
+    `</li>`;
+
 } else {
-      html += `<li><strong>Interpretation:</strong> This period shows special-cause signals: ${signals.join("; ")}.</li>`;
 
-      // Optional: very short “where” hints (kept minimal)
-      const whereBits = [];
+    // Short interpretation visible by default.
+  // Reuse existing translated text.
+  html +=
+    `<li><strong>` +
+    summaryUiText(
+      "summary.xbars.interpretation",
+      "Interpretation"
+    ) +
+    `:</strong> ` +
+    summaryUiText(
+      "summary.attr.unstable",
+      "Based on the selected rules, special-cause signals were detected in this period (a pattern unlikely to be routine variation alone)."
+    ) +
+    `</li>`;
 
-      if (beyondIdx.length > 0) {
-        const shown = beyondIdx.slice(0, 3).map(i => (startIndex + i + 1));
-        whereBits.push(`outside limits at point${shown.length > 1 ? "s" : ""} ${shown.join(", ")}${beyondIdx.length > 3 ? ", …" : ""}`);
-      }
+  // Simple advice for users new to SPC.
+  html +=
+    `<li>` +
+    summaryUiText(
+      "help.7.advice",
+      "Look for sustained changes, not just one good or bad point. Use local knowledge to interpret what was happening at that time."
+    ) +
+    `</li>`;
 
-      if (astro.indices && astro.indices.length > 0) {
-        const shown = astro.indices.slice(0, 3).map(i => (startIndex + i + 1));
-        whereBits.push(`outlier at point${shown.length > 1 ? "s" : ""} ${shown.join(", ")}${astro.indices.length > 3 ? ", …" : ""}`);
-      }
+    // Use the chart's structured matches for the expandable analysis.
+  html += buildXmRSignalDetailsHtml(
+    seg.analysis,
+    startIndex,
+    astro,
+    seg.labels
+  );
+}
 
-      // Only add “where” if we actually have something specific to show
-      if (whereBits.length > 0) {
-        html += `<li><strong>Where to look:</strong> ${whereBits.join("; ")}.</li>`;
-      }
-    }
+// Capability is conditional on adequate data, a target,
+// positive sigma, and the existing capability calculation.
+if (capability && sigma > 0) {
 
-    if (capability && sigma > 0) {
-      if (signals.length === 0) {
-        html += `<li><strong>Estimated capability (this period):</strong> if the process remains stable, about <strong>${(capability.prob * 100).toFixed(1)}%</strong> of future points are expected to meet the target.</li>`;
-      } else {
-        html += `<li><strong>Capability:</strong> a target has been set, but because special-cause signals are present in this period, any capability estimate would be unreliable.</li>`;
-      }
-    }
+  if (!hasSignals) {
+
+    html +=
+      `<li><strong>` +
+      summaryUiText(
+        "summary.xmr.estimatedCapability",
+        "Estimated capability (this period)"
+      ) +
+      `:</strong> ` +
+      summaryUiText(
+        "summary.xmr.ifStable",
+        "if the process remains stable, about"
+      ) +
+      ` <strong>${(capability.prob * 100).toFixed(1)}%</strong> ` +
+      summaryUiText(
+        "summary.xmr.futureMeet",
+        "of future points are expected to meet the target."
+      ) +
+      `</li>`;
+
+  } else {
+
+    html +=
+      `<li><strong>` +
+      summaryUiText(
+        "summary.xmr.capability",
+        "Capability"
+      ) +
+      `:</strong> ` +
+      summaryUiText(
+        "summary.xmr.capabilityUnreliable",
+        "a target has been set, but because special-cause signals are present in this period, any capability estimate would be unreliable."
+      ) +
+      `</li>`;
+  }
+}
 
     html += `</ul>`;
     html += `</div>`;
@@ -12483,8 +15067,14 @@ if (target !== null) {
   baselineMRCount: result.baselineMRCount,
   effectiveMRCount: result.effectiveMRCount,
 
-  n,
+    n,
   signals: signals.slice(),
+
+  // Available to the next-stage expandable analysis and diagnostics.
+  ruleMatches: seg.analysis?.ruleMatches || null,
+  ruleFlags: seg.analysis?.flags || null,
+  rulePolicy: seg.analysis?.rulePolicy || null,
+
         hasTrend,
         hasRunViolation,
         hasAstronomical,
@@ -12498,8 +15088,8 @@ if (target !== null) {
         limitEstimatePointCount,
         minimumPointsForInterpretation: MIN_XMR_LIMIT_POINTS,
 
-        isStable: hasEnoughPointsForInterpretation
-          ? signals.length === 0
+                isStable: hasEnoughPointsForInterpretation
+          ? !hasSignals
           : null,
 
         // thresholds used (handy for helper explanations)
@@ -12515,9 +15105,19 @@ if (target !== null) {
     }
   });
 
-  if (target !== null && segments.length > 1) {
-    html += `<p><em>Note:</em> comparing means, limits and target performance between periods can indicate whether the process changed after interventions.</p>`;
-  }
+  
+if (target !== null && segments.length > 1) {
+  html +=
+    `<p><em>` +
+    summaryUiText("summary.note", "Note:") +
+    `</em> ` +
+    summaryUiText(
+      "summary.xmr.comparePeriods",
+      "Comparing means, limits and target performance between periods can indicate whether the process changed after interventions."
+    ) +
+    `</p>`;
+}
+
 
   summaryDiv.innerHTML = html;
 
@@ -12540,12 +15140,18 @@ if (target !== null) {
         border:1px solid #ccc;
         border-radius:0.25rem;
       ">
-        <div style="font-weight:bold; text-align:center;">PROCESS CAPABILITY (last period)</div>
+        <div style="font-weight:bold; text-align:center;">${summaryUiText(
+  "summary.xmr.badgeHeading",
+  "PROCESS CAPABILITY (last period)"
+)}</div>
         <div style="font-size:1.4rem; font-weight:bold; text-align:center; margin-top:0.2rem;">
           ${(lastPeriodCapability.prob * 100).toFixed(1)}%
         </div>
         <div style="font-size:0.8rem; margin-top:0.2rem;">
-          (Estimated probability of meeting the target in the final period, assuming a stable process and approximate normality.)
+          ${summaryUiText(
+  "summary.xmr.badgeNote",
+  "(Estimated probability of meeting the target in the final period, assuming a stable process and approximate normality.)"
+)}
         </div>
       </div>
     `;
@@ -12559,8 +15165,22 @@ if (target !== null) {
         border-radius:0.25rem;
         max-width:32rem;
       ">
-        <strong>Special-cause signals detected in the last period:</strong> capability estimates may be unreliable until these signals are understood.
-        Focus on understanding and addressing these causes before relying on capability estimates.
+        
+<strong>${summaryUiText(
+  "summary.xmr.badgeWarning",
+  "Special-cause signals detected in the last period:"
+)}</strong>
+
+${summaryUiText(
+  "summary.xmr.badgeUnreliable",
+  "capability estimates may be unreliable until these signals are understood."
+)}
+
+${summaryUiText(
+  "summary.xmr.badgeAction",
+  "Focus on understanding and addressing these causes before relying on capability estimates."
+)}
+
       </div>
     `;
   } else {
@@ -12615,26 +15235,40 @@ function renderXbarSSummary(
               .filter(Boolean)
           : [];
 
-      return signals.length
-        ? (
-            `signal(s): ` +
-            `${signals.join("; ")}.`
-          )
-        : (
-            "one or more special-cause signals were detected."
-          );
+      
+       
+return signals.length
+  ? (
+      summaryUiText(
+        "summary.xbars.signals",
+        "signal(s):"
+      ) +
+      ` ${signals.map(attributeSignalDisplayHtml).join("; ")}.`
+    )
+  : summaryUiText(
+      "summary.xbars.signalDetected",
+      "one or more special-cause signals were detected."
+    );
+
+
     };
 
-  let html =
-    `<h3>X̄–S summary</h3>`;
+  
+  let html = "<h3>";
 
-  html +=
-    `<p>Total number of subgroups: ` +
-    `<strong>${totalSubgroups}</strong>. ` +
-    `The chart is divided into ` +
-    `<strong>${periods.length}</strong> ` +
-    `period${periods.length === 1 ? "" : "s"} ` +
-    `(based on the baseline and any splits).</p>`;
+  html += summaryUiText(
+    "summary.xbarsHeading",
+    "X̄–S summary"
+  );
+
+  html += "</h3>";
+
+  html += summaryOpening(
+    totalSubgroups,
+    periods.length,
+    { countType: "subgroups" }
+  );
+
 
   periods.forEach(
     (
@@ -12672,78 +15306,106 @@ function renderXbarSSummary(
           ? (
               `${stats.subgroupSizeMin}–` +
               `${stats.subgroupSizeMax} ` +
-              `(varies by subgroup)`
+              summaryUiText("summary.variesSubgroup", "(varies by subgroup)")
             )
           : Number.isFinite(
               stats.subgroupSize
             )
             ? `${stats.subgroupSize}`
-            : "not stated";
+            : summaryUiText("summary.notStated", "not stated");
 
+      
       const coverage =
         (
-          period.labelStart !==
-            undefined &&
-          period.labelEnd !==
-            undefined
+          period.labelStart !== undefined &&
+          period.labelEnd !== undefined
         )
           ? (
               `${period.labelStart} ` +
-              `to ` +
-              `${period.labelEnd}`
+              summaryUiText("summary.to", "to") +
+              ` ${period.labelEnd}`
             )
           : (
-              `subgroups ` +
-              `${period.startIndex + 1}–` +
+              summaryUiText(
+                "summary.subgroups",
+                "subgroups"
+              ) +
+              ` ${period.startIndex + 1}–` +
               `${period.endIndex + 1}`
             );
 
-      let interpretation =
-        "";
 
-      if (
-        xStable &&
-        sStable
-      ) {
-        interpretation =
-          "Both the subgroup averages (X̄) and within-subgroup variation (S) look stable in this period.";
+      
+      let interpretation = "";
 
-      } else if (
-        !xStable &&
-        sStable
-      ) {
-        interpretation =
-          "The subgroup averages (X̄) show special-cause signals, while within-subgroup variation (S) looks stable.";
+      if (xStable && sStable) {
+        interpretation = summaryUiText(
+          "summary.xbars.bothStable",
+          "Both the subgroup averages (X̄) and within-subgroup variation (S) look stable in this period."
+        );
 
-      } else if (
-        xStable &&
-        !sStable
-      ) {
-        interpretation =
-          "The subgroup averages (X̄) look stable, while within-subgroup variation (S) shows special-cause signals.";
+      } else if (!xStable && sStable) {
+        interpretation = summaryUiText(
+          "summary.xbars.xUnstable",
+          "The subgroup averages (X̄) show special-cause signals, while within-subgroup variation (S) looks stable."
+        );
+
+      } else if (xStable && !sStable) {
+        interpretation = summaryUiText(
+          "summary.xbars.sUnstable",
+          "The subgroup averages (X̄) look stable, while within-subgroup variation (S) shows special-cause signals."
+        );
 
       } else {
-        interpretation =
-          "Both the subgroup averages (X̄) and within-subgroup variation (S) show special-cause signals.";
+        interpretation = summaryUiText(
+          "summary.xbars.bothUnstable",
+          "Both the subgroup averages (X̄) and within-subgroup variation (S) show special-cause signals."
+        );
       }
+
 
       html +=
         `<div class="pdf-avoid-break">`;
 
-      html +=
-        `<h4>Period ${index + 1} of ` +
-        `${periods.length}: ` +
-        `${coverage}</h4>`;
+      
+       html += summaryPeriodHeading(
+         index,
+         periods.length,
+         {
+           alwaysNumbered: true,
+           coverage
+         }
+       );
+
 
       html += `<ul>`;
 
-      html +=
-        `<li>` +
-        `<strong>Subgroup size:</strong> ` +
-        `${subgroupSizeText} ` +
-        `measurement${stats.subgroupSize === 1 ? "" : "s"} ` +
-        `per subgroup.` +
-        `</li>`;
+      
+       html +=
+         `<li><strong>` +
+         summaryUiText(
+           "summary.subgroupSize",
+           "Subgroup size"
+         ) +
+         `:</strong> ${subgroupSizeText} ` +
+         (
+           stats.subgroupSize === 1
+             ? summaryUiText(
+                 "summary.measurement",
+                 "measurement"
+               )
+             : summaryUiText(
+                 "summary.measurements",
+                 "measurements"
+               )
+         ) +
+         ` ` +
+         summaryUiText(
+           "summary.perSubgroup",
+           "per subgroup"
+         ) +
+         `.</li>`;
+
 
             if (
         Number.isFinite(
@@ -12770,92 +15432,215 @@ function renderXbarSSummary(
             ? stats.excludedBaselineCount
             : 0;
 
+        
+        const firstSubgroups =
+          stats.baselineCountUsed === 1
+            ? summaryUiText(
+                "summary.xbars.firstOne",
+                "the first subgroup (1)"
+              )
+            : (
+                summaryUiText(
+                  "summary.xbars.firstMany",
+                  "the first"
+                ) +
+                ` ${stats.baselineCountUsed} ` +
+                summaryUiText(
+                  "summary.xbars.subgroupsMany",
+                  "subgroups"
+                )
+              );
+
+        const defineWindow =
+          stats.baselineCountUsed === 1
+            ? summaryUiText(
+                "summary.xbars.windowOne",
+                "defines the calculation window;"
+              )
+            : summaryUiText(
+                "summary.xbars.windowMany",
+                "define the calculation window;"
+              );
+
+        const excludedText =
+          excludedBaseline
+            ? (
+                `, ${excludedBaseline} ` +
+                (
+                  excludedBaseline === 1
+                    ? summaryUiText(
+                        "summary.xbars.excludedOne",
+                        "excluded"
+                      )
+                    : summaryUiText(
+                        "summary.xbars.excludedMany",
+                        "excluded"
+                      )
+                )
+              )
+            : "";
+
         html +=
-          `<li>` +
-          `<strong>Baseline:</strong> ` +
-          `the first ${stats.baselineCountUsed} subgroup${stats.baselineCountUsed === 1 ? "" : "s"} define the calculation window; ` +
-          `${usedBaseline} used to estimate the limits` +
-          `${
-            excludedBaseline
-              ? `, ${excludedBaseline} excluded`
-              : ""
-          }.` +
-          `</li>`;
+          `<li><strong>` +
+          summaryUiText(
+            "summary.xbars.baseline",
+            "Baseline"
+          ) +
+          `:</strong> ` +
+          firstSubgroups + " " +
+          defineWindow + " " +
+          usedBaseline + " " +
+          summaryUiText(
+            "summary.xbars.usedEstimate",
+            "used to estimate the limits"
+          ) +
+          excludedText +
+          `.</li>`;
+
       }
 
       if (
         variableSubgroupSizes
       ) {
+        
         html +=
           `<li>` +
-          `<strong>X̄ chart centre line:</strong> ` +
+          `<strong>${summaryUiText(
+            "summary.xbarCentre",
+            "X̄ chart centre line"
+          )}:</strong> ` +
           `${fmt(stats.xbarbar)}; ` +
-          `<strong>control limits vary with subgroup size:</strong> ` +
-          `LCL range = ` +
-          `${fmt(stats.xLclMin)}–${fmt(stats.xLclMax)}, ` +
-          `UCL range = ` +
-          `${fmt(stats.xUclMin)}–${fmt(stats.xUclMax)}.` +
+          `<strong>${summaryUiText(
+            "summary.xbars.limitsVary",
+            "control limits vary with subgroup size"
+          )}:</strong> ` +
+          `${summaryUiText(
+            "summary.xbars.lclRange",
+            "LCL range"
+          )} = ${fmt(stats.xLclMin)}–${fmt(stats.xLclMax)}, ` +
+          `${summaryUiText(
+            "summary.xbars.uclRange",
+            "UCL range"
+          )} = ${fmt(stats.xUclMin)}–${fmt(stats.xUclMax)}.` +
           `</li>`;
 
         html +=
           `<li>` +
-          `<strong>S chart:</strong> ` +
-          `the expected S and its control limits vary with subgroup size. ` +
-          `Centre-line range = ` +
-          `${fmt(stats.sClMin)}–${fmt(stats.sClMax)}; ` +
-          `LCL range = ` +
-          `${fmt(stats.sLclMin)}–${fmt(stats.sLclMax)}; ` +
-          `UCL range = ` +
-          `${fmt(stats.sUclMin)}–${fmt(stats.sUclMax)}.` +
+          `<strong>${summaryUiText(
+            "summary.xbars.sChart",
+            "S chart"
+          )}:</strong> ` +
+          `${summaryUiText(
+            "summary.xbars.sLimitsVary",
+            "the expected S and its control limits vary with subgroup size."
+          )} ` +
+          `${summaryUiText(
+            "summary.xbars.centreRange",
+            "Centre-line range"
+          )} = ${fmt(stats.sClMin)}–${fmt(stats.sClMax)}; ` +
+          `${summaryUiText(
+            "summary.xbars.lclRange",
+            "LCL range"
+          )} = ${fmt(stats.sLclMin)}–${fmt(stats.sLclMax)}; ` +
+          `${summaryUiText(
+            "summary.xbars.uclRange",
+            "UCL range"
+          )} = ${fmt(stats.sUclMin)}–${fmt(stats.sUclMax)}.` +
           `</li>`;
+
 
         html +=
           `<li>` +
-          `<strong>Estimated process standard deviation:</strong> ` +
+          `<strong>${summaryUiText("summary.estimatedProcessSd", "Estimated process standard deviation")}:</strong> ` +
           `${fmt(stats.processSigma)}.` +
           `</li>`;
 
       } else {
+        
         html +=
           `<li>` +
-          `<strong>X̄ chart centre line:</strong> ` +
-          `${fmt(stats.xbarbar)}; limits: ` +
-          `LCL = ${fmt(stats.lclX)}, ` +
-          `UCL = ${fmt(stats.uclX)}.` +
+          `<strong>${summaryUiText(
+            "summary.xbarCentre",
+            "X̄ chart centre line"
+          )}:</strong> ` +
+          `${fmt(stats.xbarbar)}; ` +
+          `${summaryUiText(
+            "summary.xbars.limits",
+            "limits"
+          )}: ` +
+          `${summaryUiText("summary.lowerLimit", "LCL")} = ${fmt(stats.lclX)}, ` +
+          `${summaryUiText("summary.upperLimit", "UCL")} = ${fmt(stats.uclX)}.` +
           `</li>`;
 
         html +=
           `<li>` +
-          `<strong>S chart centre line:</strong> ` +
-          `${fmt(stats.sbar)}; limits: ` +
-          `LCL = ${fmt(stats.lclS)}, ` +
-          `UCL = ${fmt(stats.uclS)}.` +
+          `<strong>${summaryUiText(
+            "summary.sCentre",
+            "S chart centre line"
+          )}:</strong> ` +
+          `${fmt(stats.sbar)}; ` +
+          `${summaryUiText(
+            "summary.xbars.limits",
+            "limits"
+          )}: ` +
+          `${summaryUiText("summary.lowerLimit", "LCL")} = ${fmt(stats.lclS)}, ` +
+          `${summaryUiText("summary.upperLimit", "UCL")} = ${fmt(stats.uclS)}.` +
           `</li>`;
+
       }
 
+      
+            // Show the simple interpretation first.
       html +=
-        `<li>` +
-        `<strong>X̄ chart:</strong> ` +
-        `${signalText(
-          x,
-          "stable (no clear signal of change in subgroup averages)."
-        )}` +
-        `</li>`;
+        `<li><strong>` +
+        summaryUiText(
+          "summary.xbars.interpretation",
+          "Interpretation"
+        ) +
+        `:</strong> ${interpretation}</li>`;
 
-      html +=
-        `<li>` +
-        `<strong>S chart:</strong> ` +
-        `${signalText(
-          s,
-          "stable (no clear signal of change in within-subgroup variation)."
-        )}` +
-        `</li>`;
+      // Detailed signals are available on demand.
+      // Do not show an empty panel for stable periods.
+      if (!xStable || !sStable) {
 
-      html +=
-        `<li>` +
-        `<strong>Interpretation:</strong> ` +
-        `${interpretation}` +
-        `</li>`;
+        html +=
+          `<li><details class="xmr-signal-details">` +
+          `<summary>` +
+          summaryUiText(
+            "summary.xmr.where",
+            "Where to look"
+          ) +
+          `</summary><ul>`;
+
+        // Only include the X-bar chart when it has signals.
+        if (!xStable) {
+          html +=
+            `<li><strong>` +
+            summaryUiText(
+              "summary.xbars.xChart",
+              "X̄ chart"
+            ) +
+            `:</strong> ` +
+            signalText(x, "") +
+            `</li>`;
+        }
+
+        // Only include the S chart when it has signals.
+        if (!sStable) {
+          html +=
+            `<li><strong>` +
+            summaryUiText(
+              "summary.xbars.sChart",
+              "S chart"
+            ) +
+            `:</strong> ` +
+            signalText(s, "") +
+            `</li>`;
+        }
+
+        html += `</ul></details></li>`;
+      }
+
 
       html += `</ul>`;
       html += `</div>`;
@@ -12877,40 +15662,45 @@ function renderXbarSSummary(
       ?.s
       ?.isStable;
 
+  
   let latestText = "";
 
-  if (
-    latestXStable &&
-    latestSStable
-  ) {
-    latestText =
-      "The latest period looks stable on both parts of the X̄–S chart. " +
-      "That means the current process level and within-subgroup variation are behaving broadly consistently under the current rule settings.";
+  if (latestXStable && latestSStable) {
+    latestText = summaryUiText(
+      "summary.xbars.latestBothStable",
+      "The latest period looks stable on both parts of the X̄–S chart. That means the current process level and within-subgroup variation are behaving broadly consistently under the current rule settings."
+    );
 
-  } else if (
-    !latestXStable &&
-    latestSStable
-  ) {
-    latestText =
-      "The latest period shows possible change in the subgroup averages, while within-subgroup variation remains stable.";
+  } else if (!latestXStable && latestSStable) {
+    latestText = summaryUiText(
+      "summary.xbars.latestXUnstable",
+      "The latest period shows possible change in the subgroup averages, while within-subgroup variation remains stable."
+    );
 
-  } else if (
-    latestXStable &&
-    !latestSStable
-  ) {
-    latestText =
-      "The latest period shows possible change in within-subgroup variation, while the subgroup averages remain stable.";
+  } else if (latestXStable && !latestSStable) {
+    latestText = summaryUiText(
+      "summary.xbars.latestSUnstable",
+      "The latest period shows possible change in within-subgroup variation, while the subgroup averages remain stable."
+    );
 
   } else {
-    latestText =
-      "The latest period shows possible special-cause variation in both the subgroup averages and within-subgroup variation.";
+    latestText = summaryUiText(
+      "summary.xbars.latestBothUnstable",
+      "The latest period shows possible special-cause variation in both the subgroup averages and within-subgroup variation."
+    );
   }
 
+
+  
   html +=
     `<div class="pdf-avoid-break">` +
-    `<p><strong>Latest period:</strong> ` +
+    `<p><strong>${summaryUiText(
+      "summary.xbars.latestPeriod",
+      "Latest period"
+    )}:</strong> ` +
     `${latestText}</p>` +
     `</div>`;
+
 
   summaryDiv.innerHTML =
     html;
@@ -12996,6 +15786,7 @@ function detectNumericDateStyle(values) {
   return { style: "unknown", ambiguousCount };
 }
 
+
 function updateDateFormatWarning() {
   if (!dateFormatWarning) return;
 
@@ -13007,76 +15798,111 @@ function updateDateFormatWarning() {
 
   const col = dateSelect.value;
   const axisType = getCheckedRadioValue("axisType");
+
   if (axisType !== "date") return;
 
   const values = rawRows
     .map(r => r?.[col])
-    .filter(v => v !== null && v !== undefined && String(v).trim() !== "");
+    .filter(v =>
+      v !== null &&
+      v !== undefined &&
+      String(v).trim() !== ""
+    );
 
   if (!values.length) return;
 
   const result = detectNumericDateStyle(values);
   const pref = getDateFormatPreference();
 
+  // Only the messages have been translated.
+  // Date detection and warning conditions are unchanged.
+
   if (result.style === "mixed") {
-    dateFormatWarning.textContent =
-      "Warning: this column appears to contain a mixture of UK-style and US-style numeric dates. Please standardise the dates if possible.";
+    dateFormatWarning.textContent = chartPanelText(
+      "chart.warning.mixedDates",
+      "Warning: this column appears to contain a mixture of UK-style and US-style numeric dates. Please standardise the dates if possible."
+    );
     dateFormatWarning.style.display = "block";
     return;
   }
 
   if (pref === "uk" && result.style === "us") {
-    dateFormatWarning.textContent =
-      "Warning: these dates look like US month-first dates (mm/dd/yyyy), but UK day-first is selected. Some rows may be ignored. Try switching to US month-first or Auto-detect.";
+    dateFormatWarning.textContent = chartPanelText(
+      "chart.warning.usDatesUkSelected",
+      "Warning: these dates look like US month-first dates (mm/dd/yyyy), but UK day-first is selected. Some rows may be ignored. Try switching to US month-first or Auto-detect."
+    );
     dateFormatWarning.style.display = "block";
     return;
   }
 
   if (pref === "us" && result.style === "uk") {
-    dateFormatWarning.textContent =
-      "Warning: these dates look like UK day-first dates (dd/mm/yyyy), but US month-first is selected. Some rows may be ignored. Try switching to UK day-first or Auto-detect.";
+    dateFormatWarning.textContent = chartPanelText(
+      "chart.warning.ukDatesUsSelected",
+      "Warning: these dates look like UK day-first dates (dd/mm/yyyy), but US month-first is selected. Some rows may be ignored. Try switching to UK day-first or Auto-detect."
+    );
     dateFormatWarning.style.display = "block";
     return;
   }
 
   if (result.ambiguousCount > 0) {
     if (pref === "uk") {
-      dateFormatWarning.textContent =
-        "This column contains ambiguous numeric dates. They will currently be interpreted as UK day-first dates (dd/mm/yyyy).";
+      dateFormatWarning.textContent = chartPanelText(
+        "chart.warning.ambiguousUk",
+        "This column contains ambiguous numeric dates. They will currently be interpreted as UK day-first dates (dd/mm/yyyy)."
+      );
       dateFormatWarning.style.display = "block";
       return;
     }
 
     if (pref === "us") {
-      dateFormatWarning.textContent =
-        "This column contains ambiguous numeric dates. They will currently be interpreted as US month-first dates (mm/dd/yyyy).";
+      dateFormatWarning.textContent = chartPanelText(
+        "chart.warning.ambiguousUs",
+        "This column contains ambiguous numeric dates. They will currently be interpreted as US month-first dates (mm/dd/yyyy)."
+      );
       dateFormatWarning.style.display = "block";
       return;
     }
 
     if (pref === "auto" && result.style === "unknown") {
-      dateFormatWarning.textContent =
-        "This column contains ambiguous numeric dates and the tool cannot confidently auto-detect the style. It will fall back to UK day-first dates unless you choose another option.";
+      dateFormatWarning.textContent = chartPanelText(
+        "chart.warning.ambiguousAuto",
+        "This column contains ambiguous numeric dates and the tool cannot confidently auto-detect the style. It will fall back to UK day-first dates unless you choose another option."
+      );
       dateFormatWarning.style.display = "block";
       return;
     }
 
     if (pref === "iso-only") {
-      dateFormatWarning.textContent =
-        "This column contains numeric slash/hyphen dates. In 'ISO / Excel dates only' mode, ambiguous numeric dates may not be interpreted as dates.";
+      dateFormatWarning.textContent = chartPanelText(
+        "chart.warning.ambiguousIso",
+        "This column contains numeric slash/hyphen dates. In 'ISO / Excel dates only' mode, ambiguous numeric dates may not be interpreted as dates."
+      );
       dateFormatWarning.style.display = "block";
       return;
     }
   }
 }
 
+
 function updateDateControlsState() {
-  const axisType = document.querySelector("input[name='axisType']:checked")?.value;
+  const axisType =
+    document.querySelector("input[name='axisType']:checked")?.value;
 
   const isDateMode = axisType === "date";
 
   if (dateFormatPreferenceSelect) {
     dateFormatPreferenceSelect.disabled = !isDateMode;
+  }
+
+  const dateFormatRow = document.getElementById("dateFormatRow");
+
+  if (dateFormatRow) {
+    dateFormatRow.title = isDateMode
+      ? ""
+      : chartPanelText(
+          "chart.dateFormat.disabled",
+          "Date-format selection is only available when the X-axis type is Date / time."
+        );
   }
 }
 
@@ -13399,13 +16225,29 @@ function validateColumnSelectionSafety({ chartType, dateCol, valueCol, axisType 
        !xProf.repeatsOften &&
        !xProf.looksLikeDate);
 
+    // Only warn for a clearly named identifier or a true row-number series.
+  // Whole-number outcomes can be unique without being IDs.
+  const yName = String(valueCol).trim();
+  const namedId =
+    /(?:^|[_\s-])(?:id|identifier|index|sequence|seq|serial)(?:$|[_\s-])/i.test(yName) ||
+    /^(?:patient|person|record|episode|visit|case|sample|row)[_\s-]?(?:id|number|num|no)$/i.test(yName);
+
+  const namedMeasure =
+    /(?:median|mean|average|time|minute|hour|day|rate|count|percent|score|duration|turnaround|wait|measure|value|total|patient|attendance|appointment|number[_\s-]+of)/i.test(yName);
+
+  const firstY = rawRows.length ? toNumericValue(rawRows[0][valueCol]) : NaN;
+  const isRowNumberSequence =
+    rawRows.length >= 8 &&
+    (firstY === 0 || firstY === 1) &&
+    rawRows.every((row, index) =>
+      toNumericValue(row[valueCol]) === firstY + index
+    );
+
   const yLooksLikeIndex =
     !!(yProf &&
        yProf.isNumeric &&
-       yProf.isMostlyInteger &&
-       yProf.uniqueRatio >= 0.85 &&
-       !yProf.repeatsOften &&
-       !yProf.looksLikeDate);
+       !yProf.looksLikeDate &&
+       (namedId || (isRowNumberSequence && !namedMeasure)));
 
   // T chart (event dates mode): value column is ignored, so only check X
   if (chartType === "t" && typeof tChartInputMode !== "undefined" && tChartInputMode === "eventDates") {
@@ -14179,8 +17021,10 @@ if (chartType === "run") {
       lcl: lclArr,
       yAxisSuggestedMin: 0,
       yAxisSuggestedMax: Math.max(...gaps, ...uclArr.filter(isFinite)),
-      chartTitleFallback: chartTitleInput?.value || "T chart (gaps)",
-      yAxisLabelFallback: yAxisLabelInput?.value || "Time between events",
+      
+chartTitleFallback: "T chart (gaps)",
+yAxisLabelFallback: "Time between events",
+
       showUCL: true,
       showLCL: false
     });
@@ -14451,6 +17295,12 @@ currentChart = new Chart(chartCanvas, {
       })()
     }
   });
+
+    // Retain the run-chart ranges used for point colouring.
+    currentChart.$spcTooltipRun = {
+      shifts: runRangesAll,
+      trends: trendRangesAll
+    };
 
     clearDataModelDirty();
 
@@ -14917,62 +17767,85 @@ function drawParetoChart(
                 chartLabels.title
               ),
 
-            legend: {
-              display: true,
-              position:
-                "bottom",
-              align:
-                "center"
-            },
+            
+legend: {
+  display: true,
+  position: "bottom",
+  align: "center",
 
-            tooltip: {
-              callbacks: {
-                label(context) {
-                  const i =
-                    context.dataIndex;
+  labels: {
+    generateLabels(chart) {
+      const items =
+        Chart.defaults.plugins.legend.labels.generateLabels(chart);
 
-                  const item =
-                    result.items[i];
+      return items.map(item => ({
+        ...item,
+        text: chartDisplayLabel(item.text)
+      }));
+    }
+  }
+},
 
-                  if (!item) {
-                    return "";
-                  }
 
-                  if (
-                    context.dataset
-                      .yAxisID ===
-                    "y1"
-                  ) {
-                    return (
-                      `Cumulative: ` +
-                      `${item.cumulativePct.toFixed(1)}%`
-                    );
-                  }
+            
+tooltip: {
+  callbacks: {
+    label(context) {
+      const i = context.dataIndex;
+      const item = result.items[i];
 
-                  return (
-                    `Count: ${item.count} ` +
-                    `(${(item.share * 100).toFixed(1)}% of total)`
-                  );
-                },
+      if (!item) {
+        return "";
+      }
 
-                afterBody(items) {
-                  const i =
-                    items?.[0]
-                      ?.dataIndex;
+      // Cumulative percentage dataset
+      if (context.dataset.yAxisID === "y1") {
+        const percent =
+          item.cumulativePct.toFixed(1);
 
-                  const item =
-                    result.items[i];
+        return chartPanelText(
+          "visual.pareto.cumulative",
+          `Cumulative: ${percent}%`,
+          { percent }
+        );
+      }
 
-                  if (!item) {
-                    return [];
-                  }
+      // Count dataset
+      const share =
+        (item.share * 100).toFixed(1);
 
-                  return [
-                    `Cumulative through this category: ${item.cumulativePct.toFixed(1)}%`
-                  ];
-                }
-              }
-            },
+      return chartPanelText(
+        "visual.pareto.count",
+        `Count: ${item.count} (${share}% of total)`,
+        {
+          count: item.count,
+          share
+        }
+      );
+    },
+
+    afterBody(items) {
+      const i = items?.[0]?.dataIndex;
+      const item = result.items[i];
+
+      if (!item) {
+        return [];
+      }
+
+      const percent =
+        item.cumulativePct.toFixed(1);
+
+      return [
+        chartPanelText(
+          "visual.pareto.through",
+          `Cumulative through this category: ${percent}%`,
+          { percent }
+        )
+      ];
+    }
+  }
+},
+
 
             annotation: {
               annotations: {
@@ -15038,13 +17911,12 @@ function drawParetoChart(
                   false
               },
 
-              title: {
-                display:
-                  true,
+              
+title: {
+  display: true,
+  text: translateAutomaticChartLabel("Cumulative %")
+},
 
-                text:
-                  "Cumulative %"
-              },
 
               ticks: {
                 callback(value) {
@@ -15068,89 +17940,206 @@ function drawParetoChart(
     result.items[0];
 
 
-  let html =
-    `<h3>Summary (Pareto chart)</h3>`;
+  
+  let html = summaryHeading(
+    "pareto",
+    "Pareto chart"
+  );
+
+  html += "<p>";
+
+  html += summaryUiText(
+    "summary.paretoOccurrences",
+    "Total occurrences:"
+  );
+
+  html += ` <strong>${result.total}</strong> `;
+
+  html += summaryUiText(
+    "summary.paretoAcross",
+    "across"
+  );
+
+  html += ` <strong>${result.categoryCount}</strong> `;
+
+  html += summaryUiText(
+    "summary.paretoCategories",
+    "categories."
+  );
+
+  html += "</p>";
+
+
+  
+  // Batch 34 correction:
+  // Bilingual Pareto statistical summary.
+  // All numbers and categories still come directly
+  // from the original Pareto analysis.
+
+  html += "<ul>";
+
+  // Singular/plural wording, also updated on
+  // live language switching.
+  const paretoOccurrenceWord = count =>
+    count === 1
+      ? summaryUiText(
+          "summary.pareto.occurrenceOne",
+          "occurrence"
+        )
+      : summaryUiText(
+          "summary.pareto.occurrenceMany",
+          "occurrences"
+        );
+
+  // Largest category.
+  html +=
+    `<li><strong>` +
+    summaryUiText(
+      "summary.pareto.largestLabel",
+      "Largest category:"
+    ) +
+    `</strong> ${escapeHtml(top.category)} — ` +
+    `${top.count} ${paretoOccurrenceWord(top.count)} ` +
+    `(${(top.share * 100).toFixed(1)}% ` +
+    summaryUiText(
+      "summary.pareto.ofTotal",
+      "of the total"
+    ) +
+    `).</li>`;
+
+  // Top three categories.
+  html +=
+    `<li><strong>` +
+    summaryUiText(
+      "summary.pareto.topThreeLabel",
+      "Top three categories:"
+    ) +
+    `</strong> ${result.top3Count} ` +
+    paretoOccurrenceWord(result.top3Count) +
+    ` (${(result.top3Share * 100).toFixed(1)}% ` +
+    summaryUiText(
+      "summary.pareto.ofTotal",
+      "of the total"
+    ) +
+    `).</li>`;
+
+  // 80% cumulative guide.
+  // Preserve the original cutoff and its percentage.
+  const cutoffPhrase =
+    result.cutoff80Count === 1
+      ? (
+          summaryUiText(
+            "summary.pareto.cutoffOneStart",
+            "the first category"
+          ) +
+          ` (<strong>${result.cutoff80Count}</strong>) ` +
+          summaryUiText(
+            "summary.pareto.cutoffOneEnd",
+            "accounts for"
+          )
+        )
+      : (
+          summaryUiText(
+            "summary.pareto.cutoffManyStart",
+            "the first"
+          ) +
+          ` <strong>${result.cutoff80Count}</strong> ` +
+          summaryUiText(
+            "summary.pareto.cutoffManyEnd",
+            "categories account for"
+          )
+        );
 
   html +=
-    `<p>` +
-    `Total occurrences: ` +
-    `<strong>${result.total}</strong> across ` +
-    `<strong>${result.categoryCount}</strong> categories.` +
-    `</p>`;
-
-  html +=
-    `<ul>`;
-
-  html +=
-    `<li>` +
-    `<strong>Largest category:</strong> ` +
-    `${escapeHtml(top.category)} — ` +
-    `${top.count} occurrence${top.count === 1 ? "" : "s"} ` +
-    `(${(top.share * 100).toFixed(1)}% of the total).` +
-    `</li>`;
-
-  html +=
-    `<li>` +
-    `<strong>Top three categories:</strong> ` +
-    `${result.top3Count} occurrences ` +
-    `(${(result.top3Share * 100).toFixed(1)}% of the total).` +
-    `</li>`;
-
-  html +=
-    `<li>` +
-    `<strong>80% guide:</strong> ` +
-    `the first ${result.cutoff80Count} categor${
-      result.cutoff80Count === 1
-        ? "y"
-        : "ies"
-    } account for ` +
+    `<li><strong>` +
+    summaryUiText(
+      "summary.pareto.eightyHeading",
+      "80% guide:"
+    ) +
+    `</strong> ${cutoffPhrase} ` +
     `<strong>${result.cutoff80Pct.toFixed(1)}%</strong> ` +
-    `of the occurrences. ` +
-    `The dashed 80% line is a prioritisation guide, not a statistical control limit.` +
+    summaryUiText(
+      "summary.pareto.ofOccurrences",
+      "of the occurrences."
+    ) +
+    ` ` +
+    summaryUiText(
+      "summary.pareto.eightyCaution",
+      "The dashed 80% line is a prioritisation guide, not a statistical control limit."
+    ) +
     `</li>`;
 
-  if (
-    result.total < 30
-  ) {
+  // Preserve the existing small-sample threshold.
+  if (result.total < 30) {
     html +=
-      `<li>` +
-      `<strong>Caution:</strong> ` +
-      `this Pareto chart contains fewer than 30 occurrences. ` +
-      `With small numbers, the apparent ranking can be unstable, so interpret it cautiously.` +
+      `<li><strong>` +
+      summaryUiText(
+        "summary.pareto.cautionLabel",
+        "Caution:"
+      ) +
+      `</strong> ` +
+      summaryUiText(
+        "summary.pareto.smallSample",
+        "this Pareto chart contains fewer than 30 occurrences. With small numbers, the apparent ranking can be unstable, so interpret it cautiously."
+      ) +
       `</li>`;
   }
 
-  if (
-    result.blankCategoryRows >
-    0
-  ) {
+  // Preserve the existing blank-category count.
+  if (result.blankCategoryRows > 0) {
+    const blankText =
+      result.blankCategoryRows === 1
+        ? summaryUiText(
+            "summary.pareto.blankOne",
+            "row was ignored because the category was blank."
+          )
+        : summaryUiText(
+            "summary.pareto.blankMany",
+            "rows were ignored because the category was blank."
+          );
+
     html +=
-      `<li>` +
-      `<strong>Data check:</strong> ` +
-      `${result.blankCategoryRows} row${
-        result.blankCategoryRows === 1
-          ? " was"
-          : "s were"
-      } ignored because the category was blank.` +
+      `<li><strong>` +
+      summaryUiText(
+        "summary.pareto.dataCheckLabel",
+        "Data check:"
+      ) +
+      `</strong> ${result.blankCategoryRows} ` +
+      blankText +
       `</li>`;
   }
 
+  // Interpretation: a category is not necessarily
+  // an underlying cause.
   html +=
-    `<li>` +
-    `<strong>Interpretation:</strong> ` +
-    `the categories on the left are the most frequent and may be useful places to focus further investigation or improvement effort. ` +
-    `A category is not automatically a cause of the problem.` +
+    `<li><strong>` +
+    summaryUiText(
+      "summary.pareto.interpretationLabel",
+      "Interpretation:"
+    ) +
+    `</strong> ` +
+    summaryUiText(
+      "summary.pareto.interpretation",
+      "the categories on the left are the most frequent and may be useful places to focus further investigation or improvement effort. A category is not automatically a cause of the problem."
+    ) +
     `</li>`;
 
+  // Statistical limitation: Pareto is not time ordered.
   html +=
-    `<li>` +
-    `<strong>SPC note:</strong> ` +
-    `a Pareto chart is not time ordered and cannot tell you whether variation is common cause or special cause. ` +
-    `Where relevant, interpret it alongside an appropriate run or Shewhart chart.` +
+    `<li><strong>` +
+    summaryUiText(
+      "summary.pareto.spcNoteLabel",
+      "SPC note:"
+    ) +
+    `</strong> ` +
+    summaryUiText(
+      "summary.pareto.spcNote",
+      "a Pareto chart is not time ordered and cannot tell you whether variation is common cause or special cause. Where relevant, interpret it alongside an appropriate run or Shewhart chart."
+    ) +
     `</li>`;
 
-  html +=
-    `</ul>`;
+  html += "</ul>";
+
 
   summaryDiv.innerHTML =
     html;
@@ -15174,6 +18163,63 @@ function drawParetoChart(
       top.share
   };
 }
+
+
+/*
+ * Colour attribute-chart observations using the
+ * existing per-period SPC analysis flags.
+ *
+ * Blue   = ordinary observation
+ * Orange = detected shift / other special-cause pattern
+ * Red    = beyond a control limit
+ *
+ * Presentation only: no statistical recalculation.
+ */
+function applyAttributeSignalColours(chart, analyses) {
+  const dataset = chart?.data?.datasets?.[0];
+  const count = chart?.data?.labels?.length;
+
+  if (!dataset || !Number.isInteger(count)) return;
+
+  const colours =
+    new Array(count).fill(SPC_STYLE.seriesBlue);
+
+  const flagOnChart =
+    shouldFlagSpecialCauseOnChart();
+
+  if (flagOnChart && Array.isArray(analyses)) {
+    analyses.forEach(a => {
+      if (
+        !Number.isInteger(a.startIndex) ||
+        !Number.isInteger(a.endIndex)
+      ) {
+        return;
+      }
+
+      for (
+        let i = Math.max(0, a.startIndex);
+        i <= Math.min(count - 1, a.endIndex);
+        i++
+      ) {
+        const local = i - a.startIndex;
+
+        // Red takes priority over orange.
+        if (a.flags?.beyond?.[local]) {
+          colours[i] = SPC_STYLE.pointBeyond;
+        } else if (a.flags?.special?.[local]) {
+          colours[i] = SPC_STYLE.pointSpecial;
+        }
+      }
+    });
+  }
+
+  // Only update appearance of the observation dataset.
+  dataset.pointBackgroundColor = colours;
+  dataset.pointBorderColor = colours;
+
+  chart.update("none");
+}
+
 
 
 // -----------------------------
@@ -15318,6 +18364,55 @@ function drawCChart(points, baselineCount, labels) {
 
   // Keep "latest" available for anything else that expects it
   lastAttributeAnalysis = analyses[analyses.length - 1];
+
+
+
+  // Colour C-chart points using the signals already detected
+  // by analyzeAttributeChart().
+  // This does not run any new statistical calculations.
+  const showSpecialCause =
+    typeof shouldFlagSpecialCauseOnChart === "function"
+      ? shouldFlagSpecialCauseOnChart()
+      : true;
+
+  const updatedPointColours =
+    new Array(n).fill(SPC_STYLE.seriesBlue);
+
+  if (showSpecialCause) {
+    analyses.forEach(a => {
+      const start = a.startIndex;
+      const end = a.endIndex;
+
+      for (let i = start; i <= end; i++) {
+        const localIndex = i - start;
+
+        if (a.flags?.beyond?.[localIndex]) {
+          updatedPointColours[i] =
+            SPC_STYLE.pointBeyond;
+
+        } else if (a.flags?.special?.[localIndex]) {
+          updatedPointColours[i] =
+            SPC_STYLE.pointSpecial;
+        }
+      }
+    });
+  }
+
+  // Update the already-drawn chart's point colours.
+  // Keep the same data, limits and chart instance.
+  if (
+    currentChart &&
+    currentChart.data?.datasets?.[0]
+  ) {
+    currentChart.data.datasets[0].pointBackgroundColor =
+      updatedPointColours;
+
+    currentChart.data.datasets[0].pointBorderColor =
+      updatedPointColours;
+
+    currentChart.update("none");
+  }
+
 
 }
 
@@ -15479,6 +18574,9 @@ a.stats = {
 
   // Keep "latest" available for anything else that expects it
   lastAttributeAnalysis = analyses[analyses.length - 1];
+
+  // Highlight already-detected SPC signals.
+  applyAttributeSignalColours(currentChart, analyses);
 
 }
 
@@ -15717,6 +18815,10 @@ function drawPPrimeChart(pointsWithN, baselineCount, labels) {
     analyses[
       analyses.length - 1
     ];
+
+  // Highlight already-detected SPC signals.
+  applyAttributeSignalColours(currentChart, analyses);
+
 }
 
 function drawUChart(pointsWithN, baselineCount, labels) {
@@ -15879,6 +18981,9 @@ a.stats = {
 
   // Keep "latest" available for anything else that expects it
   lastAttributeAnalysis = analyses[analyses.length - 1];
+
+  // Highlight already-detected SPC signals.
+  applyAttributeSignalColours(currentChart, analyses);
 
 }
 
@@ -16199,6 +19304,10 @@ function drawUPrimeChart(pointsWithN, baselineCount, labels) {
     analyses[
       analyses.length - 1
     ];
+
+  // Highlight already-detected SPC signals.
+  applyAttributeSignalColours(currentChart, analyses);
+
 }
 
 
@@ -16736,8 +19845,17 @@ labelSegments.forEach(
             return;
           }
 
+          // Default to 1 decimal place for centre-line labels.
+          // Use the Y-axis decimal setting when explicitly selected.
+          // Preserve precision for small proportions and rates.
+          const decimalChoice = yAxisDecimalsInput?.value || "auto";
+
+          const labelDecimals = decimalChoice === "auto"
+            ? (Math.abs(centreValue) < 1 ? 3 : 1)
+            : getConfiguredDecimalPlaces(centreValue);
+
           const text =
-  `${seg.label} = ${centreValue.toFixed(3)}`;
+            `${seg.label} = ${centreValue.toFixed(labelDecimals)}`;
 
           const paddingX = 5;
           const boxHeight = 18;
@@ -17107,8 +20225,9 @@ excludedIndices:
     segmentSummaries.push({
       startIndex: start,
       endIndex: end,
-      labelStart: labels[start],
+            labelStart: labels[start],
       labelEnd: labels[end],
+      labels: labels.slice(start, end + 1),
       result: segResult,
       analysis: segAnalysis,
   limitEstimatePointCount,
@@ -17279,6 +20398,14 @@ currentChart = new Chart(chartCanvas, {
     })()
   }
 });
+
+// Retain the existing period analyses for tooltip explanations.
+currentChart.$spcTooltipPeriods = segmentSummaries.map(seg => ({
+  startIndex: seg.startIndex,
+  endIndex: seg.endIndex,
+  analysis: seg.analysis,
+  suppress: !seg.hasEnoughPointsForInterpretation
+}));
 
 attachRowLimitExclusionContext(
   currentChart,
@@ -17515,14 +20642,16 @@ function buildMrLegendConfig() {
                 label.datasetIndex
               ] || {};
 
-            if (
-              dataset._mrOmissionMarker
-            ) {
-              return {
-                ...label,
+            
+if (dataset._mrOmissionMarker) {
+  return {
+    ...label,
 
-                pointStyle:
-                  dataset.pointStyle,
+    text: chartDisplayLabel(label.text),
+
+    pointStyle:
+      dataset.pointStyle,
+
 
                 fillStyle:
                   dataset.pointBackgroundColor ||
@@ -17540,11 +20669,15 @@ function buildMrLegendConfig() {
               };
             }
 
-            return {
-              ...label,
+            
+return {
+  ...label,
 
-              pointStyle:
-                "line",
+  text: chartDisplayLabel(label.text),
+
+  pointStyle:
+    "line",
+
 
               strokeStyle:
                 dataset.borderColor ||
@@ -17574,24 +20707,20 @@ function buildMrLegendConfig() {
   };
 }
 
+
 function buildMrTooltipOptions() {
   return {
     filter(context) {
-      const dataset =
-        context.dataset || {};
+      const dataset = context.dataset || {};
 
       /*
-       * At an omitted MR we deliberately hide the ordinary
-       * "Moving range" tooltip item and show only the explanatory
-       * marker dataset.
+       * Keep the original internal dataset-name check.
+       * At an omitted MR, show the explanatory marker
+       * rather than an ordinary moving-range tooltip.
        */
-      if (
-        dataset.label ===
-        "Moving range"
-      ) {
+      if (dataset.label === "Moving range") {
         const reason =
-          dataset._mrReasons
-            ?.[context.dataIndex];
+          dataset._mrReasons?.[context.dataIndex];
 
         return !reason;
       }
@@ -17601,60 +20730,47 @@ function buildMrTooltipOptions() {
 
     callbacks: {
       label(context) {
-        const value =
-          context.parsed?.y;
+        const value = context.parsed?.y;
 
-        if (
-          !Number.isFinite(value)
-        ) {
+        if (!Number.isFinite(value)) {
           return null;
         }
 
-        const pretty =
-          formatMrValueForDisplay(
-            value
-          );
+        const pretty = formatMrValueForDisplay(value);
 
         const reason =
-          context.dataset
-            ?._mrOmissionReason;
+          context.dataset?._mrOmissionReason;
 
-        if (
-          reason ===
-          "excluded-point"
-        ) {
-          return (
+        if (reason === "excluded-point") {
+          return chartPanelText(
+            "visual.mrExcludedTooltip",
             `Not used in the variation estimate: ${pretty} ` +
-            `(adjacent to an excluded point)`
+              "(adjacent to an excluded point)",
+            { value: pretty }
           );
         }
 
-        if (
-          reason ===
-          "screened-large"
-        ) {
-          return (
+        if (reason === "screened-large") {
+          return chartPanelText(
+            "visual.mrScreenedTooltip",
             `Not used in the variation estimate: ${pretty} ` +
-            `(screened as an unusually large moving range)`
+              "(screened as an unusually large moving range)",
+            { value: pretty }
           );
         }
 
-        const label =
-          context.dataset?.label ||
-          "";
+        const label = context.dataset?.label || "";
 
-        if (
-          label ===
-          "Moving range"
-        ) {
-          return (
-            `Moving range: ${pretty}`
+        if (label === "Moving range") {
+          return chartPanelText(
+            "visual.mrTooltip",
+            `Moving range: ${pretty}`,
+            { value: pretty }
           );
         }
 
-        return (
-          `${label}: ${pretty}`
-        );
+        // MR average, MR UCL and period-specific series.
+        return `${chartDisplayLabel(label)}: ${pretty}`;
       }
     }
   };
@@ -17670,7 +20786,14 @@ function drawMrChart(allPoints, labels, segments) {
   mrPanel.style.display = "block";
 
   const strong = mrPanel.querySelector("strong");
-  if (strong) strong.textContent = "Moving Range chart:";
+  
+if (strong) {
+  strong.textContent = chartPanelText(
+    "results.mrHeading",
+    "Moving Range chart:"
+  );
+}
+
 
   const showAll =
     (typeof getMrDisplayMode === "function") &&
@@ -17706,7 +20829,13 @@ function drawMrChart(allPoints, labels, segments) {
     const uclMR = 3.268 * avgMR;
     const mrLabels = labels.slice(lastSeg.startIndex, lastSeg.endIndex + 1);
 
-    renderMrChart(mrLabels, mrValues, mrReasons, avgMR, uclMR);
+        renderMrChart(mrLabels, mrValues, mrReasons, avgMR, uclMR);
+
+    // Keep MR point numbers aligned with the full XmR chart.
+    if (mrChart) {
+      mrChart.$spcPointOffset = lastSeg.startIndex;
+    }
+
     return;
   }
 
@@ -17845,7 +20974,12 @@ function drawMrChart(allPoints, labels, segments) {
       plugins: {
         title: {
           display: true,
-          text: "Moving Range (MR)",
+          
+text: chartPanelText(
+  "results.mrCanvasTitle",
+  "Moving Range (MR)"
+),
+
           font: { size: 14, weight: "bold" }
         },
         legend:
@@ -17879,7 +21013,14 @@ function renderMrChart(mrLabels, mrValues, mrReasons, avgMR, uclMR) {
 
   if (mrPanel) {
     const strong = mrPanel.querySelector("strong");
-    if (strong) strong.textContent = "Moving Range chart:";
+    
+if (strong) {
+  strong.textContent = chartPanelText(
+    "results.mrHeading",
+    "Moving Range chart:"
+  );
+}
+
   }
 
   if (mrChart) {
@@ -17994,7 +21135,12 @@ pointBackgroundColor:
       plugins: {
         title: {
           display: true,
-          text: "Moving Range (MR)",
+          
+text: chartPanelText(
+  "results.mrCanvasTitle",
+  "Moving Range (MR)"
+),
+
           font: { size: 14, weight: "bold" }
         },
         legend:
@@ -18965,8 +22111,161 @@ function answerSpcQuestion(question) {
     return window.SPC_HELPER_LIBRARY.answerQuestion(question);
   }
 
-  return "The SPC helper library is not available. Please check that spc-helper-library.js is loaded before spc.js.";
+
+  return chartPanelText(
+    "helper.response.libraryMissing",
+    "The SPC helper library is not available. Please check that spc-helper-library.js is loaded before spc.js."
+  );
+
 }
+
+
+
+/*
+ * SPC helper suggested-question translations.
+ *
+ * These English strings are the existing identifiers used
+ * by spc-helper-library.js. Do not translate or change
+ * them inside the analysis library.
+ */
+const SPC_HELPER_QUESTION_KEYS = {
+  "What is SPC?": "helper.q.whatSpc",
+  "What is the difference between common and special cause variation?":
+    "helper.q.commonSpecial",
+  "How do I choose the right chart?": "helper.q.chooseChart",
+  "What is a run chart?": "helper.q.run",
+  "What is an XmR chart?": "helper.q.xmr",
+  "What does stable mean?": "helper.q.stable",
+  "What is the difference between a baseline and a split?":
+    "helper.q.baselineSplit",
+  "How do control limits work?": "helper.q.limits",
+  "What should I do if I see a signal?": "helper.q.signalAction",
+  "What if my process is stable but performance is poor?":
+    "helper.q.stablePoor",
+  "Why are some SPC rules unavailable?":
+    "helper.q.rulesUnavailable",
+  "Why are T/G run and trend rules off by default?":
+    "helper.q.rareRules",
+  "Why can’t I use zone rules on P, P′, U, U′, or C charts?":
+    "helper.q.zoneRules",
+
+  "What is my chart telling me?": "helper.q.myChart",
+  "Has anything changed?": "helper.q.changed",
+  "Is my process stable?": "helper.q.processStable",
+  "Is this likely to be real improvement?":
+    "helper.q.improvement",
+  "What does this mean for our target?": "helper.q.target",
+  "What should I do next?": "helper.q.next",
+  "Should I add a split here?": "helper.q.addSplit",
+  "Why are my XmR limits different?": "helper.q.xmrLimits",
+
+  "Why do XmR signals disappear with a short baseline?":
+    "helper.q.xmrShortSignals",
+
+  "Why does XmR need 12 usable points?":
+    "helper.q.xmrMinimum",
+
+  "Why is excluding this point from the limits disabled?":
+    "helper.q.xmrExclusionDisabled",
+
+  "Why doesn't Nelson screening flag changes after the baseline?":
+    "helper.q.xmrNelsonOutside",
+
+  "Why am I using a P′ chart?": "helper.q.pPrime",
+  "Why am I using a U′ chart?": "helper.q.uPrime",
+  "What does Sigma Z mean?": "helper.q.sigmaZ",
+  "When should I exclude a point from limit calculations?":
+    "helper.q.exclude",
+
+  "What does the 80% line mean?": "helper.q.pareto80",
+  "Are the biggest categories the causes?":
+    "helper.q.paretoCauses"
+};
+
+function helperQuestionDisplay(englishQuestion) {
+  const key = SPC_HELPER_QUESTION_KEYS[englishQuestion];
+  return key
+    ? chartPanelText(key, englishQuestion)
+    : englishQuestion;
+}
+
+/*
+ * Match known suggested questions despite harmless
+ * typing differences.
+ *
+ * This is not fuzzy matching: it only recognises
+ * questions already in our bilingual dictionary.
+ */
+function normaliseHelperSuggestedQuestion(value) {
+  return String(value ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/œ/g, "oe")
+    .replace(/æ/g, "ae")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function helperQuestionForMatching(question) {
+  const input = String(question ?? "").trim();
+
+  if (!input) return input;
+
+  const normalised =
+    normaliseHelperSuggestedQuestion(input);
+
+  for (const englishQuestion of Object.keys(
+    SPC_HELPER_QUESTION_KEYS
+  )) {
+    const englishMatch =
+      normaliseHelperSuggestedQuestion(englishQuestion);
+
+    const translatedMatch =
+      normaliseHelperSuggestedQuestion(
+        helperQuestionDisplay(englishQuestion)
+      );
+
+    if (
+      normalised === englishMatch ||
+      normalised === translatedMatch
+    ) {
+      // Continue using the original English identifier.
+      return englishQuestion;
+    }
+  }
+
+  // Preserve existing free-text and FAQ matching.
+  // Do not guess what an unrecognised question means.
+  return input;
+}
+
+
+function renderHelperIntroText(hasChart) {
+  if (!spcHelperIntro) return;
+
+  spcHelperIntro.dataset.helperHasChart =
+    hasChart ? "1" : "0";
+
+  const title = hasChart
+    ? chartPanelText("helper.introChartTitle", "Chart helper")
+    : chartPanelText("helper.introGeneralTitle", "SPC helper");
+
+  const description = hasChart
+    ? chartPanelText(
+        "helper.introChart",
+        "Use the My chart questions for a tailored interpretation."
+      )
+    : chartPanelText(
+        "helper.introGeneral",
+        "Ask a general question before you load any data, or use a suggested prompt below."
+      );
+
+  spcHelperIntro.innerHTML =
+    `<div><strong>${escapeHtml(title)}</strong></div>` +
+    `<div>${escapeHtml(description)}</div>`;
+}
+
 
 
 function renderHelperState() {
@@ -19003,18 +22302,8 @@ const hasChart =
               ? !!lastParetoAnalysis
               : false;
 
-  // 1) Intro text
-  if (!hasChart) {
-    spcHelperIntro.innerHTML = `
-      <div><strong>SPC helper</strong></div>
-      <div>Ask a general question before you load any data, or use a suggested prompt below.</div>
-    `;
-  } else {
-    spcHelperIntro.innerHTML = `
-      <div><strong>Chart helper</strong></div>
-      <div>Use the <strong>My chart</strong> questions for a tailored interpretation.</div>
-    `;
-  }
+    // 1) Translate the introduction for the current chart state.
+  renderHelperIntroText(hasChart);
 
   // 2) Suggested questions from external helper library
   const helperQuestions =
@@ -19028,14 +22317,18 @@ const hasChart =
 
   if (spcHelperChipsGeneral) {
     spcHelperChipsGeneral.innerHTML = generalQs
-      .map(q => `<button type="button" class="spc-chip" data-q="${escapeHtml(q)}">${escapeHtml(q)}</button>`)
+      
+.map(q => `<button type="button" class="spc-chip" data-q="${escapeHtml(q)}">${escapeHtml(helperQuestionDisplay(q))}</button>`)
+
       .join("");
     spcHelperChipsGeneral.classList.remove("is-disabled");
   }
 
   if (spcHelperChipsChart) {
     spcHelperChipsChart.innerHTML = chartQs
-      .map(q => `<button type="button" class="spc-chip" data-q="${escapeHtml(q)}">${escapeHtml(q)}</button>`)
+      
+.map(q => `<button type="button" class="spc-chip" data-q="${escapeHtml(q)}">${escapeHtml(helperQuestionDisplay(q))}</button>`)
+
       .join("");
 
     if (!hasChart) spcHelperChipsChart.classList.add("is-disabled");
@@ -19063,6 +22356,210 @@ function hideChartContextMenu() {
   contextMenuPointIndex = null;
   contextMenuMeanLabelSegmentIndex = null;
 }
+
+
+/*
+ * Translate the chart context menu after its existing
+ * visibility, eligibility and tooltip logic has run.
+ *
+ * Never change data-action, disabled, dataset IDs,
+ * click handlers or statistical settings.
+ */
+function localiseChartContextMenu() {
+  if (!chartContextMenu) return;
+
+  const textKeys = {
+    "Annotations ▸": "context.annotations",
+    "Add annotation…": "context.annotationAdd",
+    "Edit annotation…": "context.annotationEdit",
+    "Delete annotation…": "context.annotationDelete",
+    "Clear all annotations": "context.annotationClear",
+
+    "Exclude from limit calculations…": "context.excludePoint",
+    "Exclude this subgroup from limit calculations…": "context.excludeSubgroup",
+    "Include in limit calculations again": "context.includePoint",
+    "Include this subgroup in limit calculations again": "context.includeSubgroup",
+
+    "Splits ▸": "context.splits",
+    "Add split after this point…": "context.addSplit",
+    "Clear all splits": "context.clearSplits",
+    "No splits to clear": "context.noSplits",
+    "Splits not available for this chart type": "context.splitsUnavailable",
+
+    "Show centre-line labels": "context.centreShow",
+    "Hide centre-line labels": "context.centreHide",
+    "Hide this centre-line label": "context.centreHideOne",
+    "Restore hidden centre-line labels": "context.centreRestore",
+
+    "Copy chart(s)": "context.copy",
+    "Copy chart(s) + analysis": "context.copyAnalysis",
+    "Save chart(s) as PNG image": "context.savePng",
+    "Download PDF report": "context.pdf"
+  };
+
+  const titleKeys = {
+    "Add, edit or delete annotations for the selected point.":
+      "context.tip.annotations",
+    "Add a new annotation at this point.":
+      "context.tip.annotationAdd",
+    "Edit an existing annotation at this point.":
+      "context.tip.annotationEdit",
+    "Delete an existing annotation at this point.":
+      "context.tip.annotationDelete",
+    "Remove all annotations from the chart.":
+      "context.tip.annotationClear",
+
+    "Keep this point visible but exclude it from centre-line and control-limit estimation.":
+      "context.tip.excludeDefault",
+    "Put this point back into the centre-line and control-limit calculation.":
+      "context.tip.includeDefault",
+    "Keep this point visible but do not use it to estimate the centre line or control limits.":
+      "context.tip.excludeEligible",
+    "Right-click near a plotted point.":
+      "context.tip.nearPoint",
+    "This point is outside the baseline used to estimate the current limits, so excluding it would not change the limit calculation.":
+      "context.tip.outsideBaseline",
+    "Excluding this point would leave too few included observations to estimate the control limits.":
+      "context.tip.tooFewPoint",
+    "Excluding this subgroup would leave too few included observations to estimate the control limits.":
+      "context.tip.tooFewSubgroup",
+    "Excluding this point would leave no pair of consecutive included observations for the moving-range variation estimate.":
+      "context.tip.noConsecutive",
+
+    "Add or remove split points for this chart.":
+      "context.tip.splits",
+    "Splits recalculate the central line and control limits from the chosen point onward. Splitting the control limits should only be done where a sustained shift in performance has been identified, investigated, understood and agreed to be representative of the new normal level of performance for the process.":
+      "context.tip.addSplit",
+    "Splits are not available for this chart type.":
+      "context.tip.splitsUnavailable",
+    "Right-click near a data point to add a split.":
+      "context.tip.splitPoint",
+    "Remove all splits and return to a single set of limits.":
+      "context.tip.clearSplits",
+    "There are no splits to clear.":
+      "context.tip.noSplits",
+
+    "Show or hide the calculated mean values for this XmR chart.":
+      "context.tip.centreLabels",
+    "Hide only the mean label that you right-clicked.":
+      "context.tip.centreHideOne",
+    "Restore any individual mean labels that have been hidden.":
+      "context.tip.centreRestore",
+
+    "Copy the chart (only) to the clipboard.":
+      "context.tip.copy",
+    "Copy the chart and the analysis area to the clipboard":
+      "context.tip.copyAnalysis",
+    "Save a copy of the chart as a PNG image file":
+      "context.tip.savePng",
+    "Export the chart and analysis to PDF":
+      "context.tip.pdf",
+
+    "Right-click near a data point to add an annotation.":
+      "context.tip.annotationPointAdd",
+    "Right-click near a data point to edit an annotation.":
+      "context.tip.annotationPointEdit",
+    "There is no annotation at this point to edit.":
+      "context.tip.annotationMissingEdit",
+    "Right-click near a data point to delete an annotation.":
+      "context.tip.annotationPointDelete",
+    "There is no annotation at this point to delete.":
+      "context.tip.annotationMissingDelete",
+    "There are no annotations to clear.":
+      "context.tip.annotationNone"
+  };
+
+  function updateField(button, kind) {
+    const isText = kind === "text";
+
+    const rawKey = isText
+      ? "menuEnglishText"
+      : "menuEnglishTitle";
+
+    const lastKey = isText
+      ? "menuLastText"
+      : "menuLastTitle";
+
+    const current = isText
+      ? button.textContent.trim()
+      : (button.getAttribute("title") || "");
+
+    // The existing menu logic may have supplied a new
+    // English message since the previous translation.
+    // Otherwise retain its original text for switching back.
+    if (current !== button.dataset[lastKey]) {
+      button.dataset[rawKey] = current;
+    }
+
+    const english = button.dataset[rawKey] || current;
+
+    let translated = english;
+
+    // Dynamic split-removal items include a date/category
+    // and point number. Preserve both unchanged.
+    if (button.dataset.action === "removeSplit") {
+      if (isText) {
+        const match =
+          /^Clear split after (.+) \(point (\d+)\)$/.exec(english);
+
+        if (match) {
+          translated = chartPanelText(
+            "context.removeSplit",
+            english,
+            {
+              label: match[1],
+              point: match[2]
+            }
+          );
+        }
+      } else {
+        const match =
+          /^Remove the split after (.*)\.$/.exec(english);
+
+        if (match) {
+          translated = chartPanelText(
+            "context.tip.removeSplit",
+            english,
+            { label: match[1] }
+          );
+        }
+      }
+    } else {
+      const key = isText
+        ? textKeys[english]
+        : titleKeys[english];
+
+      if (key) {
+        translated = chartPanelText(key, english);
+      }
+    }
+
+    if (isText) {
+      button.textContent = translated;
+    } else {
+      button.title = translated;
+    }
+
+    button.dataset[lastKey] = translated;
+  }
+
+  chartContextMenu.querySelectorAll("button").forEach(button => {
+    updateField(button, "text");
+    updateField(button, "title");
+  });
+}
+
+// Support changing language while the menu is visible,
+// including programmatic language changes during testing.
+document.addEventListener("simplespc:languagechange", () => {
+  if (
+    chartContextMenu &&
+    chartContextMenu.style.display === "block"
+  ) {
+    localiseChartContextMenu();
+  }
+});
+
 
 // Helper: show menu at cursor, clamped to viewport
 function showChartContextMenu(clientX, clientY, pointIndex) {
@@ -19412,9 +22909,15 @@ xmrHiddenMeanLabels.size > 0
     }
   }
 
+  
+  // Translate the completed menu before measuring its width
+  // and positioning it within the viewport.
+  localiseChartContextMenu();
+
   chartContextMenu.style.display = "block";
   chartContextMenu.style.left = "0px";
   chartContextMenu.style.top = "0px";
+
 
   // Clamp so it stays on-screen
   const menuRect = chartContextMenu.getBoundingClientRect();
@@ -19458,7 +22961,7 @@ function addSplitAfterIndex(splitAfterIndex) {
   const labels = currentChart?.data?.labels || [];
   if (labels.length === 0) return;
   if (splitAfterIndex < 0 || splitAfterIndex >= labels.length - 1) {
-    alert("You can’t split after the last point.");
+    alert(chartPanelText("dialog.splitLast", "You can’t split after the last point."));
     return;
   }
 
@@ -19648,32 +23151,32 @@ function renderSummaryToCanvas(ctx, x, y, maxWidth) {
 
     if (!clean) return 0;
 
-    const words = clean.split(" ");
+        const words = clean.split(/\s+/);
     const lineHeight = Math.round(size * 1.35);
-    const bulletText = bullet ? "• " : "";
-
-    const usableWidth = Math.max(80, maxWidth - indent);
-    const drawX = startX + indent;
+    const bulletWidth = bullet ? 16 : 0;
+    const drawX = startX + indent + bulletWidth;
+    const usableWidth = Math.max(80, maxWidth - indent - bulletWidth);
 
     let line = "";
     let yy = startY;
 
-    for (const w of words) {
-      const test = line ? `${line} ${w}` : w;
-      const prefix = (line === "") ? bulletText : "";
-      const width = ctx.measureText(prefix + test).width;
+    // Draw the bullet once, independently of wrapped text.
+    if (bullet) ctx.fillText("•", startX + indent, yy);
 
-      if (width <= usableWidth) {
-        line = test;
-      } else {
-        ctx.fillText(((line === "") ? bulletText : "") + line, drawX, yy);
+    for (const word of words) {
+      const candidate = line ? `${line} ${word}` : word;
+
+      if (line && ctx.measureText(candidate).width > usableWidth) {
+        ctx.fillText(line, drawX, yy);
         yy += lineHeight;
-        line = w;
+        line = word;
+      } else {
+        line = candidate;
       }
     }
 
     if (line) {
-      ctx.fillText(bulletText + line, drawX, yy);
+      ctx.fillText(line, drawX, yy);
       yy += lineHeight;
     }
 
@@ -19683,45 +23186,75 @@ function renderSummaryToCanvas(ctx, x, y, maxWidth) {
   let cursorY = y;
   ctx.fillStyle = "#111";
 
-  const children = Array.from(root.children);
+    // Walk headings and list items even when nested inside period containers.
+  // Only export the contents of a details section when it is expanded.
+  const nodes = root.querySelectorAll("h3, h4, p, li, summary");
 
-  for (const node of children) {
-    const tag = node.tagName ? node.tagName.toLowerCase() : "";
-    const text = node.innerText || "";
+  for (const node of nodes) {
+    const tag = node.tagName.toLowerCase();
+
+    // Skip content inside collapsed details sections.
+    if (node.closest("details:not([open])")) continue;
+
+    // Avoid repeating the text of nested lists or details.
+    let text = (node.textContent || "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (tag === "li" && node.querySelector("ul, ol, details")) {
+      text = Array.from(node.childNodes)
+        .filter(child =>
+          child.nodeType === 3 ||
+          (child.nodeType === 1 &&
+           !["UL", "OL", "DETAILS"].includes(child.tagName))
+        )
+        .map(child => child.textContent || "")
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+
+    if (tag === "p" && node.closest("li")) continue;
+    if (!text) continue;
 
     if (tag === "h3" || tag === "h4") {
       const st = styles[tag];
-      cursorY += st.gapTop;
-      cursorY += drawWrappedText(text, x, cursorY, st.size, st.bold, 0, false);
-      cursorY += st.gapBottom;
-      continue;
-    }
 
-    if (tag === "p") {
+      cursorY += st.gapTop;
+      cursorY += drawWrappedText(
+        text, x, cursorY, st.size, true
+      );
+      cursorY += st.gapBottom;
+
+    } else if (tag === "summary") {
+      cursorY += 6;
+      cursorY += drawWrappedText(
+        text, x, cursorY, 13, true, 18
+      );
+      cursorY += 3;
+
+    } else if (tag === "li") {
+      const st = styles.li;
+      // Give nested signal details a second indentation level in exports.
+      const indent = node.closest("details")
+        ? (node.parentElement?.closest("li") ? 52 : 34)
+        : 18;
+
+      cursorY += st.gapTop;
+      cursorY += drawWrappedText(
+        text, x, cursorY, st.size, false, indent, true
+      );
+      cursorY += st.gapBottom;
+
+    } else if (tag === "p") {
       const st = styles.p;
+
       cursorY += st.gapTop;
-      cursorY += drawWrappedText(text, x, cursorY, st.size, st.bold, 0, false);
+      cursorY += drawWrappedText(
+        text, x, cursorY, st.size, false
+      );
       cursorY += st.gapBottom;
-      continue;
     }
-
-    if (tag === "ul") {
-      const items = Array.from(node.querySelectorAll(":scope > li"));
-      for (const li of items) {
-        const st = styles.li;
-        cursorY += st.gapTop;
-        cursorY += drawWrappedText(li.innerText || "", x, cursorY, st.size, false, 18, true);
-        cursorY += st.gapBottom;
-      }
-      cursorY += 4;
-      continue;
-    }
-
-    // fallback
-    const st = styles.p;
-    cursorY += st.gapTop;
-    cursorY += drawWrappedText(text, x, cursorY, st.size, st.bold, 0, false);
-    cursorY += st.gapBottom;
   }
 
   return cursorY - y;
@@ -19732,8 +23265,13 @@ async function prepareChartsForExport() {
     await document.fonts.ready;
   }
 
-  const mainContainer = chartCanvas?.parentElement;
-  const mrContainer = mrChartCanvas?.parentElement;
+  // Remember the plot height before resizing for export.
+  const originalPlotHeight = currentChart?.chartArea
+    ? currentChart.chartArea.bottom - currentChart.chartArea.top
+    : 0;
+
+  const mainContainer = chartCanvas?.parentElement;  
+ const mrContainer = mrChartCanvas?.parentElement;
 
   const backups = {
     mainWidth: mainContainer?.style.width || "",
@@ -19752,8 +23290,33 @@ async function prepareChartsForExport() {
     mrContainer.style.height = "360px";
   }
 
-  if (currentChart) {
+    if (currentChart) {
     currentChart.resize(1200, 640);
+
+    // Scale manually positioned annotations to match the export plot height.
+    const exportPlotHeight = currentChart.chartArea
+      ? currentChart.chartArea.bottom - currentChart.chartArea.top
+      : 0;
+
+    if (originalPlotHeight > 0 && exportPlotHeight > 0 &&
+        !currentChart.$disableUserAnnotations &&
+        currentChart.options?.plugins?.annotation) {
+
+      const exportAnnotations = buildAnnotationConfig(currentChart.data.labels);
+      const scale = exportPlotHeight / originalPlotHeight;
+
+      Object.entries(exportAnnotations).forEach(([key, config]) => {
+        const idx = Number(key.slice("annot".length));
+        const offset = annotations[idx]?.yAdjust;
+
+        if (Number.isFinite(offset) && config.label) {
+          config.label.yAdjust = offset * scale;
+        }
+      });
+
+      currentChart.options.plugins.annotation.annotations = exportAnnotations;
+    }
+
     currentChart.update("none");
   }
 
@@ -19775,8 +23338,16 @@ async function prepareChartsForExport() {
       mrContainer.style.height = backups.mrHeight;
     }
 
-    if (currentChart) {
+        if (currentChart) {
       currentChart.resize();
+
+      // Restore the original annotation positions.
+      if (!currentChart.$disableUserAnnotations &&
+          currentChart.options?.plugins?.annotation) {
+        currentChart.options.plugins.annotation.annotations =
+          buildAnnotationConfig(currentChart.data.labels);
+      }
+
       currentChart.update("none");
     }
 
@@ -19917,7 +23488,9 @@ function downloadCanvasAsPng(canvas, filename) {
 if (downloadBtn) {
   downloadBtn.addEventListener("click", () => {
     if (!currentChart) {
-      alert("Please generate a chart first.");
+      
+alert(chartPanelText("dialog.noChart", "Please generate a chart first."));
+
       return;
     }
     const composite = buildCompositeCanvas({ includeSummaryText: false });
@@ -20011,184 +23584,280 @@ function getChartTypeDisplayName(chartType) {
   return names[chartType] || "This chart";
 }
 
+
 function describeRuleStatus(status, labels) {
-  if (status === "on") {
-    return `<li><strong>${labels.name}:</strong> used by default.</li>`;
-  }
-  if (status === "optional") {
-    return `<li><strong>${labels.name}:</strong> available in advanced settings, off by default.</li>`;
-  }
-  if (status === "warn") {
-    return `<li><strong>${labels.name}:</strong> advanced only, off by default, with a warning before use.</li>`;
-  }
-  return `<li><strong>${labels.name}:</strong> not offered for this chart type.</li>`;
+  const descriptions = {
+    on: [
+      "explainer.status.on",
+      "used by default."
+    ],
+    optional: [
+      "explainer.status.optional",
+      "available in advanced settings, off by default."
+    ],
+    warn: [
+      "explainer.status.warn",
+      "advanced only, off by default, with a warning before use."
+    ]
+  };
+
+  const [key, fallback] = descriptions[status] || [
+    "explainer.status.unavailable",
+    "not offered for this chart type."
+  ];
+
+  return `<li><strong>${labels.name}:</strong> ${chartPanelText(key, fallback)}</li>`;
 }
+
 
 function renderRuleExplainerModal(chartType) {
   const body = document.getElementById("ruleExplainerBody");
   const subtitle = document.getElementById("ruleExplainerSubtitle");
+
   if (!body || !subtitle) return;
 
+  const t = chartPanelText;
   const policy = getRulePolicy(chartType);
-  const chartName = getChartTypeDisplayName(chartType);
 
-  subtitle.textContent =
-    `${chartName}: this tool uses a conservative, chart-aware rule policy designed to reduce false alerts.`;
+  const chartName = t(
+    "explainer.chart." + chartType,
+    getChartTypeDisplayName(chartType)
+  );
 
-  let whyText = "";
+  subtitle.textContent = t(
+    "explainer.subtitle",
+    `${chartName}: this tool uses a conservative, chart-aware rule policy designed to reduce false alerts.`,
+    { chart: chartName }
+  );
+
+  // Select the explanation appropriate to this chart family.
+  // The statistical rule policy itself is not changed.
+  let family = "general";
+
   if (
-  chartType === "c" ||
-  chartType === "p" ||
-  chartType === "pprime" ||
-  isUFamilyChartType(chartType)
-) {
-    whyText =
-      "Attribute charts use a conservative rule set here. Zone rules are blocked because they can create misleading alerts, especially when limits vary or counts are low.";
+    chartType === "c" ||
+    chartType === "p" ||
+    chartType === "pprime" ||
+    isUFamilyChartType(chartType)
+  ) {
+    family = "attribute";
   } else if (chartType === "t" || chartType === "g") {
-    whyText =
-      "Rare-event charts are naturally irregular. Run and trend rules can create false signals, so they are advanced-only and warning-gated.";
-  } else if (chartType === "xmr") {
-    whyText =
-      "XmR charts are used for individual measurements over time. SimpleSPC keeps the default interpretation deliberately simple, while additional pattern rules and calculation options are available for users who need them.";
-  } else if (chartType === "xbars") {
-    whyText =
-      "X̄-S charts are the chart family where advanced rule sets are most defensible, but the default remains conservative to reduce false alarms.";
-  } else if (chartType === "run") {
-    whyText =
-      "Run charts do not use control limits. The tool keeps interpretation simple and conservative by default.";
-  } else if (chartType === "pareto") {
- 	 whyText =
-    		"A Pareto chart is not a time-ordered control chart, so SPC signal rules do not apply. " +
-    		"It ranks categories to help focus investigation and improvement effort.";
-  } else
-	{
-    whyText =
-      "This tool keeps the default rule set simple and conservative to reduce false alerts.";
+    family = "rare";
+  } else if (
+    ["xmr", "xbars", "run", "pareto"].includes(chartType)
+  ) {
+    family = chartType;
   }
 
+  const whyEnglish = {
+    attribute:
+      "Attribute charts use a conservative rule set here. Zone rules are blocked because they can create misleading alerts, especially when limits vary or counts are low.",
+    rare:
+      "Rare-event charts are naturally irregular. Run and trend rules can create false signals, so they are advanced-only and warning-gated.",
+    xmr:
+      "XmR charts are used for individual measurements over time. SimpleSPC keeps the default interpretation deliberately simple, while additional pattern rules and calculation options are available for users who need them.",
+    xbars:
+      "X̄-S charts are the chart family where advanced rule sets are most defensible, but the default remains conservative to reduce false alarms.",
+    run:
+      "Run charts do not use control limits. The tool keeps interpretation simple and conservative by default.",
+    pareto:
+      "A Pareto chart is not a time-ordered control chart, so SPC signal rules do not apply. It ranks categories to help focus investigation and improvement effort.",
+    general:
+      "This tool keeps the default rule set simple and conservative to reduce false alerts."
+  };
+
+  const whyText = t(
+    "explainer.why." + family,
+    whyEnglish[family]
+  );
+
+  // Additional technical explanation for XmR charts.
   let xmrCalculationHtml = "";
 
-if (chartType === "xmr") {
-  const screeningOn =
-    screenLargeMRsCheckbox
+  if (chartType === "xmr") {
+    const screeningOn = screenLargeMRsCheckbox
       ? screenLargeMRsCheckbox.checked
       : true;
 
-  xmrCalculationHtml = `
+    const state = screeningOn
+      ? t("explainer.on", "ON")
+      : t("explainer.off", "OFF");
+
+    xmrCalculationHtml = `
+      <hr style="margin:0.9rem 0;">
+
+      <div class="hint">
+        <strong>${t(
+          "explainer.xmr.heading",
+          "How XmR limits are set"
+        )}</strong>
+      </div>
+
+      <div class="hint" style="margin-top:0.5rem;">
+        ${t(
+          "explainer.xmr.intro",
+          "XmR charts estimate routine variation from the differences between consecutive points. These differences are called <strong>moving ranges</strong>."
+        )}
+      </div>
+
+      <div class="hint" style="margin-top:0.5rem;">
+        ${t(
+          "explainer.xmr.largeJump",
+          "A very large jump between two points can make the estimated variation too large and produce control limits that are too wide. By default, FreeSPC screens unusually large moving ranges when setting XmR limits. The original data points and moving ranges are still shown on the chart."
+        )}
+      </div>
+
+      <div class="hint" style="margin-top:0.5rem;">
+        ${t(
+          "explainer.xmr.technical",
+          "<strong>Technical detail:</strong> FreeSPC uses the Nelson method. Moving ranges greater than 3.5 times the initial average moving range are not used when estimating routine variation."
+        )}
+      </div>
+
+      <div class="hint" style="margin-top:0.5rem;">
+        ${t(
+          "explainer.xmr.current",
+          `<strong>Current setting:</strong> moving-range screening is <strong>${state}</strong>. You can change this under <em>Advanced detection options</em>.`,
+          { state }
+        )}
+      </div>
+
+      <div class="hint" style="margin-top:0.75rem;">
+        ${t(
+          "explainer.xmr.split",
+          "<strong>What happens when you add a split?</strong> A split tells FreeSPC that you want to treat the data before and after that point as different process periods. Each period gets its own mean and control limits, and the moving range across the split is not used."
+        )}
+      </div>
+
+      <div class="hint" style="margin-top:0.5rem;">
+        ${t(
+          "explainer.xmr.minimum",
+          `FreeSPC needs at least <strong>${MIN_XMR_LIMIT_POINTS} points</strong> to interpret the XmR limits for a period. If a split creates a shorter period, the limits are shown as provisional and FreeSPC does not label that period as showing routine or special-cause variation yet.`,
+          { points: MIN_XMR_LIMIT_POINTS }
+        )}
+      </div>
+    `;
+  }
+
+  const ruleNames = {
+    beyond: t("explainer.rule.beyond", "Beyond limits"),
+    run: t("explainer.rule.run", "Run rule"),
+    trend: t("explainer.rule.trend", "Trend rule"),
+    zone23: t(
+      "explainer.rule.zone23",
+      "2 of 3 in the outer third"
+    ),
+    zone45: t(
+      "explainer.rule.zone45",
+      "4 of 5 beyond 1-sigma"
+    )
+  };
+
+  body.innerHTML = `
+    <div class="hint">
+      <strong>${chartName}</strong>
+    </div>
+
+    <div class="hint" style="margin-top:0.5rem;">
+      ${whyText}
+    </div>
+
+    ${xmrCalculationHtml}
+
     <hr style="margin:0.9rem 0;">
 
     <div class="hint">
-      <strong>How XmR limits are set</strong>
+      <strong>${t(
+        "explainer.checksHeading",
+        "What this chart checks by default"
+      )}</strong>
     </div>
 
-    <div class="hint" style="margin-top:0.5rem;">
-      XmR charts estimate routine variation from the differences between
-      consecutive points. These differences are called
-      <strong>moving ranges</strong>.
-    </div>
-
-    <div class="hint" style="margin-top:0.5rem;">
-      A very large jump between two points can make the estimated variation
-      too large and produce control limits that are too wide.
-      By default, FreeSPC screens unusually large moving ranges when setting
-      XmR limits. The original data points and moving ranges are still shown
-      on the chart.
-    </div>
-
-    <div class="hint" style="margin-top:0.5rem;">
-      <strong>Technical detail:</strong>
-      FreeSPC uses the Nelson method. Moving ranges greater than
-      3.5 times the initial average moving range are not used when estimating
-      routine variation.
-    </div>
-
-    <div class="hint" style="margin-top:0.5rem;">
-      <strong>Current setting:</strong>
-      moving-range screening is
-      <strong>${screeningOn ? "ON" : "OFF"}</strong>.
-      You can change this under <em>Advanced detection options</em>.
-    </div>
-
-    <div class="hint" style="margin-top:0.75rem;">
-      <strong>What happens when you add a split?</strong>
-      A split tells FreeSPC that you want to treat the data before and after
-      that point as different process periods. Each period gets its own mean
-      and control limits, and the moving range across the split is not used.
-    </div>
-
-    <div class="hint" style="margin-top:0.5rem;">
-      FreeSPC needs at least
-      <strong>${MIN_XMR_LIMIT_POINTS} points</strong>
-      to interpret the XmR limits for a period. If a split creates a shorter
-      period, the limits are shown as provisional and FreeSPC does not label
-      that period as showing routine or special-cause variation yet.
-    </div>
-  `;
-}
-
-  body.innerHTML = `
-  <div class="hint">
-    <strong>${chartName}</strong>
-  </div>
-
-  <div class="hint" style="margin-top:0.5rem;">
-    ${whyText}
-  </div>
-
-  ${xmrCalculationHtml}
-
-  <hr style="margin:0.9rem 0;">
-
-  <div class="hint">
-    <strong>What this chart checks by default</strong>
-  </div>
     <ul style="margin-top:0.5rem;">
-      ${describeRuleStatus(policy.beyondLimits, { name: "Beyond limits" })}
-      ${describeRuleStatus(policy.runShift, { name: "Run rule" })}
-      ${describeRuleStatus(policy.trend, { name: "Trend rule" })}
-      ${describeRuleStatus(policy.zone23, { name: "2 of 3 in the outer third" })}
-      ${describeRuleStatus(policy.zone45, { name: "4 of 5 beyond 1-sigma" })}
+      ${describeRuleStatus(
+        policy.beyondLimits,
+        { name: ruleNames.beyond }
+      )}
+      ${describeRuleStatus(
+        policy.runShift,
+        { name: ruleNames.run }
+      )}
+      ${describeRuleStatus(
+        policy.trend,
+        { name: ruleNames.trend }
+      )}
+      ${describeRuleStatus(
+        policy.zone23,
+        { name: ruleNames.zone23 }
+      )}
+      ${describeRuleStatus(
+        policy.zone45,
+        { name: ruleNames.zone45 }
+      )}
     </ul>
 
     <hr style="margin:0.9rem 0;">
 
     <div class="hint">
-      <strong>Why some rules are limited</strong>
-    </div>
-    <div class="hint" style="margin-top:0.5rem;">
-      This tool is designed for reliable interpretation in healthcare and public-service settings.
-      It prefers fewer, more trustworthy signals over a noisier rule set that may create false alerts.
+      <strong>${t(
+        "explainer.limitedHeading",
+        "Why some rules are limited"
+      )}</strong>
     </div>
 
     <div class="hint" style="margin-top:0.5rem;">
-      A “signal” can trigger meetings, concern, investigation, or action. To reduce wasted effort and alert fatigue,
-      some rules are restricted to chart types where they are more dependable.
+      ${t(
+        "explainer.limited1",
+        "This tool is designed for reliable interpretation in healthcare and public-service settings. It prefers fewer, more trustworthy signals over a noisier rule set that may create false alerts."
+      )}
+    </div>
+
+    <div class="hint" style="margin-top:0.5rem;">
+      ${t(
+        "explainer.limited2",
+        "A “signal” can trigger meetings, concern, investigation, or action. To reduce wasted effort and alert fatigue, some rules are restricted to chart types where they are more dependable."
+      )}
     </div>
 
     <hr style="margin:0.9rem 0;">
 
     <div class="hint">
-      <strong>Plain-English rule definitions</strong>
+      <strong>${t(
+        "explainer.definitionsHeading",
+        "Plain-English rule definitions"
+      )}</strong>
     </div>
 
     <div class="hint" style="margin-top:0.5rem;">
-      <strong>Beyond limits:</strong> a point above the upper limit or below the lower limit.
+      ${t(
+        "explainer.definition.beyond",
+        "<strong>Beyond limits:</strong> a point above the upper limit or below the lower limit."
+      )}
     </div>
 
     <div class="hint" style="margin-top:0.5rem;">
-      <strong>Run rule:</strong> a sustained run of points on one side of the centre line.
+      ${t(
+        "explainer.definition.run",
+        "<strong>Run rule:</strong> a sustained run of points on one side of the centre line."
+      )}
     </div>
 
     <div class="hint" style="margin-top:0.5rem;">
-      <strong>Trend rule:</strong> a sustained pattern of consecutive increases or decreases.
+      ${t(
+        "explainer.definition.trend",
+        "<strong>Trend rule:</strong> a sustained pattern of consecutive increases or decreases."
+      )}
     </div>
 
     <div class="hint" style="margin-top:0.5rem;">
-      <strong>Zone rules:</strong> extra pattern rules based on how far points sit from the centre line.
-      These are the least portable rules, so they are only offered on chart types where they are more defensible.
+      ${t(
+        "explainer.definition.zone",
+        "<strong>Zone rules:</strong> extra pattern rules based on how far points sit from the centre line. These are the least portable rules, so they are only offered on chart types where they are more defensible."
+      )}
     </div>
   `;
 }
+
 
 function openRuleExplainerForCurrentChart() {
   const chartType =
@@ -20199,6 +23868,24 @@ function openRuleExplainerForCurrentChart() {
   renderRuleExplainerModal(chartType);
   toggleRuleExplainerModal(true);
 }
+
+
+document.addEventListener("simplespc:languagechange", () => {
+  const modal = document.getElementById("ruleExplainerModal");
+
+  // Only refresh if the Rule Explainer is currently open.
+  if (!modal || !modal.classList.contains("visible")) {
+    return;
+  }
+
+  const chartType =
+    getSelectedChartType_NoSideEffects() || "run";
+
+  // Rebuild explanatory text in the selected language.
+  // Does not alter rules, settings or calculations.
+  renderRuleExplainerModal(chartType);
+});
+
 
 // -----------------------------
 // Chart chooser wizard (Help me choose)
@@ -20629,6 +24316,204 @@ if (s.step === 1 && a.kind === "unsure") {
   }
 }
 
+
+/*
+ * Batch 36A-1 — Chart-selection wizard translations.
+ *
+ * Keep the existing wizard logic, question identifiers,
+ * recommendations and inline button handlers unchanged.
+ * Only translate the rendered text.
+ */
+
+function wizardDisplayText(key, englishFallback) {
+  const i18n = window.SimpleSPCi18n;
+  const translated = i18n?.translate?.(key);
+
+  return translated && translated !== key
+    ? translated
+    : englishFallback;
+}
+
+function wizardRecommendationReasonKey(answers) {
+  switch (answers.kind) {
+    case "measurement":
+      return answers.measurementShape === "subgroups"
+        ? "measurementSubgroups"
+        : "measurementSingle";
+
+    case "count":
+      return answers.countOpportunity === "varies"
+        ? "countVaries"
+        : "countConstant";
+
+    case "proportion":
+      return answers.proportionHasDenom === "yes"
+        ? "proportionYes"
+        : "proportionNo";
+
+    case "pareto":
+      return answers.paretoDataFormat === "counts"
+        ? "paretoCounts"
+        : "paretoRows";
+
+    case "rare":
+      return answers.rareType === "opportunities"
+        ? "rareOpportunities"
+        : "rareTime";
+
+    default:
+      return "unsure";
+  }
+}
+
+function localiseChartWizardContent() {
+  if (!chartWizardBody) return;
+
+  const state = chartWizardState;
+
+  const stage =
+    state.step === 0
+      ? "start"
+      : state.step === 99
+        ? "result"
+        : state.answers.kind;
+
+  // Opening and follow-up questions.
+  const question =
+    chartWizardBody.querySelector(".chart-wizard-question");
+
+  if (question) {
+    question.textContent = wizardDisplayText(
+      `wizard.${stage}.question`,
+      question.textContent.trim()
+    );
+  }
+
+  // Helpful explanatory paragraphs.
+  // These contain only trusted application text.
+  const hints = chartWizardBody.querySelectorAll(
+    "p.hint.small-hint"
+  );
+
+  hints.forEach((hint, index) => {
+    const key = stage === "result"
+      ? "wizard.result.hint"
+      : `wizard.${stage}.hint`;
+
+    const translated = wizardDisplayText(
+      key,
+      hint.innerHTML
+    );
+
+    if (translated !== key) {
+      hint.innerHTML = translated;
+    }
+  });
+
+  // Change displayed option labels only.
+  // onclick="wizardNext(...)" is left untouched.
+  const options = chartWizardBody.querySelectorAll(
+    ".chart-wizard-option"
+  );
+
+  options.forEach((button, index) => {
+    button.textContent = wizardDisplayText(
+      `wizard.${stage}.option${index}`,
+      button.textContent.trim()
+    );
+  });
+
+  // Final chart recommendation.
+  if (stage === "result" && state.recommendation) {
+    const recommendation = state.recommendation;
+
+    const title = chartWizardBody.querySelector(
+      ".chart-wizard-result-title"
+    );
+
+    const explanation = chartWizardBody.querySelector(
+      ".chart-wizard-result > div:nth-child(2)"
+    );
+
+    if (title) {
+      const chartName = wizardDisplayText(
+        `wizard.chart.${recommendation.chartType}`,
+        recommendation.label
+      );
+
+      title.textContent =
+        wizardDisplayText(
+          "wizard.result.heading",
+          "Recommended chart:"
+        ) + " " + chartName;
+    }
+
+    if (explanation) {
+      const reasonKey = wizardRecommendationReasonKey(
+        state.answers
+      );
+
+      explanation.textContent = wizardDisplayText(
+        `wizard.reason.${reasonKey}`,
+        recommendation.reason
+      );
+    }
+  }
+
+  // Back, Skip, Choose manually, Use this chart.
+  const actions = {
+    "Back": "back",
+    "Skip": "skip",
+    "Choose manually": "manual",
+    "Use this chart": "use"
+  };
+
+  chartWizardBody.querySelectorAll(
+    ".chart-wizard-actions button"
+  ).forEach(button => {
+    const englishText = button.textContent.trim();
+    const actionKey = actions[englishText];
+
+    if (actionKey) {
+      button.textContent = wizardDisplayText(
+        `wizard.action.${actionKey}`,
+        englishText
+      );
+    }
+  });
+}
+
+/*
+ * Wrap the original renderer rather than replacing it.
+ * All existing wizard calculations and navigation run first.
+ */
+const originalRenderChartWizard = renderChartWizard;
+
+renderChartWizard = function() {
+  originalRenderChartWizard();
+  localiseChartWizardContent();
+};
+
+/*
+ * Live language switching while the wizard is open.
+ * Preserve the current step and all selected answers.
+ */
+document.addEventListener(
+  "simplespc:languagechange",
+  () => {
+    const modal = document.getElementById(
+      "chartWizardModal"
+    );
+
+    if (!modal?.classList.contains("visible")) {
+      return;
+    }
+
+    renderChartWizard();
+  }
+);
+
+
 // Make wizard functions callable from inline onclick in the HTML strings
 window.wizardNext = wizardNext;
 window.wizardBack = wizardBack;
@@ -20740,13 +24625,13 @@ function applySplitFromSidebarSelection() {
   const supportsSplits = ["run", "xmr", "c", "p", "pprime", "u", "uprime", "xbars", "t", "g"].includes(chartType);
 
   if (!supportsSplits) {
-    alert("Splits / recalculating limits are not available for this chart type.");
+    alert(chartPanelText("dialog.splitUnavailable", "Splits / recalculating limits are not available for this chart type."));
     return false;
   }
 
   const idx = parseInt(splitPointSelect.value, 10);
   if (!Number.isInteger(idx) || idx < 0) {
-    alert("Please select a valid split point.");
+    alert(chartPanelText("dialog.splitInvalid", "Please select a valid split point."));
     return false;
   }
 
@@ -20851,6 +24736,25 @@ if (chartCanvas) {
  document.addEventListener("scroll", () => hideChartContextMenu(), true);
 
 
+function translateExclusionDialogReason(reason) {
+  const keys = {
+    "Right-click near a plotted point.":
+      "context.tip.nearPoint",
+    "This point is outside the baseline used to estimate the current limits, so excluding it would not change the limit calculation.":
+      "context.tip.outsideBaseline",
+    "Excluding this point would leave too few included observations to estimate the control limits.":
+      "context.tip.tooFewPoint",
+    "Excluding this subgroup would leave too few included observations to estimate the control limits.":
+      "context.tip.tooFewSubgroup",
+    "Excluding this point would leave no pair of consecutive included observations for the moving-range variation estimate.":
+      "context.tip.noConsecutive"
+  };
+
+  const key = keys[reason];
+  return key ? chartPanelText(key, reason) : reason;
+}
+
+
 // Menu actions (right-click menu)
 if (chartContextMenu) {
   chartContextMenu.addEventListener("click", async (e) => {
@@ -20869,7 +24773,9 @@ if (chartContextMenu) {
     hideChartContextMenu();
 
     if (!currentChart) {
-      alert("Please generate a chart first.");
+      
+alert(chartPanelText("dialog.noChart", "Please generate a chart first."));
+
       return;
     }
 
@@ -20924,9 +24830,9 @@ if (chartContextMenu) {
           clickedPointIndex ===
             undefined
         ) {
-          alert(
-            "Right-click near a plotted point first."
-          );
+          
+alert(chartPanelText("dialog.nearPoint", "Right-click near a plotted point first."));
+
 
           return;
         }
@@ -20964,37 +24870,41 @@ if (chartContextMenu) {
           return;
         }
 
+       
         if (!state.eligible) {
           alert(
-            state.reason ||
-            "This point is not part of the current limit-estimation window."
+            state.reason
+              ? translateExclusionDialogReason(state.reason)
+              : chartPanelText(
+                  "dialog.notInWindow",
+                  "This point is not part of the current limit-estimation window."
+                )
           );
 
           return;
         }
 
+
         const isSubgroup =
           state.chartType ===
           "xbars";
 
-        const ok =
-          window.confirm(
-            `Exclude this ${
-              isSubgroup
-                ? "subgroup"
-                : "point"
-            } from the limit calculations?\n\n` +
+        
+        const englishConfirm =
+          `Exclude this ${isSubgroup ? "subgroup" : "point"} from the limit calculations?\n\n` +
+          `The ${isSubgroup ? "subgroup" : "point"} will stay visible on the chart, but it will not be used to estimate the centre line or control limits.\n\n` +
+          "Only do this after you have investigated it and have good reason to believe it reflects a known special cause rather than the routine variation of the process.\n\n" +
+          "Do not exclude a point simply because it is unusually high or low. If it represents a lasting change in the process, use a split instead.";
 
-            `The ${
-              isSubgroup
-                ? "subgroup"
-                : "point"
-            } will stay visible on the chart, but it will not be used to estimate the centre line or control limits.\n\n` +
+        const ok = window.confirm(
+          chartPanelText(
+            isSubgroup
+              ? "dialog.excludeSubgroup"
+              : "dialog.excludePoint",
+            englishConfirm
+          )
+        );
 
-            "Only do this after you have investigated it and have good reason to believe it reflects a known special cause rather than the routine variation of the process.\n\n" +
-
-            "Do not exclude a point simply because it is unusually high or low. If it represents a lasting change in the process, use a split instead."
-          );
 
         if (!ok) {
           return;
@@ -21015,21 +24925,31 @@ if (chartContextMenu) {
             clickedPointIndex + 1
           }`;
 
-        const addNote =
-          window.confirm(
-            `${
-              isSubgroup
-                ? "Subgroup"
-                : "Point"
-            } excluded from the limit calculations. It will remain visible on the chart.\n\n` +
+        
+        const englishFollowUp =
+          `${isSubgroup ? "Subgroup" : "Point"} excluded from the limit calculations. It will remain visible on the chart.\n\n` +
+          "Would you like to add an annotation explaining why it was excluded?";
 
-            "Would you like to add an annotation explaining why it was excluded?"
-          );
+        const addNote = window.confirm(
+          chartPanelText(
+            isSubgroup
+              ? "dialog.excludedSubgroupNote"
+              : "dialog.excludedPointNote",
+            englishFollowUp
+          )
+        );
+
 
         if (addNote) {
           const text =
             prompt(
-              `Annotation for ${xLabel}:`,
+              
+              chartPanelText(
+                "dialog.annotationFor",
+                `Annotation for ${xLabel}:`,
+                { label: xLabel }
+              ),
+
               ""
             );
 
@@ -21065,9 +24985,7 @@ if (chartContextMenu) {
           clickedPointIndex === null ||
           clickedPointIndex === undefined
         ) {
-          alert(
-            "Right-click near a data point to add an annotation."
-          );
+          alert(chartPanelText("context.tip.annotationPointAdd", "Right-click near a data point to add an annotation."));
           return;
         }
 
@@ -21078,14 +24996,18 @@ if (chartContextMenu) {
           labels?.[clickedPointIndex];
 
         if (!xLabel) {
-          alert(
-            "Could not determine the selected x-position for annotation."
-          );
+          alert(chartPanelText("dialog.annotationPositionMissing", "Could not determine the selected x-position for annotation."));
           return;
         }
 
         const text = prompt(
-          `New annotation for ${xLabel}:`,
+          
+chartPanelText(
+  "dialog.newAnnotationFor",
+  `New annotation for ${xLabel}:`,
+  { label: xLabel }
+),
+
           ""
         );
 
@@ -21095,9 +25017,7 @@ if (chartContextMenu) {
           String(text).trim();
 
         if (!trimmed) {
-          alert(
-            "Annotation text cannot be blank."
-          );
+          alert(chartPanelText("dialog.annotationBlank", "Annotation text cannot be blank."));
           return;
         }
 
@@ -21124,7 +25044,12 @@ if (chartContextMenu) {
       }
       if (action === "editAnnotation") {
         if (clickedPointIndex === null || clickedPointIndex === undefined) {
-          alert("Right-click near a data point to edit an annotation.");
+          
+alert(chartPanelText(
+  "context.tip.annotationPointEdit",
+  "Right-click near a data point to edit an annotation."
+));
+
           return;
         }
 
@@ -21132,13 +25057,24 @@ if (chartContextMenu) {
         const xLabel = labels?.[clickedPointIndex];
 
         if (!xLabel) {
-          alert("Could not determine the selected x-position for annotation.");
+          
+alert(chartPanelText(
+  "dialog.annotationPositionMissing",
+  "Could not determine the selected x-position for annotation."
+));
+
           return;
         }
 
         const chosen = chooseAnnotationAtDate(xLabel, "edit");
         if (!chosen) {
-          alert(`There are no annotations to edit at ${xLabel}.`);
+          
+alert(chartPanelText(
+  "dialog.noEditAt",
+  `There are no annotations to edit at ${xLabel}.`,
+  { label: xLabel }
+));
+
           return;
         }
 
@@ -21149,7 +25085,12 @@ if (chartContextMenu) {
 
       if (action === "deleteAnnotation") {
         if (clickedPointIndex === null || clickedPointIndex === undefined) {
-          alert("Right-click near a data point to delete an annotation.");
+          
+alert(chartPanelText(
+  "context.tip.annotationPointDelete",
+  "Right-click near a data point to delete an annotation."
+));
+
           return;
         }
 
@@ -21157,17 +25098,36 @@ if (chartContextMenu) {
         const xLabel = labels?.[clickedPointIndex];
 
         if (!xLabel) {
-          alert("Could not determine the selected x-position for annotation.");
+          
+alert(chartPanelText(
+  "dialog.annotationPositionMissing",
+  "Could not determine the selected x-position for annotation."
+));
+
           return;
         }
 
         const chosen = chooseAnnotationAtDate(xLabel, "delete");
         if (!chosen) {
-          alert(`There are no annotations to delete at ${xLabel}.`);
+          
+alert(chartPanelText(
+  "dialog.noDeleteAt",
+  `There are no annotations to delete at ${xLabel}.`,
+  { label: xLabel }
+));
+
           return;
         }
 
-        const ok = confirm(`Delete this annotation?\n\n"${chosen.label}"`);
+        
+const ok = confirm(
+  chartPanelText(
+    "dialog.deleteAnnotation",
+    `Delete this annotation?\n\n"${chosen.label}"`,
+    { label: chosen.label }
+  )
+);
+
         if (!ok) return;
 
         const changed = deleteAnnotationAtIndex(chosen._idx);
@@ -21178,7 +25138,7 @@ if (chartContextMenu) {
       if (action === "clearAnnotations") {
         if (!annotations || annotations.length === 0) return;
 
-        const ok = confirm("Clear all annotations?");
+        const ok = confirm(chartPanelText("dialog.clearAnnotations", "Clear all annotations?"));
         if (!ok) return;
 
         annotations.length = 0;
@@ -21192,7 +25152,7 @@ if (chartContextMenu) {
 
       if (action === "addSplit") {
         if (clickedPointIndex === null || clickedPointIndex === undefined) {
-          alert("Right-click near a data point to add a split.");
+          alert(chartPanelText("context.tip.splitPoint", "Right-click near a data point to add a split."));
           return;
         }
 
@@ -21238,7 +25198,7 @@ if (chartContextMenu) {
 
     const composite = buildCompositeCanvas({ includeSummaryText: false });
     await copyCanvasToClipboard(composite);
-    alert("Chart image copied to clipboard.");
+    alert(chartPanelText("dialog.copyDone", "Chart image copied to clipboard."));
   } finally {
     if (restoreExportLayout) restoreExportLayout();
   }
@@ -21254,7 +25214,7 @@ if (action === "copyChartsAndAnalysis") {
 
     const composite = buildCompositeCanvas({ includeSummaryText: true });
     await copyCanvasToClipboard(composite);
-    alert("Chart + analysis image copied to clipboard.");
+    alert(chartPanelText("dialog.copyAnalysisDone", "Chart + analysis image copied to clipboard."));
   } finally {
     if (restoreExportLayout) restoreExportLayout();
   }
@@ -21284,7 +25244,7 @@ if (action === "copyChartsAndAnalysis") {
 
     } catch (err) {
       console.error(err);
-      alert("Sorry — that action failed in this browser. Try 'Save chart(s) as…' instead.");
+      alert(chartPanelText("dialog.actionFailed", "Sorry — that action failed in this browser. Try 'Save chart(s) as…' instead."));
     }
   });
 }
@@ -21378,16 +25338,52 @@ function applyBasicInlineFormatting(escapedText) {
   return t;
 }
 
+/*
+ * Batch 38 — Remember the question behind the
+ * currently displayed SPC helper answer.
+ *
+ * The question is stored in the form understood
+ * by the original English matching engine.
+ */
+let lastSpcHelperAnsweredQuestion = null;
+
 function showHelperAnswer(questionText) {
   if (!spcHelperOutput) return;
 
-  const q = (questionText ?? aiQuestionInput?.value ?? "").trim();
+    const q = (
+    questionText ?? aiQuestionInput?.value ?? ""
+  ).trim();
+
   if (!q) {
-    spcHelperOutput.innerHTML = `<p>${escapeHtml("Type a question (or click a suggestion) to get started.")}</p>`;
+    // No previous answer should be retranslated
+    // after an empty-question request.
+    lastSpcHelperAnsweredQuestion = null;
+
+    spcHelperOutput.innerHTML =
+      `<p>${escapeHtml(chartPanelText(
+        "helper.emptyQuestion",
+        "Type a question (or click a suggestion) to get started."
+      ))}</p>`;
+
     return;
   }
 
-  const ans = answerSpcQuestion(q);
+  // Preserve the existing Batch 26 behaviour:
+  // suggested French questions use their original
+  // English identifiers when matched.
+  const questionForMatching =
+    helperQuestionForMatching(
+      aiQuestionInput?.dataset.helperQuestionEnglish || q
+    );
+
+  const ans = answerSpcQuestion(
+    questionForMatching
+  );
+
+  // Remember the question that actually produced
+  // this answer, independently of the input field.
+  lastSpcHelperAnsweredQuestion =
+    questionForMatching;
 
   // Use your formatter if present; otherwise fall back safely
   if (typeof formatSpcHelperAnswerToHtml === "function") {
@@ -21408,8 +25404,15 @@ function showHelperAnswer(questionText) {
   }
 }
 
-
 if (aiAskButton && aiQuestionInput) {
+
+  // Manually editing a suggested question clears its
+  // remembered identifier, so the user's new text
+  // is passed to the helper instead.
+  aiQuestionInput.addEventListener("input", () => {
+    delete aiQuestionInput.dataset.helperQuestionEnglish;
+  });
+
   aiAskButton.addEventListener("click", () => {
     showHelperAnswer();
   });
@@ -21420,16 +25423,30 @@ if (aiAskButton && aiQuestionInput) {
       showHelperAnswer();
     }
   });
+
 }
+
+
 
 function handleChipClick(e) {
   const btn = e.target.closest("button[data-q]");
   if (!btn) return;
 
-  const q = btn.getAttribute("data-q") || "";
-  if (aiQuestionInput) aiQuestionInput.value = q;
+  // Original English question used by the matching engine.
+  const englishQuestion = btn.getAttribute("data-q") || "";
 
-  showHelperAnswer(q);
+  // Translated text remains visible to the user.
+  if (aiQuestionInput) {
+    aiQuestionInput.value =
+      helperQuestionDisplay(englishQuestion);
+
+    // Remember where this question came from so it can
+    // also update if the interface language changes.
+    aiQuestionInput.dataset.helperQuestionEnglish =
+      englishQuestion;
+  }
+
+  showHelperAnswer(englishQuestion);
 }
 
 if (spcHelperChipsGeneral) {
@@ -21472,9 +25489,137 @@ function setSpcHelperSuggestionsCollapsed(collapsed) {
   if (!suggestions || !toggleBtn) return;
 
   suggestions.style.display = collapsed ? "none" : "";
-  toggleBtn.textContent = collapsed ? "Show suggested questions" : "Hide suggested questions";
+  
+  toggleBtn.textContent = collapsed
+    ? chartPanelText(
+        "helper.showQuestions",
+        "Show suggested questions"
+      )
+    : chartPanelText(
+        "helper.hideQuestions",
+        "Hide suggested questions"
+      );
+
   toggleBtn.setAttribute("aria-expanded", collapsed ? "false" : "true");
 }
+
+
+/*
+ * Refresh the SPC helper's dynamic text when the
+ * language changes. Preserve the current answer,
+ * the selected chart and the expanded/collapsed state.
+ */
+function refreshSpcHelperDynamicLanguage() {
+
+  // Refresh the introduction without changing chart state.
+  if (
+    spcHelperIntro &&
+    spcHelperIntro.dataset.helperHasChart !== undefined
+  ) {
+    renderHelperIntroText(
+      spcHelperIntro.dataset.helperHasChart === "1"
+    );
+  }
+
+  // Refresh existing question-chip labels in place.
+  // Preserve the original English data-q values.
+  [
+    spcHelperChipsGeneral,
+    spcHelperChipsChart
+  ].forEach(container => {
+    if (!container) return;
+
+    container
+      .querySelectorAll("button[data-q]")
+      .forEach(button => {
+        const englishQuestion =
+          button.getAttribute("data-q") || "";
+
+        button.textContent =
+          helperQuestionDisplay(englishQuestion);
+      });
+  });
+
+  // If the user selected a suggested question,
+  // update its visible text in the input as well.
+  if (
+    aiQuestionInput &&
+    aiQuestionInput.dataset.helperQuestionEnglish
+  ) {
+    aiQuestionInput.value = helperQuestionDisplay(
+      aiQuestionInput.dataset.helperQuestionEnglish
+    );
+  }
+
+  // Refresh the main suggested-questions toggle label
+  // without expanding or collapsing the suggestions.
+  const suggestions =
+    document.getElementById("spcHelperSuggestions");
+
+  const toggleBtn =
+    document.getElementById("spcHelperToggleSuggestions");
+
+  if (suggestions && toggleBtn) {
+    const collapsed =
+      suggestions.style.display === "none";
+
+    toggleBtn.textContent = collapsed
+      ? chartPanelText(
+          "helper.showQuestions",
+          "Show suggested questions"
+        )
+      : chartPanelText(
+          "helper.hideQuestions",
+          "Hide suggested questions"
+        );
+  }
+  // Batch 38 — Refresh the answer already on screen.
+  //
+  // The last matched question is stored separately
+  // from the editable input field.
+  //
+  // Do not call showHelperAnswer() here: that would
+  // reset the answer's scroll position and collapse
+  // the suggested-question panel.
+
+  if (
+    lastSpcHelperAnsweredQuestion &&
+    spcHelperOutput &&
+    spcHelperOutput.innerHTML.trim() !== ""
+  ) {
+    const previousScroll =
+      spcHelperOutput.scrollTop;
+
+    // Reuse the original answer engine and the
+    // chart analysis that already exists.
+    const translatedAnswer = answerSpcQuestion(
+      lastSpcHelperAnsweredQuestion
+    );
+
+    if (
+      typeof formatSpcHelperAnswerToHtml ===
+      "function"
+    ) {
+      spcHelperOutput.innerHTML =
+        formatSpcHelperAnswerToHtml(
+          translatedAnswer
+        );
+    } else {
+      spcHelperOutput.innerHTML =
+        `<p>${escapeHtml(translatedAnswer)}</p>`;
+    }
+
+    // Keep the reader at the same position.
+    spcHelperOutput.scrollTop =
+      previousScroll;
+  }
+}
+
+document.addEventListener(
+  "simplespc:languagechange",
+  refreshSpcHelperDynamicLanguage
+);
+
 
 // Hook up the toggle button (safe even if elements aren’t present yet)
 function attachSpcHelperSuggestionToggle() {
@@ -21553,12 +25698,17 @@ if (resetButton) {
       !!dataModelDirty;
 
     if (hasExistingWork) {
-      const ok = window.confirm(
-        "Reset this chart?\n\n" +
-        "Your loaded data and selected X/value columns will be kept, " +
-        "but chart settings such as chart type, baseline, target, splits, " +
-        "annotations, labels, rules and axis formatting will be reset."
-      );
+      
+const ok = window.confirm(
+  chartPanelText(
+    "data.confirmReset",
+    "Reset this chart?\n\n" +
+    "Your loaded data and selected X/value columns will be kept, " +
+    "but chart settings such as chart type, baseline, target, splits, " +
+    "annotations, labels, rules and axis formatting will be reset."
+  )
+);
+
 
       if (!ok) return;
     }
@@ -21575,11 +25725,16 @@ if (clearDataButton) {
       !!dataModelDirty;
 
     if (hasExistingWork) {
-      const ok = window.confirm(
-        "Clear all loaded data?\n\n" +
-"This will also reset the current chart and its settings. " +
-"Save the chart first if you want to reopen it later."
-      );
+      
+const ok = window.confirm(
+  chartPanelText(
+    "data.confirmClear",
+    "Clear all loaded data?\n\n" +
+    "This will also reset the current chart and its settings. " +
+    "Save the chart first if you want to reopen it later."
+  )
+);
+
 
       if (!ok) return;
     }
@@ -21751,11 +25906,13 @@ if (dataEditorDetectHeadersButton) {
     if (dataEditorHasHeaders) dataEditorHasHeaders.checked = guess;
 
     // Give immediate, obvious feedback
+    
     if (dataEditorHeaderStatus) {
-      dataEditorHeaderStatus.innerHTML = guess
-        ? `Auto-detect: first row looks like <strong>headings</strong>.`
-        : `Auto-detect: first row looks like <strong>data</strong>.`;
+      showDataEditorHeaderMessage(
+        guess ? "detectHeadings" : "detectData"
+      );
     }
+
   });
 }
 
@@ -21786,7 +25943,12 @@ document.addEventListener("DOMContentLoaded", initSidebarTabs);
 
 async function exportPdfReport() {
   if (!currentChart) {
-    alert("Please generate a chart first.");
+    
+alert(chartPanelText(
+  "dialog.noChart",
+  "Please generate a chart first."
+));
+
     return;
   }
 
@@ -21797,13 +25959,23 @@ async function exportPdfReport() {
 
     const composite = buildCompositeCanvas({ includeSummaryText: true });
     if (!composite) {
-      alert("Could not build the PDF export image.");
+      
+alert(chartPanelText(
+  "dialog.pdfImageFailed",
+  "Could not build the PDF export image."
+));
+
       return;
     }
 
     const { jsPDF } = window.jspdf || {};
     if (!jsPDF) {
-      alert("PDF export library not available.");
+      
+alert(chartPanelText(
+  "dialog.pdfLibraryMissing",
+  "PDF export library not available."
+));
+
       return;
     }
 
@@ -21881,3 +26053,110 @@ if (downloadPdfBtn) {
 }
 
 renderHelperState();
+
+
+/* ============================================================
+   SIMPLESPC — WHAT'S NEW / RELEASE INFORMATION
+   ============================================================ */
+
+// Update these when preparing a new release.
+const SIMPLESPC_WHATS_NEW_VERSION = "v2026.11";
+const SIMPLESPC_WHATS_NEW_SHOW_NOTICE = true;
+
+function initWhatsNew() {
+  const button = document.getElementById("whatsNewButton");
+  const banner = document.getElementById("whatsNewBanner");
+  const view = document.getElementById("wn-view");
+  const dismiss = document.getElementById("wn-dismiss");
+  const dialog = document.getElementById("whatsNewDialog");
+  const close = document.getElementById("wn-close");
+
+  if (!button || !banner || !view ||
+      !dismiss || !dialog || !close) return;
+
+  // Do not show release announcements in portable HTML charts.
+  if (window.location.protocol === "file:") {
+    button.hidden = true;
+    banner.hidden = true;
+    return;
+  }
+
+  // Keep development and public preferences separate.
+  // Both GitHub Pages apps share the same browser origin.
+  const appPath =
+    window.location.pathname.split("/").filter(Boolean)[0] || "root";
+
+  const storageKey =
+    `simplespc:whats-new:seen:${appPath}`;
+
+  let storageAvailable = true;
+  let alreadySeen = false;
+
+  try {
+    alreadySeen =
+      window.localStorage.getItem(storageKey) ===
+      SIMPLESPC_WHATS_NEW_VERSION;
+  } catch (_) {
+    storageAvailable = false;
+  }
+
+  // Don't repeatedly announce an update already acknowledged.
+  // If storage is unavailable, retain the permanent button
+  // but omit the recurring banner.
+  banner.hidden =
+    !SIMPLESPC_WHATS_NEW_SHOW_NOTICE ||
+    alreadySeen ||
+    !storageAvailable;
+
+  function markSeen() {
+    banner.hidden = true;
+
+    if (storageAvailable) {
+      try {
+        window.localStorage.setItem(
+          storageKey,
+          SIMPLESPC_WHATS_NEW_VERSION
+        );
+      } catch (_) {
+        // The release information still works without storage.
+      }
+    }
+  }
+
+  let returnFocusTo = button;
+
+  function openWhatsNew(event) {
+    returnFocusTo = event.currentTarget;
+    markSeen();
+
+    if (!dialog.open) {
+      dialog.showModal();
+    }
+  }
+
+  // Open the release information from either location.
+  button.addEventListener("click", openWhatsNew);
+  view.addEventListener("click", openWhatsNew);
+
+  // Dismiss without opening the information.
+  dismiss.addEventListener("click", markSeen);
+
+  // Close the panel.
+  close.addEventListener("click", () => dialog.close());
+
+  // Return keyboard focus to the button that opened it.
+  dialog.addEventListener("close", () => {
+    returnFocusTo.focus();
+  });
+}
+
+// Initialise after the HTML has loaded.
+if (document.readyState === "loading") {
+  document.addEventListener(
+    "DOMContentLoaded",
+    initWhatsNew,
+    { once: true }
+  );
+} else {
+  initWhatsNew();
+}
