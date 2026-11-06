@@ -49,6 +49,11 @@ Depending on the chart type, SimpleSPC provides:
 - **Chart export and copying**, including options for sharing charts and summaries.
 - **Editable JSON project saves**, allowing charts and settings to be reopened later.
 - **Portable offline HTML files**, containing the application, chart data and settings in a self-contained file that can be reopened and edited without an internet connection.
+- **Multilingual support** in English, French, Spanish, German, Italian and Portuguese.
+- **Detailed SPC interpretation**, including expandable explanations of special-cause signals and the observations affected.
+- **Interactive chart tooltips** showing observation or subgroup numbers and applicable special-cause rules.
+- **Draggable chart annotations** for positioning labels within the chart.
+- **Regional number-format support**, including decimal commas and locale-aware CSV import.
 
 ### Intended use and limitations
 
@@ -268,6 +273,8 @@ The main application files are available in this repository, including:
 - `css/` – styling
 - `js/` – supporting application scripts
 - `vendor/` – locally stored third-party libraries and supporting files
+- `i18n.js` – language selection and translation functionality
+- `i18n/` – translation dictionaries for the six supported languages
 
 For example, in the source code you can inspect the functions that:
 
