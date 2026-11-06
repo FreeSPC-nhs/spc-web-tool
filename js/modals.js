@@ -129,32 +129,193 @@ function toggleChartSetupModal(forceOpen) {
   }
 }
 
+
+/*
+ * Batch 36A-2 — Chart setup localisation.
+ *
+ * The original English modal content is the fallback.
+ * Translate cards while they are rendered, before any
+ * T-chart radio-button event listeners are attached.
+ */
+
+const chartSetupModalHeadingKeys = {
+  "Use this when...": "when",
+  "You need these columns": "columns",
+  "Example layout": "example",
+  "Common mistake": "mistake",
+  "Common mistakes": "mistakes",
+  "Choosing P or P′": "pprime",
+  "Choosing U or U′": "uprime",
+  "Displaying rates": "rates",
+  "Example 1: one row per occurrence": "paretoRows",
+  "Example 2: already summarised counts": "paretoCounts",
+  "What the chart shows": "paretoShows",
+  "Choose your setup": "tMode",
+  "Setup guidance": "fallback"
+};
+
+const chartSetupModalExampleKeys = {
+  "Week": "week",
+  "Waiting time": "waitingTime",
+  "Date": "date",
+  "Length of stay": "lengthStay",
+  "Falls": "falls",
+  "Patients with harm": "patientsHarm",
+  "Patients reviewed": "patientsReviewed",
+  "Month": "month",
+  "Infections": "infections",
+  "Bed days": "bedDays",
+  "Jan": "jan",
+  "Feb": "feb",
+  "Mar": "mar",
+  "Day": "day",
+  "Reading": "reading",
+  "Sample_ID": "sampleId",
+  "Mon": "mon",
+  "Tue": "tue",
+  "Event date": "eventDate",
+  "Procedures between harms": "procedures",
+  "Category": "category",
+  "Count": "count",
+  "Medication": "medication",
+  "Pressure damage": "pressureDamage"
+};
+
+let lastChartSetupRenderedType = "run";
+
+function chartSetupModalTranslate(
+  key,
+  englishFallback,
+  values = {}
+) {
+  const i18n = window.SimpleSPCi18n;
+
+  if (
+    !i18n ||
+    typeof i18n.translate !== "function"
+  ) {
+    return englishFallback;
+  }
+
+  const translated = i18n.translate(key, values);
+
+  return translated && translated !== key
+    ? translated
+    : englishFallback;
+}
+
+
 function renderChartSetupModal(chartType) {
   const body = document.getElementById("chartSetupBody");
   const subtitle = document.getElementById("chartSetupSubtitle");
   const dontShow = document.getElementById("chartSetupDontShow");
   if (!body || !subtitle) return;
 
+  lastChartSetupRenderedType = chartType;
+
   if (dontShow) {
     dontShow.checked = !shouldAutoShowChartSetupModal();
     dontShow.onchange = () => setAutoShowChartSetupModal(!dontShow.checked);
   }
 
+  
+  // Card numbering restarts for each rendering.
+  // This does not affect the underlying chart type.
+  let setupCardNumber = 0;
+
   function card(title, innerHtml) {
+    setupCardNumber += 1;
+
+    const headingName =
+      chartSetupModalHeadingKeys[title];
+
+    const displayedTitle = headingName
+      ? chartSetupModalTranslate(
+          `setup.heading.${headingName}`,
+          title
+        )
+      : title;
+
+    // Translate the subtitle once the original renderer
+    // has assigned the correct chart-specific wording.
+    if (setupCardNumber === 1) {
+      subtitle.textContent = chartSetupModalTranslate(
+        `setup.subtitle.${chartType}`,
+        subtitle.textContent
+      );
+    }
+
+    // Preserve the currently selected T-chart input mode.
+    // These values replace placeholders only in the
+    // translated T-chart radio-button card.
+    const checkedDates =
+      typeof tChartInputMode !== "undefined" &&
+      tChartInputMode === "eventDates"
+        ? "checked"
+        : "";
+
+    const checkedGaps =
+      typeof tChartInputMode !== "undefined" &&
+      tChartInputMode === "gaps"
+        ? "checked"
+        : "";
+
+    const displayedHtml = chartSetupModalTranslate(
+      `setup.${chartType}.card${setupCardNumber}`,
+      innerHtml,
+      { checkedDates, checkedGaps }
+    );
+
     return `
       <div style="border:1px solid #d8dde0; border-radius:0.5rem; padding:0.75rem; margin:0.75rem 0; background:#fafcfd;">
-        <div style="font-weight:700; color:#003087; margin-bottom:0.4rem;">${title}</div>
-        ${innerHtml}
+        <div style="font-weight:700; color:#003087; margin-bottom:0.4rem;">${displayedTitle}</div>
+        ${displayedHtml}
       </div>
     `;
   }
 
-  function exampleTable(headers, rows) {
-    const head = headers.map(h => `<th style="text-align:left; border-bottom:1px solid #d8dde0; padding:0.35rem 0.5rem;">${h}</th>`).join("");
-    const bodyRows = rows.map(r =>
-      `<tr>${r.map(v => `<td style="padding:0.35rem 0.5rem; border-bottom:1px solid #eef2f6;">${v}</td>`).join("")}</tr>`
-    ).join("");
 
+    function exampleTable(headers, rows) {
+
+    // Translate illustrative text only.
+    // Keep numerical values and example dates unchanged.
+    function exampleLabel(value) {
+      const original = String(value);
+
+      const key = chartSetupModalExampleKeys[original];
+
+      if (!key) {
+        return original;
+      }
+
+      return chartSetupModalTranslate(
+        `setup.example.${key}`,
+        original
+      );
+    }
+
+    // Translate the example table's column headings.
+    const head = headers.map(h => {
+      const translated = exampleLabel(h);
+
+      return `<th style="text-align:left; border-bottom:1px solid #d8dde0; padding:0.35rem 0.5rem;">${translated}</th>`;
+    }).join("");
+
+    // Translate illustrative labels within example rows.
+    // Do not change any example numbers or dates.
+    const bodyRows = rows.map(row => {
+
+      const cells = row.map(value => {
+        const translated = exampleLabel(value);
+
+        return `<td style="padding:0.35rem 0.5rem; border-bottom:1px solid #eef2f6;">${translated}</td>`;
+      }).join("");
+
+      return `<tr>${cells}</tr>`;
+
+    }).join("");
+
+    // Preserve the original table layout and styling.
     return `
       <div style="overflow-x:auto;">
         <table style="border-collapse:collapse; width:100%; font-size:0.9rem; margin-top:0.35rem;">
@@ -591,6 +752,37 @@ function renderChartSetupModal(chartType) {
     `)}
   `;
 }
+
+/*
+ * Batch 36A-2 — Live language switching.
+ *
+ * If the Chart Setup modal is open, refresh its
+ * translated instructions in the selected language.
+ *
+ * Keep the same chart type, T-chart input mode,
+ * and saved "don't show again" preference.
+ */
+document.addEventListener(
+  "simplespc:languagechange",
+  () => {
+
+    const modal = document.getElementById(
+      "chartSetupModal"
+    );
+
+    // Nothing to do when the modal is closed.
+    if (!modal || !modal.classList.contains("visible")) {
+      return;
+    }
+
+    // Refresh instructions using the current chart type.
+    // This does not regenerate the SPC chart.
+    renderChartSetupModal(
+      lastChartSetupRenderedType
+    );
+
+  }
+);
 
 function maybeShowChartSetupModal(chartType) {
   if (!shouldAutoShowChartSetupModal()) return;
